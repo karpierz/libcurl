@@ -1,0 +1,5 @@
+Url: https://raw.githubusercontent.com/curl/relative/master/sprinter.c
+Completed: 2022-01-26 14:25:14
+File name: sprinter.c
+File date: 2022-01-26 14:25:14
+File size: 6471
