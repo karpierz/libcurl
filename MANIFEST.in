@@ -1,0 +1,27 @@
+# Copyright (c) 2021-2022 Adam Karpierz
+# Licensed under the MIT License
+# https://opensource.org/licenses/MIT
+
+include README.rst
+include CHANGES.rst
+include LICENSE
+include pyproject.toml
+include .readthedocs.yml
+
+prune arch
+
+graft docs
+
+graft examples
+prune examples/examples.c
+prune examples/_todo
+
+graft src
+prune src/libcurl/libcurl.h
+
+graft tests
+prune tests/tests.c
+
+global-exclude \#* \#*/**
+global-exclude .build .build/** .build.* .build.*/**
+global-exclude *.py[cod] __pycache__
