@@ -1,5 +1,7 @@
-Url: https://raw.githubusercontent.com/curl/relative/master/sprinter.c
-Completed: 2022-01-26 14:25:14
+Url:       https://raw.githubusercontent.com/curl/relative/master/sprinter.c
+Completed: 2022-07-18 01:26:54
 File name: sprinter.c
-File date: 2022-01-26 14:25:14
+File date: 2022-07-18 01:26:54
 File size: 6471
+SHA256sum: 0BE1BBB0845CF1639795328C33655E09942BDC9D4594085F1DF93A3C4647CD63
+SHA1sum:   00A43655F47746E8C11F79E4802B4525A3B1B8B4

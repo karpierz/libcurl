@@ -1,5 +1,5 @@
-libcurl-ct documentation
-========================
+libcurl documentation
+=====================
 
 .. _readme:
 .. include:: README.rst

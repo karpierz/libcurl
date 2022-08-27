@@ -2,14 +2,14 @@
 # Licensed under the MIT License
 # https://opensource.org/licenses/MIT
 
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2018 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 2018 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -22,14 +22,16 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
-#***************************************************************************
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
 
 import ctypes as ct
 
 from ._platform import CFUNC
 from ._dll      import dll
 
-#include "curl.h"
+# include "curl.h"
 
 # the error codes for the URL API
 CURLUcode = ct.c_int
@@ -65,7 +67,7 @@ CURLUcode = ct.c_int
     CURLUE_BAD_SLASHES,         # 28
     CURLUE_BAD_USER,            # 29
     CURLUE_LAST
-) = ( 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+) = (0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
      10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
      20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
      30)
@@ -85,22 +87,21 @@ CURLUPart = ct.c_int
     CURLUPART_ZONEID  # added in 7.65.0
 ) = range(11)
 
-CURLU_DEFAULT_PORT       = (1 << 0)  # return default port number
-CURLU_NO_DEFAULT_PORT    = (1 << 1)  # act as if no port number was set,
-                                     # if the port number matches the
-                                     # default for the scheme
-CURLU_DEFAULT_SCHEME     = (1 << 2)  # return default scheme if
-                                     # missing
-CURLU_NON_SUPPORT_SCHEME = (1 << 3)  # allow non-supported scheme
-CURLU_PATH_AS_IS         = (1 << 4)  # leave dot sequences
-CURLU_DISALLOW_USER      = (1 << 5)  # no user+password allowed
-CURLU_URLDECODE          = (1 << 6)  # URL decode on get
-CURLU_URLENCODE          = (1 << 7)  # URL encode on set
-CURLU_APPENDQUERY        = (1 << 8)  # append a form style part
-CURLU_GUESS_SCHEME       = (1 << 9)  # legacy curl-style guessing
-CURLU_NO_AUTHORITY       = (1 << 10) # Allow empty authority when the
-                                     # scheme is unknown.
-CURLU_ALLOW_SPACE        = (1 << 11) # Allow spaces in the URL
+CURLU_DEFAULT_PORT       = (1 << 0)   # return default port number
+CURLU_NO_DEFAULT_PORT    = (1 << 1)   # act as if no port number was set,
+#                                     # if the port number matches the
+#                                     # default for the scheme
+CURLU_DEFAULT_SCHEME     = (1 << 2)   # return default scheme if missing
+CURLU_NON_SUPPORT_SCHEME = (1 << 3)   # allow non-supported scheme
+CURLU_PATH_AS_IS         = (1 << 4)   # leave dot sequences
+CURLU_DISALLOW_USER      = (1 << 5)   # no user+password allowed
+CURLU_URLDECODE          = (1 << 6)   # URL decode on get
+CURLU_URLENCODE          = (1 << 7)   # URL encode on set
+CURLU_APPENDQUERY        = (1 << 8)   # append a form style part
+CURLU_GUESS_SCHEME       = (1 << 9)   # legacy curl-style guessing
+CURLU_NO_AUTHORITY       = (1 << 10)  # Allow empty authority when the
+#                                     # scheme is unknown.
+CURLU_ALLOW_SPACE        = (1 << 11)  # Allow spaces in the URL
 
 # typedef struct Curl_URL CURLU;
 class Curl_URL(ct.Structure): pass

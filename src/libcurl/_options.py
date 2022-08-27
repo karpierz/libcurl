@@ -2,14 +2,14 @@
 # Licensed under the MIT License
 # https://opensource.org/licenses/MIT
 
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2018 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 2018 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -22,7 +22,9 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
-#***************************************************************************
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
 
 import ctypes as ct
 
@@ -32,15 +34,15 @@ from ._curl     import CURLoption
 
 easytype = ct.c_int
 (
-  CURLOT_LONG,     # long (a range of values)
-  CURLOT_VALUES,   #      (a defined set or bitmask)
-  CURLOT_OFF_T,    # curl_off_t (a range of values)
-  CURLOT_OBJECT,   # pointer (void *)
-  CURLOT_STRING,   #         (char * to zero terminated buffer)
-  CURLOT_SLIST,    #         (struct curl_slist *)
-  CURLOT_CBPTR,    #         (void * passed as-is to a callback)
-  CURLOT_BLOB,     # blob (struct curl_blob *)
-  CURLOT_FUNCTION  # function pointer
+    CURLOT_LONG,     # long (a range of values)
+    CURLOT_VALUES,   # (a defined set or bitmask)
+    CURLOT_OFF_T,    # curl_off_t (a range of values)
+    CURLOT_OBJECT,   # pointer (void *)
+    CURLOT_STRING,   # (char * to zero terminated buffer)
+    CURLOT_SLIST,    # (struct curl_slist *)
+    CURLOT_CBPTR,    # (void * passed as-is to a callback)
+    CURLOT_BLOB,     # blob (struct curl_blob *)
+    CURLOT_FUNCTION  # function pointer
 ) = range(9)
 
 # Flag bits
@@ -63,12 +65,12 @@ easy_option_by_name = CFUNC(ct.POINTER(easyoption),
                             ct.c_char_p)(
                             ("curl_easy_option_by_name", dll), (
                             (1, "name"),))
-                                                                    
+
 easy_option_by_id = CFUNC(ct.POINTER(easyoption),
                           CURLoption)(
                           ("curl_easy_option_by_id", dll), (
                           (1, "id"),))
-                                                                    
+
 easy_option_next = CFUNC(ct.POINTER(easyoption),
                          ct.POINTER(easyoption))(
                          ("curl_easy_option_next", dll), (

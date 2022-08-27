@@ -5,6 +5,7 @@
 include README.rst
 include CHANGES.rst
 include LICENSE
+include COPYING
 include pyproject.toml
 include .readthedocs.yml
 

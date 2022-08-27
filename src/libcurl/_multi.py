@@ -2,14 +2,14 @@
 # Licensed under the MIT License
 # https://opensource.org/licenses/MIT
 
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -22,7 +22,9 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
-#***************************************************************************
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
 
 #  This is an "external" header file. Don't give away any internals here!
 #
@@ -44,7 +46,8 @@
 # For some reason we added this include here at one point, and rather than to
 # break existing (wrongly written) libcurl applications, we leave it as-is
 # but with this warning attached.
-#include "curl.h"
+
+# include "curl.h"
 
 import ctypes as ct
 
@@ -64,8 +67,8 @@ if defined("CURL_STRICTER"):
     CURLM = Curl_multi
 else:
     # typedef void CURLM;
-    CURLM = void
-#endif
+    CURLM = ct.c_ubyte  # void
+# endif
 
 CURLMcode = ct.c_int
 (
@@ -85,8 +88,9 @@ CURLMcode = ct.c_int
     CURLM_WAKEUP_FAILURE,         # wakeup is unavailable or failed
     CURLM_BAD_FUNCTION_ARGUMENT,  # function called with a bad parameter
     CURLM_ABORTED_BY_CALLBACK,
+    CURLM_UNRECOVERABLE_POLL,
     CURLM_LAST
-) = range(-1, 13)
+) = range(-1, 14)
 
 # just to make code nicer when using curl_multi_socket() you can now check
 # for CURLM_CALL_MULTI_SOCKET too in the same style it works for
@@ -356,10 +360,9 @@ socket_callback = CFUNC(ct.c_int,
                         ct.POINTER(CURL),  # easy handle
                         socket_t,          # socket
                         ct.c_int,          # what # see above
-                        ct.c_void_p,       # userp # private callback
-                                           # pointer
-                        ct.c_void_p)       # private socket
-                                           # pointer
+                        ct.c_void_p,       # userp # private callback pointer
+                        ct.c_void_p)       # socketp # private socket pointer
+
 # Name:    curl_multi_timer_callback
 #
 # Desc:    Called by libcurl whenever the library detects a change in the
@@ -376,10 +379,9 @@ socket_callback = CFUNC(ct.c_int,
 multi_timer_callback = CFUNC(ct.c_int,
                              ct.POINTER(CURLM),  # multi handle
                              ct.c_long,          # timeout_ms # see above
-                             ct.c_void_p)        # userp # private callback
-                                                 # pointer
+                             ct.c_void_p)        # userp # private callback pointer
 
-if 0: # deprecated
+if 0:  # deprecated
     multi_socket = CFUNC(CURLMcode,
                          ct.POINTER(CURLM),
                          socket_t,
@@ -407,12 +409,13 @@ multi_socket_action = CFUNC(CURLMcode,
                             (1, "ev_bitmask"),
                             (1, "running_handles"),))
 
-#ifndef CURL_ALLOW_OLD_MULTI_SOCKET
+# ifndef CURL_ALLOW_OLD_MULTI_SOCKET
 # This macro below was added in 7.16.3 to push users who recompile to use
 # the new curl_multi_socket_action() instead of the old curl_multi_socket()
-#define curl_multi_socket(x,y,z) curl_multi_socket_action(x,y,0,z)
-#def curl_multi_socket(x, y, z): return multi_socket_action(x, y, 0, z)
-#endif
+# define curl_multi_socket(x,y,z) curl_multi_socket_action(x,y,0,z)
+#
+# def curl_multi_socket(x, y, z): return multi_socket_action(x, y, 0, z)
+# endif
 
 # Name:    curl_multi_timeout()
 #

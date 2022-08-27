@@ -18,6 +18,8 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
+# SPDX-License-Identifier: curl
+#
 #***************************************************************************
 
 """
@@ -69,12 +71,10 @@ def main(argv=sys.argv[1:]):
 
     still_running = ct.c_int(1)  # keep number of running handles
     while still_running.value:
-        mc: lcurl.CURLMcode = lcurl.multi_perform(mcurl,
-                                                  ct.byref(still_running))
+        mc: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
         if still_running.value:
             # wait for activity, timeout or "nothing"
             mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
-
         if mc:
             break
 

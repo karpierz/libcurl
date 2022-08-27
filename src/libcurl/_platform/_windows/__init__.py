@@ -21,9 +21,12 @@ except ImportError:
     DLL_PATH = os.path.join(arch_dir,
                             "libcurl.dll" if is_32bit else "libcurl-x64.dll")
 
-from ctypes  import WinDLL as DLL
-from _ctypes import FreeLibrary as dlclose
-from ctypes  import WINFUNCTYPE as CFUNC
+from ctypes import WinDLL as DLL  # noqa: E402,N814
+try:
+    from _ctypes import FreeLibrary as dlclose  # noqa: E402,N813
+except ImportError:
+    dlclose = lambda handle: 0
+from ctypes import WINFUNCTYPE as CFUNC  # noqa: E402
 
 # Winsock doesn't have this POSIX type; it's used for the
 # tv_usec value of struct timeval.

@@ -1,5 +1,5 @@
-libcurl-ct
-==========
+libcurl
+=======
 
 Python binding for the *libcurl* C library.
 
@@ -76,7 +76,7 @@ Prerequisites:
 + Python 3.7 or higher
 
   * https://www.python.org/
-  * 3.7 with C libcurl 7.81.0 is a primary test environment.
+  * 3.7 with C libcurl 7.84.0 is a primary test environment.
 
 + pip and setuptools
 
@@ -133,9 +133,9 @@ Authors
 
 * Adam Karpierz <adam@karpierz.net>
 
-.. |package| replace:: libcurl-ct
-.. |package_bold| replace:: **libcurl-ct**
+.. |package| replace:: libcurl
+.. |package_bold| replace:: **libcurl**
 .. |respository| replace:: https://github.com/karpierz/libcurl.git
 .. _development page: https://github.com/karpierz/libcurl
-.. _PyPI record: https://pypi.org/project/libcurl-ct/
+.. _PyPI record: https://pypi.org/project/libcurl/
 .. _Documentation: https://libcurl.readthedocs.io/

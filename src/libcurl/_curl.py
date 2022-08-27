@@ -2,14 +2,14 @@
 # Licensed under the MIT License
 # https://opensource.org/licenses/MIT
 
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -22,7 +22,9 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
-#***************************************************************************
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
 
 # If you have libcurl problems, all docs and details are found here:
 #   https://curl.se/libcurl/
@@ -31,18 +33,16 @@ import ctypes as ct
 
 from ._platform import CFUNC, defined, from_oid
 from ._platform import time_t
-from ._platform import SOCKET, INVALID_SOCKET, sockaddr as C_sockaddr, fd_set
+from ._platform import SOCKET, INVALID_SOCKET, sockaddr as C_sockaddr, fd_set  # noqa: N812
 from ._dll      import dll
 
 NULL = ct.c_void_p(0)
 
-#ifdef CURL_NO_OLDIES
-#define CURL_STRICTER
+# ifdef CURL_NO_OLDIES
+# define CURL_STRICTER
 CURL_STRICTER = 1
-#endif
+# endif
 
-from ._curlver import * # libcurl version defines  
-#include "system.h"     # determine things run-time
 off_t = ct.c_int64
 
 if defined("CURL_STRICTER"):
@@ -55,9 +55,9 @@ if defined("CURL_STRICTER"):
 else:
     # typedef void CURL;
     # typedef void CURLSH;
-    CURL   = void
-    CURLSH = void
-#endif
+    CURL   = ct.c_ubyte  # void
+    CURLSH = ct.c_ubyte  # void
+# endif
 
 # socket typedef
 # typedef SOCKET curl_socket_t;
@@ -156,11 +156,11 @@ CURL_PROGRESSFUNC_CONTINUE = 0x10000001
 #                                       double ultotal,
 #                                       double ulnow);
 progress_callback = CFUNC(ct.c_int,
-                          ct.c_void_p, # clientp
-                          ct.c_double, # dltotal
-                          ct.c_double, # dlnow
-                          ct.c_double, # ultotal
-                          ct.c_double) # ulnow
+                          ct.c_void_p,  # clientp
+                          ct.c_double,  # dltotal
+                          ct.c_double,  # dlnow
+                          ct.c_double,  # ultotal
+                          ct.c_double)  # ulnow
 
 # This is the CURLOPT_XFERINFOFUNCTION callback prototype. It was introduced
 # in 7.32.0, avoids the use of floating point numbers and provides more
@@ -171,11 +171,11 @@ progress_callback = CFUNC(ct.c_int,
 #                                       curl_off_t ultotal,
 #                                       curl_off_t ulnow);
 xferinfo_callback = CFUNC(ct.c_int,
-                          ct.c_void_p, # clientp
-                          off_t,       # dltotal
-                          off_t,       # dlnow
-                          off_t,       # ultotal
-                          off_t)       # ulnow
+                          ct.c_void_p,  # clientp
+                          off_t,        # dltotal
+                          off_t,        # dlnow
+                          off_t,        # ultotal
+                          off_t)        # ulnow
 
 # The maximum receive buffer size configurable via CURLOPT_BUFFERSIZE.
 CURL_MAX_READ_SIZE = 524288
@@ -202,19 +202,19 @@ CURL_WRITEFUNC_PAUSE = 0x10000001
 #                                       size_t nitems,
 #                                       void *outstream);
 write_callback = CFUNC(ct.c_size_t,
-                       ct.POINTER(ct.c_ubyte), # buffer
-                       ct.c_size_t,            # size
-                       ct.c_size_t,            # nitems
-                       ct.c_void_p)            # outstream
+                       ct.POINTER(ct.c_ubyte),  # buffer
+                       ct.c_size_t,             # size
+                       ct.c_size_t,             # nitems
+                       ct.c_void_p)             # outstream
 
 # This callback will be called when a new resolver request is made
 # typedef int (*curl_resolver_start_callback)(void *resolver_state,
 #                                             void *reserved,
 #                                             void *userdata);
 resolver_start_callback = CFUNC(ct.c_int,
-                                ct.c_void_p, # resolver_state
-                                ct.c_void_p, # reserved
-                                ct.c_void_p) # userdata
+                                ct.c_void_p,  # resolver_state
+                                ct.c_void_p,  # reserved
+                                ct.c_void_p)  # userdata
 
 # enumeration of file types
 curlfiletype = ct.c_int
@@ -270,8 +270,8 @@ class fileinfo(ct.Structure):
 
 # return codes for CURLOPT_CHUNK_BGN_FUNCTION
 CURL_CHUNK_BGN_FUNC_OK   = 0
-CURL_CHUNK_BGN_FUNC_FAIL = 1 # tell the lib to end the task
-CURL_CHUNK_BGN_FUNC_SKIP = 2 # skip this chunk over
+CURL_CHUNK_BGN_FUNC_FAIL = 1  # tell the lib to end the task
+CURL_CHUNK_BGN_FUNC_SKIP = 2  # skip this chunk over
 
 # if splitting of data transfer is enabled, this callback is called before
 # download of an individual chunk started. Note that parameter "remains" works
@@ -281,9 +281,9 @@ CURL_CHUNK_BGN_FUNC_SKIP = 2 # skip this chunk over
 #                                         void *ptr,
 #                                         int remains);
 chunk_bgn_callback = CFUNC(ct.c_long,
-                           ct.c_void_p, # transfer_info
-                           ct.c_void_p, # ptr
-                           ct.c_int)    # remains
+                           ct.c_void_p,  # transfer_info
+                           ct.c_void_p,  # ptr
+                           ct.c_int)     # remains
 
 # return codes for CURLOPT_CHUNK_END_FUNCTION
 CURL_CHUNK_END_FUNC_OK   = 0
@@ -298,7 +298,7 @@ CURL_CHUNK_END_FUNC_FAIL = 1  # tell the lib to end the task
 #
 # typedef long (*curl_chunk_end_callback)(void *ptr);
 chunk_end_callback = CFUNC(ct.c_long,
-                           ct.c_void_p) # ptr
+                           ct.c_void_p)  # ptr
 
 # return codes for FNMATCHFUNCTION
 CURL_FNMATCHFUNC_MATCH   = 0  # string corresponds to the pattern
@@ -312,23 +312,23 @@ CURL_FNMATCHFUNC_FAIL    = 2  # an error occurred
 #                                      const char *pattern,
 #                                      const char *string);
 fnmatch_callback = CFUNC(ct.c_int,
-                         ct.c_void_p, # ptr
-                         ct.c_char_p, # pattern
-                         ct.c_char_p) # string
+                         ct.c_void_p,  # ptr
+                         ct.c_char_p,  # pattern
+                         ct.c_char_p)  # string
 
 # These are the return codes for the seek callbacks
 CURL_SEEKFUNC_OK       = 0
 CURL_SEEKFUNC_FAIL     = 1  # fail the entire transfer
 CURL_SEEKFUNC_CANTSEEK = 2  # tell libcurl seeking can't be done, so
-                            # libcurl might try other means instead
+#                           # libcurl might try other means instead
 
 # typedef int (*curl_seek_callback)(void *instream,
 #                                   curl_off_t offset,
 #                                   int origin); /* 'whence' */
 seek_callback = CFUNC(ct.c_int,
-                      ct.c_void_p, # instream
-                      off_t,       # offset
-                      ct.c_int)    # origin # 'whence'
+                      ct.c_void_p,  # instream
+                      off_t,        # offset
+                      ct.c_int)     # origin # 'whence'
 
 # This is a return code for the read callback that, when returned, will
 # signal libcurl to immediately abort the current transfer.
@@ -349,16 +349,16 @@ CURL_TRAILERFUNC_ABORT = 1
 #                                      size_t nitems,
 #                                      void *instream);
 read_callback = CFUNC(ct.c_size_t,
-                      ct.POINTER(ct.c_ubyte), # buffer
-                      ct.c_size_t,            # size
-                      ct.c_size_t,            # nitems
-                      ct.c_void_p)            # instream
+                      ct.POINTER(ct.c_ubyte),  # buffer
+                      ct.c_size_t,             # size
+                      ct.c_size_t,             # nitems
+                      ct.c_void_p)             # instream
 
 # typedef int (*curl_trailer_callback)(struct curl_slist **list,
 #                                      void *userdata);
 trailer_callback = CFUNC(ct.c_int,
-                         ct.POINTER(ct.POINTER(slist)), # list
-                         ct.c_void_p)                   # userdata
+                         ct.POINTER(ct.POINTER(slist)),  # list
+                         ct.c_void_p)                    # userdata
 
 curlsocktype = ct.c_int
 (
@@ -370,8 +370,7 @@ curlsocktype = ct.c_int
 # The return code from the sockopt_callback can signal information back
 # to libcurl:
 CURL_SOCKOPT_OK    = 0
-CURL_SOCKOPT_ERROR = 1  # causes libcurl to abort and return
-                        # CURLE_ABORTED_BY_CALLBACK
+CURL_SOCKOPT_ERROR = 1  # causes libcurl to abort and return CURLE_ABORTED_BY_CALLBACK
 CURL_SOCKOPT_ALREADY_CONNECTED = 2
 
 # typedef int (*curl_sockopt_callback)(void *clientp,
@@ -397,15 +396,15 @@ class sockaddr(ct.Structure):
 #                                                   curlsocktype purpose,
 #                                                   struct curl_sockaddr *address);
 opensocket_callback = CFUNC(socket_t,
-                            ct.c_void_p,          # clientp
-                            curlsocktype,         # purpose
-                            ct.POINTER(sockaddr)) # address
+                            ct.c_void_p,           # clientp
+                            curlsocktype,          # purpose
+                            ct.POINTER(sockaddr))  # address
 
 # typedef int (*curl_closesocket_callback)(void *clientp,
 #                                          curl_socket_t item);
 closesocket_callback = CFUNC(ct.c_int,
-                             ct.c_void_p, # clientp
-                             socket_t)    # item
+                             ct.c_void_p,  # clientp
+                             socket_t)     # item
 
 curlioerr = ct.c_int
 (
@@ -426,11 +425,11 @@ curliocmd = ct.c_int
 #                                          int cmd,
 #                                          void *clientp);
 ioctl_callback = CFUNC(curlioerr,
-                       ct.POINTER(CURL), # handle
-                       curliocmd,        # cmd
-                       ct.c_void_p)      # clientp
+                       ct.POINTER(CURL),  # handle
+                       curliocmd,         # cmd
+                       ct.c_void_p)       # clientp
 
-#ifndef CURL_DID_MEMORY_FUNC_TYPEDEFS
+# ifndef CURL_DID_MEMORY_FUNC_TYPEDEFS
 
 # The following typedef's are signatures of malloc, free, realloc, strdup and
 # calloc respectively.  Function pointers of these types can be passed to the
@@ -442,16 +441,16 @@ ioctl_callback = CFUNC(curlioerr,
 # typedef void *(*curl_realloc_callback)(void *ptr, size_t size);
 # typedef char *(*curl_strdup_callback)(const char *str);
 # typedef void *(*curl_calloc_callback)(size_t nmemb, size_t size);
-malloc_callback  = CFUNC(ct.c_void_p, ct.c_size_t) # size
-free_callback    = CFUNC(None,        ct.c_void_p) # ptr
-realloc_callback = CFUNC(ct.c_void_p, ct.c_void_p, # ptr
-                                      ct.c_size_t) # size
-strdup_callback  = CFUNC(ct.c_char_p, ct.c_char_p) # str
-calloc_callback  = CFUNC(ct.c_void_p, ct.c_size_t, # nmemb
-                                      ct.c_size_t) # size
+malloc_callback  = CFUNC(ct.c_void_p, ct.c_size_t)  # size
+free_callback    = CFUNC(None,        ct.c_void_p)  # ptr
+realloc_callback = CFUNC(ct.c_void_p, ct.c_void_p,  # ptr
+                                      ct.c_size_t)  # size
+strdup_callback  = CFUNC(ct.c_char_p, ct.c_char_p)  # str
+calloc_callback  = CFUNC(ct.c_void_p, ct.c_size_t,  # nmemb
+                                      ct.c_size_t)  # size
 
-#define CURL_DID_MEMORY_FUNC_TYPEDEFS
-#endif
+# define CURL_DID_MEMORY_FUNC_TYPEDEFS
+# endif
 
 # the kind of data that is passed to information_callback
 infotype = ct.c_int
@@ -472,11 +471,11 @@ infotype = ct.c_int
 #                                    size_t size,        /* size of the data pointed to */
 #                                    void *userptr);     /* whatever the user please */
 debug_callback = CFUNC(ct.c_int,
-                       ct.POINTER(CURL),       # handle  # the handle/transfer this concerns
-                       infotype,               # type    # what kind of data
-                       ct.POINTER(ct.c_ubyte), # data    # points to the data
-                       ct.c_size_t,            # size    # size of the data pointed to
-                       ct.c_void_p)            # userptr # whatever the user please
+                       ct.POINTER(CURL),        # handle  # the handle/transfer this concerns
+                       infotype,                # type    # what kind of data
+                       ct.POINTER(ct.c_ubyte),  # data    # points to the data
+                       ct.c_size_t,             # size    # size of the data pointed to
+                       ct.c_void_p)             # userptr # whatever the user please
 
 # This is the CURLOPT_PREREQFUNCTION callback prototype.
 # typedef int (*curl_prereq_callback)(void *clientp,
@@ -485,11 +484,11 @@ debug_callback = CFUNC(ct.c_int,
 #                                     int conn_primary_port,
 #                                     int conn_local_port);
 prereq_callback = CFUNC(ct.c_int,
-                       ct.c_void_p,  # clientp
-                       ct.c_char_p,  # conn_primary_ip
-                       ct.c_char_p,  # conn_local_ip
-                       ct.c_int,     # conn_primary_port
-                       ct.c_int)     # conn_local_port
+                        ct.c_void_p,  # clientp
+                        ct.c_char_p,  # conn_primary_ip
+                        ct.c_char_p,  # conn_local_ip
+                        ct.c_int,     # conn_primary_port
+                        ct.c_int)     # conn_local_port
 
 # Return code for when the pre-request callback has terminated without
 # any errors
@@ -507,138 +506,131 @@ CURL_PREREQFUNC_ABORT = 1
 CURLcode = ct.c_int
 (
     CURLE_OK,
-    CURLE_UNSUPPORTED_PROTOCOL,     # 1
-    CURLE_FAILED_INIT,              # 2
-    CURLE_URL_MALFORMAT,            # 3
-    CURLE_NOT_BUILT_IN,             # 4 - [was obsoleted in August 2007 for
-                                    #     7.17.0, reused in April 2011 for 7.21.5]
-    CURLE_COULDNT_RESOLVE_PROXY,    # 5
-    CURLE_COULDNT_RESOLVE_HOST,     # 6
-    CURLE_COULDNT_CONNECT,          # 7
-    CURLE_WEIRD_SERVER_REPLY,       # 8
-    CURLE_REMOTE_ACCESS_DENIED,     # 9 a service was denied by the server
-                                    #   due to lack of access - when login fails
-                                    #   this is not returned.
-    CURLE_FTP_ACCEPT_FAILED,        # 10 - [was obsoleted in April 2006 for
-                                    #      7.15.4, reused in Dec 2011 for 7.24.0]
-    CURLE_FTP_WEIRD_PASS_REPLY,     # 11
-    CURLE_FTP_ACCEPT_TIMEOUT,       # 12 - timeout occurred accepting server
-                                    #      [was obsoleted in August 2007 for 7.17.0,
-                                    #      reused in Dec 2011 for 7.24.0]
-    CURLE_FTP_WEIRD_PASV_REPLY,     # 13
-    CURLE_FTP_WEIRD_227_FORMAT,     # 14
-    CURLE_FTP_CANT_GET_HOST,        # 15
-    CURLE_HTTP2,                    # 16 - A problem in the http2 framing layer.
-                                    #      [was obsoleted in August 2007 for 7.17.0,
-                                    #      reused in July 2014 for 7.38.0]
-    CURLE_FTP_COULDNT_SET_TYPE,     # 17
-    CURLE_PARTIAL_FILE,             # 18
-    CURLE_FTP_COULDNT_RETR_FILE,    # 19
-    CURLE_OBSOLETE20,               # 20 - NOT USED
-    CURLE_QUOTE_ERROR,              # 21 - quote command failure
-    CURLE_HTTP_RETURNED_ERROR,      # 22
-    CURLE_WRITE_ERROR,              # 23
-    CURLE_OBSOLETE24,               # 24 - NOT USED
-    CURLE_UPLOAD_FAILED,            # 25 - failed upload "command"
-    CURLE_READ_ERROR,               # 26 - couldn't open/read from file
-    CURLE_OUT_OF_MEMORY,            # 27
-    # Note: CURLE_OUT_OF_MEMORY may sometimes indicate a conversion error
-    #       instead of a memory allocation error if CURL_DOES_CONVERSIONS
-    #       is defined
-    CURLE_OPERATION_TIMEDOUT,       # 28 - the timeout time was reached
-    CURLE_OBSOLETE29,               # 29 - NOT USED
-    CURLE_FTP_PORT_FAILED,          # 30 - FTP PORT operation failed
-    CURLE_FTP_COULDNT_USE_REST,     # 31 - the REST command failed
-    CURLE_OBSOLETE32,               # 32 - NOT USED
-    CURLE_RANGE_ERROR,              # 33 - RANGE "command" didn't work
-    CURLE_HTTP_POST_ERROR,          # 34
-    CURLE_SSL_CONNECT_ERROR,        # 35 - wrong when connecting with SSL
-    CURLE_BAD_DOWNLOAD_RESUME,      # 36 - couldn't resume download
-    CURLE_FILE_COULDNT_READ_FILE,   # 37
-    CURLE_LDAP_CANNOT_BIND,         # 38
-    CURLE_LDAP_SEARCH_FAILED,       # 39
-    CURLE_OBSOLETE40,               # 40 - NOT USED
-    CURLE_FUNCTION_NOT_FOUND,       # 41 - NOT USED starting with 7.53.0
-    CURLE_ABORTED_BY_CALLBACK,      # 42
-    CURLE_BAD_FUNCTION_ARGUMENT,    # 43
-    CURLE_OBSOLETE44,               # 44 - NOT USED
-    CURLE_INTERFACE_FAILED,         # 45 - CURLOPT_INTERFACE failed
-    CURLE_OBSOLETE46,               # 46 - NOT USED
-    CURLE_TOO_MANY_REDIRECTS,       # 47 - catch endless re-direct loops
-    CURLE_UNKNOWN_OPTION,           # 48 - User specified an unknown option
-    CURLE_SETOPT_OPTION_SYNTAX,     # 49 - Malformed telnet option
-    CURLE_OBSOLETE50,               # 50 - NOT USED
-    CURLE_OBSOLETE51,               # 51 - NOT USED
-    CURLE_GOT_NOTHING,              # 52 - when this is a specific error
-    CURLE_SSL_ENGINE_NOTFOUND,      # 53 - SSL crypto engine not found
-    CURLE_SSL_ENGINE_SETFAILED,     # 54 - can not set SSL crypto engine as
-                                    #      default
-    CURLE_SEND_ERROR,               # 55 - failed sending network data
-    CURLE_RECV_ERROR,               # 56 - failure in receiving network data
-    CURLE_OBSOLETE57,               # 57 - NOT IN USE
-    CURLE_SSL_CERTPROBLEM,          # 58 - problem with the local certificate
-    CURLE_SSL_CIPHER,               # 59 - couldn't use specified cipher
-    CURLE_PEER_FAILED_VERIFICATION, # 60 - peer's certificate or fingerprint
-                                    #      wasn't verified fine
-    CURLE_BAD_CONTENT_ENCODING,     # 61 - Unrecognized/bad encoding
-    CURLE_LDAP_INVALID_URL,         # 62 - Invalid LDAP URL
-    CURLE_FILESIZE_EXCEEDED,        # 63 - Maximum file size exceeded
-    CURLE_USE_SSL_FAILED,           # 64 - Requested FTP SSL level failed
-    CURLE_SEND_FAIL_REWIND,         # 65 - Sending the data requires a rewind
-                                    #      that failed
-    CURLE_SSL_ENGINE_INITFAILED,    # 66 - failed to initialise ENGINE
-    CURLE_LOGIN_DENIED,             # 67 - user, password or similar was not
-                                    #      accepted and we failed to login
-    CURLE_TFTP_NOTFOUND,            # 68 - file not found on server
-    CURLE_TFTP_PERM,                # 69 - permission problem on server
-    CURLE_REMOTE_DISK_FULL,         # 70 - out of disk space on server
-    CURLE_TFTP_ILLEGAL,             # 71 - Illegal TFTP operation
-    CURLE_TFTP_UNKNOWNID,           # 72 - Unknown transfer ID
-    CURLE_REMOTE_FILE_EXISTS,       # 73 - File already exists
-    CURLE_TFTP_NOSUCHUSER,          # 74 - No such user
-    CURLE_CONV_FAILED,              # 75 - conversion failed
-    CURLE_CONV_REQD,                # 76 - caller must register conversion
-                                    #      callbacks using curl_easy_setopt options
-                                    #      CURLOPT_CONV_FROM_NETWORK_FUNCTION,
-                                    #      CURLOPT_CONV_TO_NETWORK_FUNCTION, and
-                                    #      CURLOPT_CONV_FROM_UTF8_FUNCTION
-    CURLE_SSL_CACERT_BADFILE,       # 77 - could not load CACERT file, missing
-                                    #      or wrong format
-    CURLE_REMOTE_FILE_NOT_FOUND,    # 78 - remote file not found
-    CURLE_SSH,                      # 79 - error from the SSH layer, somewhat
-                                    #      generic so the error message will be of
-                                    #      interest when this has happened
-
-    CURLE_SSL_SHUTDOWN_FAILED,      # 80 - Failed to shut down the SSL
-                                    #      connection
-    CURLE_AGAIN,                    # 81 - socket is not ready for send/recv,
-                                    #      wait till it's ready and try again (Added
-                                    #      in 7.18.2)
-    CURLE_SSL_CRL_BADFILE,          # 82 - could not load CRL file, missing or
-                                    #      wrong format (Added in 7.19.0)
-    CURLE_SSL_ISSUER_ERROR,         # 83 - Issuer check failed.  (Added in
-                                    #      7.19.0)
-    CURLE_FTP_PRET_FAILED,          # 84 - a PRET command failed
-    CURLE_RTSP_CSEQ_ERROR,          # 85 - mismatch of RTSP CSeq numbers
-    CURLE_RTSP_SESSION_ERROR,       # 86 - mismatch of RTSP Session Ids
-    CURLE_FTP_BAD_FILE_LIST,        # 87 - unable to parse FTP file list
-    CURLE_CHUNK_FAILED,             # 88 - chunk callback reported error
-    CURLE_NO_CONNECTION_AVAILABLE,  # 89 - No connection available, the
-                                    #      session will be queued
-    CURLE_SSL_PINNEDPUBKEYNOTMATCH, # 90 - specified pinned public key did not
-                                    #      match
-    CURLE_SSL_INVALIDCERTSTATUS,    # 91 - invalid certificate status
-    CURLE_HTTP2_STREAM,             # 92 - stream error in HTTP/2 framing layer
-    CURLE_RECURSIVE_API_CALL,       # 93 - an api function was called from
-                                    #      inside a callback
-    CURLE_AUTH_ERROR,               # 94 - an authentication function returned an
-                                    #      error
-    CURLE_HTTP3,                    # 95 - An HTTP/3 layer problem
-    CURLE_QUIC_CONNECT_ERROR,       # 96 - QUIC connection error
-    CURLE_PROXY,                    # 97 - proxy handshake error
-    CURLE_SSL_CLIENTCERT,           # 98 - client-side certificate required
-    CURL_LAST # never use!
-) = range(0, 100)
+    CURLE_UNSUPPORTED_PROTOCOL,      # 1
+    CURLE_FAILED_INIT,               # 2
+    CURLE_URL_MALFORMAT,             # 3
+    CURLE_NOT_BUILT_IN,              # 4 - [was obsoleted in August 2007 for
+                                     #     7.17.0, reused in April 2011 for 7.21.5]
+    CURLE_COULDNT_RESOLVE_PROXY,     # 5
+    CURLE_COULDNT_RESOLVE_HOST,      # 6
+    CURLE_COULDNT_CONNECT,           # 7
+    CURLE_WEIRD_SERVER_REPLY,        # 8
+    CURLE_REMOTE_ACCESS_DENIED,      # 9 a service was denied by the server
+                                     #   due to lack of access - when login fails
+                                     #   this is not returned.
+    CURLE_FTP_ACCEPT_FAILED,         # 10 - [was obsoleted in April 2006 for
+                                     #      7.15.4, reused in Dec 2011 for 7.24.0]
+    CURLE_FTP_WEIRD_PASS_REPLY,      # 11
+    CURLE_FTP_ACCEPT_TIMEOUT,        # 12 - timeout occurred accepting server
+                                     #      [was obsoleted in August 2007 for 7.17.0,
+                                     #      reused in Dec 2011 for 7.24.0]
+    CURLE_FTP_WEIRD_PASV_REPLY,      # 13
+    CURLE_FTP_WEIRD_227_FORMAT,      # 14
+    CURLE_FTP_CANT_GET_HOST,         # 15
+    CURLE_HTTP2,                     # 16 - A problem in the http2 framing layer.
+                                     #      [was obsoleted in August 2007 for 7.17.0,
+                                     #      reused in July 2014 for 7.38.0]
+    CURLE_FTP_COULDNT_SET_TYPE,      # 17
+    CURLE_PARTIAL_FILE,              # 18
+    CURLE_FTP_COULDNT_RETR_FILE,     # 19
+    CURLE_OBSOLETE20,                # 20 - NOT USED
+    CURLE_QUOTE_ERROR,               # 21 - quote command failure
+    CURLE_HTTP_RETURNED_ERROR,       # 22
+    CURLE_WRITE_ERROR,               # 23
+    CURLE_OBSOLETE24,                # 24 - NOT USED
+    CURLE_UPLOAD_FAILED,             # 25 - failed upload "command"
+    CURLE_READ_ERROR,                # 26 - couldn't open/read from file
+    CURLE_OUT_OF_MEMORY,             # 27
+    CURLE_OPERATION_TIMEDOUT,        # 28 - the timeout time was reached
+    CURLE_OBSOLETE29,                # 29 - NOT USED
+    CURLE_FTP_PORT_FAILED,           # 30 - FTP PORT operation failed
+    CURLE_FTP_COULDNT_USE_REST,      # 31 - the REST command failed
+    CURLE_OBSOLETE32,                # 32 - NOT USED
+    CURLE_RANGE_ERROR,               # 33 - RANGE "command" didn't work
+    CURLE_HTTP_POST_ERROR,           # 34
+    CURLE_SSL_CONNECT_ERROR,         # 35 - wrong when connecting with SSL
+    CURLE_BAD_DOWNLOAD_RESUME,       # 36 - couldn't resume download
+    CURLE_FILE_COULDNT_READ_FILE,    # 37
+    CURLE_LDAP_CANNOT_BIND,          # 38
+    CURLE_LDAP_SEARCH_FAILED,        # 39
+    CURLE_OBSOLETE40,                # 40 - NOT USED
+    CURLE_FUNCTION_NOT_FOUND,        # 41 - NOT USED starting with 7.53.0
+    CURLE_ABORTED_BY_CALLBACK,       # 42
+    CURLE_BAD_FUNCTION_ARGUMENT,     # 43
+    CURLE_OBSOLETE44,                # 44 - NOT USED
+    CURLE_INTERFACE_FAILED,          # 45 - CURLOPT_INTERFACE failed
+    CURLE_OBSOLETE46,                # 46 - NOT USED
+    CURLE_TOO_MANY_REDIRECTS,        # 47 - catch endless re-direct loops
+    CURLE_UNKNOWN_OPTION,            # 48 - User specified an unknown option
+    CURLE_SETOPT_OPTION_SYNTAX,      # 49 - Malformed telnet option
+    CURLE_OBSOLETE50,                # 50 - NOT USED
+    CURLE_OBSOLETE51,                # 51 - NOT USED
+    CURLE_GOT_NOTHING,               # 52 - when this is a specific error
+    CURLE_SSL_ENGINE_NOTFOUND,       # 53 - SSL crypto engine not found
+    CURLE_SSL_ENGINE_SETFAILED,      # 54 - can not set SSL crypto engine as
+                                     #      default
+    CURLE_SEND_ERROR,                # 55 - failed sending network data
+    CURLE_RECV_ERROR,                # 56 - failure in receiving network data
+    CURLE_OBSOLETE57,                # 57 - NOT IN USE
+    CURLE_SSL_CERTPROBLEM,           # 58 - problem with the local certificate
+    CURLE_SSL_CIPHER,                # 59 - couldn't use specified cipher
+    CURLE_PEER_FAILED_VERIFICATION,  # 60 - peer's certificate or fingerprint
+                                     #      wasn't verified fine
+    CURLE_BAD_CONTENT_ENCODING,      # 61 - Unrecognized/bad encoding
+    CURLE_OBSOLETE62,                # 62 - NOT IN USE since 7.82.0
+    CURLE_FILESIZE_EXCEEDED,         # 63 - Maximum file size exceeded
+    CURLE_USE_SSL_FAILED,            # 64 - Requested FTP SSL level failed
+    CURLE_SEND_FAIL_REWIND,          # 65 - Sending the data requires a rewind
+                                     #      that failed
+    CURLE_SSL_ENGINE_INITFAILED,     # 66 - failed to initialise ENGINE
+    CURLE_LOGIN_DENIED,              # 67 - user, password or similar was not
+                                     #      accepted and we failed to login
+    CURLE_TFTP_NOTFOUND,             # 68 - file not found on server
+    CURLE_TFTP_PERM,                 # 69 - permission problem on server
+    CURLE_REMOTE_DISK_FULL,          # 70 - out of disk space on server
+    CURLE_TFTP_ILLEGAL,              # 71 - Illegal TFTP operation
+    CURLE_TFTP_UNKNOWNID,            # 72 - Unknown transfer ID
+    CURLE_REMOTE_FILE_EXISTS,        # 73 - File already exists
+    CURLE_TFTP_NOSUCHUSER,           # 74 - No such user
+    CURLE_CONV_FAILED,               # 75 - conversion failed
+    CURLE_OBSOLETE76,                # 76 - NOT IN USE since 7.82.0
+    CURLE_SSL_CACERT_BADFILE,        # 77 - could not load CACERT file, missing
+                                     #      or wrong format
+    CURLE_REMOTE_FILE_NOT_FOUND,     # 78 - remote file not found
+    CURLE_SSH,                       # 79 - error from the SSH layer, somewhat
+                                     #      generic so the error message will be of
+                                     #      interest when this has happened
+    CURLE_SSL_SHUTDOWN_FAILED,       # 80 - Failed to shut down the SSL
+                                     #      connection
+    CURLE_AGAIN,                     # 81 - socket is not ready for send/recv,
+                                     #      wait till it's ready and try again (Added
+                                     #      in 7.18.2)
+    CURLE_SSL_CRL_BADFILE,           # 82 - could not load CRL file, missing or
+                                     #      wrong format (Added in 7.19.0)
+    CURLE_SSL_ISSUER_ERROR,          # 83 - Issuer check failed.  (Added in
+                                     #      7.19.0)
+    CURLE_FTP_PRET_FAILED,           # 84 - a PRET command failed
+    CURLE_RTSP_CSEQ_ERROR,           # 85 - mismatch of RTSP CSeq numbers
+    CURLE_RTSP_SESSION_ERROR,        # 86 - mismatch of RTSP Session Ids
+    CURLE_FTP_BAD_FILE_LIST,         # 87 - unable to parse FTP file list
+    CURLE_CHUNK_FAILED,              # 88 - chunk callback reported error
+    CURLE_NO_CONNECTION_AVAILABLE,   # 89 - No connection available, the
+                                     #      session will be queued
+    CURLE_SSL_PINNEDPUBKEYNOTMATCH,  # 90 - specified pinned public key did not
+                                     #      match
+    CURLE_SSL_INVALIDCERTSTATUS,     # 91 - invalid certificate status
+    CURLE_HTTP2_STREAM,              # 92 - stream error in HTTP/2 framing layer
+    CURLE_RECURSIVE_API_CALL,        # 93 - an api function was called from
+                                     #      inside a callback
+    CURLE_AUTH_ERROR,                # 94 - an authentication function returned an
+                                     #      error
+    CURLE_HTTP3,                     # 95 - An HTTP/3 layer problem
+    CURLE_QUIC_CONNECT_ERROR,        # 96 - QUIC connection error
+    CURLE_PROXY,                     # 97 - proxy handshake error
+    CURLE_SSL_CLIENTCERT,            # 98 - client-side certificate required
+    CURLE_UNRECOVERABLE_POLL,        # 99 - poll/select returned fatal error
+    CURL_LAST  # never use!
+) = range(0, 101)
 
 # CURLcode OLDIES section moved at the eof
 
@@ -687,8 +679,8 @@ CURLproxycode = ct.c_int
 #
 # typedef CURLcode (*curl_conv_callback)(char *buffer, size_t length);
 conv_callback = CFUNC(CURLcode,
-                      ct.POINTER(ct.c_ubyte), # buffer
-                      ct.c_size_t)            # length
+                      ct.POINTER(ct.c_ubyte),  # buffer
+                      ct.c_size_t)             # length
 
 # typedef CURLcode (*curl_ssl_ctx_callback)(CURL *curl,    /* easy handle */
 #                                           void *ssl_ctx, /* actually an OpenSSL
@@ -697,22 +689,19 @@ conv_callback = CFUNC(CURLcode,
 #                                                           mbedtls_ssl_config */
 #                                           void *userptr);
 ssl_ctx_callback =  CFUNC(CURLcode,
-                          ct.POINTER(CURL), # curl    # easy handle
-                          ct.c_void_p,      # ssl_ctx # actually an OpenSSL
-                                                      #  or WolfSSL SSL_CTX,
-                                                      #  or an mbedTLS
-                                                      # mbedtls_ssl_config
-                          ct.c_void_p)      # userptr
+                          ct.POINTER(CURL),  # curl    # easy handle
+                          ct.c_void_p,       # ssl_ctx # actually an OpenSSL
+                                                       #  or WolfSSL SSL_CTX,
+                                                       #  or an mbedTLS
+                                                       # mbedtls_ssl_config
+                          ct.c_void_p)       # userptr
 
 proxytype = ct.c_int
 (
-    CURLPROXY_HTTP,            # added in 7.10, new in 7.19.4 default is to use
-                               # CONNECT HTTP/1.1
-    CURLPROXY_HTTP_1_0,        # added in 7.19.4, force to use CONNECT
-                               # HTTP/1.0 
+    CURLPROXY_HTTP,            # added in 7.10, new in 7.19.4 default is to use CONNECT HTTP/1.1
+    CURLPROXY_HTTP_1_0,        # added in 7.19.4, force to use CONNECT HTTP/1.0
     CURLPROXY_HTTPS,           # added in 7.52.0
-    CURLPROXY_SOCKS4,          # support added in 7.15.2, enum existed already
-                               # in 7.10
+    CURLPROXY_SOCKS4,          # support added in 7.15.2, enum existed already in 7.10
     CURLPROXY_SOCKS5,          # added in 7.10
     CURLPROXY_SOCKS4A,         # added in 7.18.0
     CURLPROXY_SOCKS5_HOSTNAME  # Use the SOCKS5 protocol but pass along the
@@ -798,7 +787,7 @@ khstat = ct.c_int
     CURLKHSTAT_DEFER,   # do not accept it, but we can't answer right now so
                         # this causes a CURLE_DEFER error but otherwise the
                         # connection will be left intact etc
-    CURLKHSTAT_FINE_REPLACE, # accept and replace the wrong key
+    CURLKHSTAT_FINE_REPLACE,  # accept and replace the wrong key
     CURLKHSTAT_LAST     # not for use, only a marker for last-in-list
 ) = range(6)
 
@@ -815,13 +804,29 @@ khmatch = ct.c_int
 #                                     const struct curl_khkey *knownkey, /* known */
 #                                     const struct curl_khkey *foundkey, /* found */
 #                                     enum curl_khmatch, /* libcurl's view on the keys */
-#                                     void *clientp); /* custom pointer passed from app */
+#                                     void *clientp); /* custom pointer passed with */
+#                                                     /* CURLOPT_SSH_KEYDATA */
 sshkeycallback = CFUNC(ct.c_int,
-                       ct.POINTER(CURL),  # easy     # easy handle
-                       ct.POINTER(khkey), # knownkey # known
-                       ct.POINTER(khkey), # foundkey # found
-                       khmatch,           # libcurl's view on the keys
-                       ct.c_void_p)       # clientp  # custom pointer passed from app
+                       ct.POINTER(CURL),   # easy     # easy handle
+                       ct.POINTER(khkey),  # knownkey # known
+                       ct.POINTER(khkey),  # foundkey # found
+                       khmatch,            # libcurl's view on the keys
+                       ct.c_void_p)        # clientp  # custom pointer passed with
+#                                                     # CURLOPT_SSH_KEYDATA
+
+# typedef int (*curl_sshhostkeycallback) (void *clientp,/* custom pointer passed*/
+#                                                       /* with CURLOPT_SSH_HOSTKEYDATA */
+#                                         int keytype, /* CURLKHTYPE */
+#                                         const char *key, /*hostkey to check*/
+#                                         size_t keylen); /*length of the key*/
+#                                         /*return CURLE_OK to accept*/
+#                                         /*or something else to refuse*/
+sshhostkeycallback = CFUNC(ct.c_int,  # return CURLE_OK to accept or something else to refuse
+                           ct.c_void_p,             # clientp # custom pointer passed
+                                                              # with CURLOPT_SSH_HOSTKEYDATA
+                           ct.c_int,                # keytype # CURLKHTYPE
+                           ct.POINTER(ct.c_ubyte),  # key     # hostkey to check
+                           ct.c_size_t)             # keylen  # length of the key
 
 # parameter for the CURLOPT_USE_SSL option
 usessl = ct.c_int
@@ -928,7 +933,7 @@ class hstsentry(ct.Structure):
     ("name",              ct.c_char_p),
     ("namelen",           ct.c_size_t),
     ("includeSubDomains", ct.c_uint, 1),
-    ("expire",            (ct.c_char * 18))  # YYYYMMDD HH:MM:SS [null-terminated] 
+    ("expire",            (ct.c_char * 18))  # YYYYMMDD HH:MM:SS [null-terminated]
 ]
 
 class index(ct.Structure):
@@ -1010,7 +1015,7 @@ CURLOPTTYPE_BLOB          = 40000
 # *STRINGPOINT is an alias for OBJECTPOINT to allow tools to extract the
 # string options from the header file
 
-#define CURLOPT(na,t,nu) na = t + nu
+# define CURLOPT(na,t,nu) na = t + nu
 
 # CURLOPT aliases that make no run-time difference
 
@@ -1167,7 +1172,7 @@ if 1:  # enum
     # send linked-list of post-transfer QUOTE commands
     CURLOPT_POSTQUOTE = CURLOPTTYPE_SLISTPOINT + 39
 
-     # OBSOLETE, do not use!
+    # OBSOLETE, do not use!
     CURLOPT_OBSOLETE40 = CURLOPTTYPE_OBJECTPOINT + 40
 
     # talk a lot
@@ -2002,7 +2007,7 @@ if 1:  # enum
     # (in seconds)
     CURLOPT_MAXAGE_CONN = CURLOPTTYPE_LONG + 288
 
-    # SASL authorisation identity
+    # SASL authorization identity
     CURLOPT_SASL_AUTHZID = CURLOPTTYPE_STRINGPOINT + 289
 
     # allow RCPT TO command to fail for some recipients
@@ -2074,13 +2079,21 @@ if 1:  # enum
     # Set MIME option flags.
     CURLOPT_MIME_OPTIONS = CURLOPTTYPE_LONG + 315
 
-    CURLOPT_LASTENTRY = CURLOPT_MIME_OPTIONS + 1  # the last unused
+    # set the SSH host key callback, must point to a curl_sshkeycallback
+    # function
+    CURLOPT_SSH_HOSTKEYFUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 316
+
+    # set the SSH host key callback custom pointer
+    CURLOPT_SSH_HOSTKEYDATA = CURLOPTTYPE_CBPOINT + 317
+
+    CURLOPT_LASTENTRY = CURLOPT_SSH_HOSTKEYDATA + 1  # the last unused
 # end enum CURLoption
 
 # CURLoption OLDIES section moved at the eof
 # CURLcode OLDIES
-if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with all
-                                   # the obsolete stuff removed!
+# define CURL_NO_OLDIES to test if your app builds with all the obsolete stuff removed!
+if not defined("CURL_NO_OLDIES"):
+
     # Previously obsolete error code re-used in 7.38.0
     CURLE_OBSOLETE16 = CURLE_HTTP2
 
@@ -2107,7 +2120,7 @@ if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with
 
     # The following were added in 7.17.0
     # These are scheduled to disappear by 2009
-    CURLE_OBSOLETE                    = CURLE_OBSOLETE50 # no one should be using this!
+    CURLE_OBSOLETE                    = CURLE_OBSOLETE50  # no one should be using this!
     CURLE_BAD_PASSWORD_ENTERED        = CURLE_OBSOLETE46
     CURLE_BAD_CALLING_ORDER           = CURLE_OBSOLETE44
     CURLE_FTP_USER_PASSWORD_INCORRECT = CURLE_OBSOLETE10
@@ -2139,6 +2152,8 @@ if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with
 
     CURLE_FTP_PARTIAL_FILE        = CURLE_PARTIAL_FILE
     CURLE_FTP_BAD_DOWNLOAD_RESUME = CURLE_BAD_DOWNLOAD_RESUME
+    CURLE_LDAP_INVALID_URL        = CURLE_OBSOLETE62
+    CURLE_CONV_REQD               = CURLE_OBSOLETE76
 
     # This was the error code 50 in 7.7.3 and a few earlier versions, this
     # is no longer used by libcurl but is instead #defined here only to not
@@ -2146,8 +2161,8 @@ if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with
     CURLE_ALREADY_COMPLETE = 99999
 
     # Provide defines for really old option names
-    CURLOPT_FILE        = CURLOPT_WRITEDATA # name changed in 7.9.7
-    CURLOPT_INFILE      = CURLOPT_READDATA # name changed in 7.9.7
+    CURLOPT_FILE        = CURLOPT_WRITEDATA  # name changed in 7.9.7
+    CURLOPT_INFILE      = CURLOPT_READDATA   # name changed in 7.9.7
     CURLOPT_WRITEHEADER = CURLOPT_HEADERDATA
 
     # Since long deprecated options with no code in the lib that does anything
@@ -2155,10 +2170,10 @@ if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with
     CURLOPT_WRITEINFO   = CURLOPT_OBSOLETE40
     CURLOPT_CLOSEPOLICY = CURLOPT_OBSOLETE72
 
-#endif # !CURL_NO_OLDIES
+# endif # !CURL_NO_OLDIES
 # CURLFTPSSL_* OLDIES
-if not defined("CURL_NO_OLDIES"): # define this to test if your app builds with all
-                                  # the obsolete stuff removed!
+# define CURL_NO_OLDIES to test if your app builds with all the obsolete stuff removed!
+if not defined("CURL_NO_OLDIES"):
     # Backwards compatibility with older names
     # These are scheduled to disappear by 2009
 
@@ -2170,10 +2185,10 @@ if not defined("CURL_NO_OLDIES"): # define this to test if your app builds with 
 
     ftpssl = usessl
 
-#endif # !CURL_NO_OLDIES
+# endif # !CURL_NO_OLDIES
 # CURLoption OLDIES
-if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with all
-                                   # the obsolete stuff removed!
+# define CURL_NO_OLDIES to test if your app builds with all # the obsolete stuff removed!
+if not defined("CURL_NO_OLDIES"):
     # Backwards compatibility with older names
     # These are scheduled to disappear by 2011
 
@@ -2196,13 +2211,12 @@ if not defined("CURL_NO_OLDIES"):  # define this to test if your app builds with
 else:
     # This is set if CURL_NO_OLDIES is defined at compile-time
     del CURLOPT_DNS_USE_GLOBAL_CACHE  # soon obsolete
-#endif
+# endif
 
 # Below here follows defines for the CURLOPT_IPRESOLVE option. If a host
 # name resolves addresses using more than one IP protocol version, this
 # option might be handy to force libcurl to use a specific IP version.
-CURL_IPRESOLVE_WHATEVER = 0  # default, uses addresses to all IP
-                             # versions that your system allows
+CURL_IPRESOLVE_WHATEVER = 0  # default, uses addresses to all IP versions that your system allows
 CURL_IPRESOLVE_V4       = 1  # uses only IPv4 addresses/connections
 CURL_IPRESOLVE_V6       = 2  # uses only IPv6 addresses/connections
 
@@ -2321,14 +2335,14 @@ CURL_ZERO_TERMINATED = ct.c_size_t(-1).value
 
 # curl_strequal() and curl_strnequal() are subject for removal in a future
 # release
-if 0: # deprecated
-    strequal  = CFUNC(ct.c_int, ct.c_char_p, ct.c_char_p)             (("curl_strequal",  dll),)
+if 0:  # deprecated
+    strequal  = CFUNC(ct.c_int, ct.c_char_p, ct.c_char_p)(("curl_strequal",  dll),)
     strnequal = CFUNC(ct.c_int, ct.c_char_p, ct.c_char_p, ct.c_size_t)(("curl_strnequal", dll),)
 
 # Mime/form handling support.
 # typedef struct curl_mime      curl_mime;      /* Mime context. */
 # typedef struct curl_mimepart  curl_mimepart;  /* Mime part context. */
-class mime(ct.Structure): pass      # Mime context.     
+class mime(ct.Structure): pass      # Mime context.
 class mimepart(ct.Structure): pass  # Mime part context.
 
 # CURLMIMEOPT_ defines are for the CURLOPT_MIME_OPTIONS option.
@@ -2506,7 +2520,7 @@ mime_headers = CFUNC(CURLcode,
 
 CURLformoption = ct.c_int
 (
-    CURLFORM_NOTHING,  #******** the first one is unused ***********#
+    CURLFORM_NOTHING,  # ******* the first one is unused ********** #
     CURLFORM_COPYNAME,
     CURLFORM_PTRNAME,
     CURLFORM_NAMELENGTH,
@@ -2561,7 +2575,7 @@ class forms(ct.Structure):
 # CURL_FORMADD_MEMORY         if some allocation for string copying failed.
 # CURL_FORMADD_ILLEGAL_ARRAY  if an illegal option is used in an array
 #
-#***************************************************************************
+# **************************************************************************
 
 CURLFORMcode = ct.c_int
 (
@@ -2582,7 +2596,7 @@ CURLFORMcode = ct.c_int
 #
 # DESCRIPTION
 #
-# This function is deprecated. Do not use. See curl_mime_init instead. 
+# This function is deprecated. Do not use. See curl_mime_init instead.
 #
 # Pretty advanced function for building multi-part formposts. Each invoke
 # adds one part that together construct a full post. Then use
@@ -2619,9 +2633,9 @@ def formadd(post, last_post, forms):
 #                                         const char *buf,
 #                                         size_t len);
 formget_callback = CFUNC(ct.c_size_t,
-                         ct.c_void_p,            # arg
-                         ct.POINTER(ct.c_ubyte), # buf
-                         ct.c_size_t)            # len
+                         ct.c_void_p,             # arg
+                         ct.POINTER(ct.c_ubyte),  # buf
+                         ct.c_size_t)             # len
 
 # NAME curl_formget()
 #
@@ -2659,7 +2673,7 @@ formfree = CFUNC(None,
 # Returns a malloc()'ed string that MUST be curl_free()ed after usage is
 # complete. DEPRECATED - see lib/README.curlx
 
-if 0: # deprecated
+if 0:  # deprecated
     getenv = CFUNC(ct.c_char_p,
                    ct.c_char_p)(
                    ("curl_getenv", dll), (
@@ -2692,7 +2706,7 @@ easy_escape = CFUNC(ct.c_char_p,
                     (1, "string"),
                     (1, "length"),))
 
-if 0: # deprecated
+if 0:  # deprecated
     # the previous version:
     escape = CFUNC(ct.c_char_p,
                    ct.c_char_p,
@@ -2722,7 +2736,7 @@ easy_unescape = CFUNC(ct.c_char_p,
                       (1, "length"),
                       (1, "outlength"),))
 
-if 0: # deprecated
+if 0:  # deprecated
     # the previous version
     unescape = CFUNC(ct.c_char_p,
                      ct.c_char_p,
@@ -2750,7 +2764,8 @@ free = CFUNC(None,
 # curl_global_init() should be invoked exactly once for each application that
 # uses libcurl and before any call of other libcurl functions.
 #
-# This function is not thread-safe!
+# This function is thread-safe if CURL_VERSION_THREADSAFE is set in the
+# curl_version_info_data.features flag (fetch by curl_version_info()).
 
 global_init = CFUNC(CURLcode,
                     ct.c_long)(
@@ -2982,8 +2997,9 @@ if 1:  # enum
     CURLINFO_EFFECTIVE_METHOD          = CURLINFO_STRING + 58
     CURLINFO_PROXY_ERROR               = CURLINFO_LONG   + 59
     CURLINFO_REFERER                   = CURLINFO_STRING + 60
-
-    CURLINFO_LASTONE                   = 60
+    CURLINFO_CAINFO                    = CURLINFO_STRING + 61
+    CURLINFO_CAPATH                    = CURLINFO_STRING + 62
+    CURLINFO_LASTONE                   = 62
 # end enum CURLINFO
 
 # CURLINFO_RESPONSE_CODE is the new name for the option previously known as
@@ -3003,7 +3019,7 @@ closepolicy = ct.c_int
     CURLCLOSEPOLICY_LAST  # last, never use this
 ) = range(7)
 
-CURL_GLOBAL_SSL       = (1 << 0)  # no purpose since since 7.57.0
+CURL_GLOBAL_SSL       = (1 << 0)  # no purpose since 7.57.0
 CURL_GLOBAL_WIN32     = (1 << 1)
 CURL_GLOBAL_ALL       = (CURL_GLOBAL_SSL | CURL_GLOBAL_WIN32)
 CURL_GLOBAL_NOTHING   = 0
@@ -3011,7 +3027,7 @@ CURL_GLOBAL_DEFAULT   = CURL_GLOBAL_ALL
 CURL_GLOBAL_ACK_EINTR = (1 << 2)
 
 
-#****************************************************************************
+# **************************************************************************
 # Setup defines, protos etc for the sharing stuff.
 
 
@@ -3037,7 +3053,7 @@ lock_access = ct.c_int
     CURL_LOCK_ACCESS_NONE,    # unspecified action
     CURL_LOCK_ACCESS_SHARED,  # for read perhaps
     CURL_LOCK_ACCESS_SINGLE,  # for write perhaps
-    CURL_LOCK_ACCESS_LAST  # never use
+    CURL_LOCK_ACCESS_LAST     # never use
 ) = (0, 1, 2, 2+1)
 
 # typedef void (*curl_lock_function)(CURL *handle,
@@ -3045,18 +3061,18 @@ lock_access = ct.c_int
 #                                    curl_lock_access locktype,
 #                                    void *userptr);
 lock_function = CFUNC(None,
-                      ct.POINTER(CURL), # handle
-                      lock_data,        # data
-                      lock_access,      # locktype
-                      ct.c_void_p)      # userptr
+                      ct.POINTER(CURL),  # handle
+                      lock_data,         # data
+                      lock_access,       # locktype
+                      ct.c_void_p)       # userptr
 
 # typedef void (*curl_unlock_function)(CURL *handle,
 #                                      curl_lock_data data,
 #                                      void *userptr);
 unlock_function = CFUNC(None,
-                        ct.POINTER(CURL), # handle
-                        lock_data,        # data
-                        ct.c_void_p)      # userptr
+                        ct.POINTER(CURL),  # handle
+                        lock_data,         # data
+                        ct.c_void_p)       # userptr
 
 CURLSHcode = ct.c_int
 (
@@ -3099,7 +3115,7 @@ share_cleanup = CFUNC(CURLSHcode,
                       ("curl_share_cleanup", dll), (
                       (1, "share_handle"),))
 
-#***************************************************************************
+# **************************************************************************
 # Structures for querying information about the curl library at runtime.
 
 CURLversion = ct.c_int
@@ -3183,31 +3199,27 @@ class version_info_data(ct.Structure):
 # typedef struct curl_version_info_data curl_version_info_data;
 
 CURL_VERSION_IPV6         = (1 << 0)   # IPv6-enabled
-CURL_VERSION_KERBEROS4    = (1 << 1)   # Kerberos V4 auth is supported
-                                       # (deprecated)
+CURL_VERSION_KERBEROS4    = (1 << 1)   # Kerberos V4 auth is supported (deprecated)
 CURL_VERSION_SSL          = (1 << 2)   # SSL options are present
 CURL_VERSION_LIBZ         = (1 << 3)   # libz features are present
 CURL_VERSION_NTLM         = (1 << 4)   # NTLM auth is supported
-CURL_VERSION_GSSNEGOTIATE = (1 << 5)   # Negotiate auth is supported
-                                       # (deprecated)
+CURL_VERSION_GSSNEGOTIATE = (1 << 5)   # Negotiate auth is supported (deprecated)
 CURL_VERSION_DEBUG        = (1 << 6)   # Built with debug capabilities
 CURL_VERSION_ASYNCHDNS    = (1 << 7)   # Asynchronous DNS resolves
 CURL_VERSION_SPNEGO       = (1 << 8)   # SPNEGO auth is supported
 CURL_VERSION_LARGEFILE    = (1 << 9)   # Supports files larger than 2GB
-CURL_VERSION_IDN          = (1 << 10)  # Internationized Domain Names are
-                                       # supported
+CURL_VERSION_IDN          = (1 << 10)  # Internationized Domain Names are supported
 CURL_VERSION_SSPI         = (1 << 11)  # Built against Windows SSPI
 CURL_VERSION_CONV         = (1 << 12)  # Character conversions supported
 CURL_VERSION_CURLDEBUG    = (1 << 13)  # Debug memory tracking supported
 CURL_VERSION_TLSAUTH_SRP  = (1 << 14)  # TLS-SRP auth is supported
-CURL_VERSION_NTLM_WB      = (1 << 15)  # NTLM delegation to winbind helper
-                                       # is supported
+CURL_VERSION_NTLM_WB      = (1 << 15)  # NTLM delegation to winbind helper is supported
 CURL_VERSION_HTTP2        = (1 << 16)  # HTTP2 support built-in
 CURL_VERSION_GSSAPI       = (1 << 17)  # Built against a GSS-API library
 CURL_VERSION_KERBEROS5    = (1 << 18)  # Kerberos V5 auth is supported
 CURL_VERSION_UNIX_SOCKETS = (1 << 19)  # Unix domain sockets support
-CURL_VERSION_PSL          = (1 << 20)  # Mozilla's Public Suffix List, used
-                                       # for cookie domain verification
+CURL_VERSION_PSL          = (1 << 20)  # Mozilla's Public Suffix List, used for cookie
+#                                      # domain verification
 CURL_VERSION_HTTPS_PROXY  = (1 << 21)  # HTTPS-proxy support built-in
 CURL_VERSION_MULTI_SSL    = (1 << 22)  # Multiple SSL backends available
 CURL_VERSION_BROTLI       = (1 << 23)  # Brotli features are present.
@@ -3217,6 +3229,7 @@ CURL_VERSION_ZSTD         = (1 << 26)  # zstd features are present
 CURL_VERSION_UNICODE      = (1 << 27)  # Unicode support on Windows
 CURL_VERSION_HSTS         = (1 << 28)  # HSTS is supported
 CURL_VERSION_GSASL        = (1 << 29)  # libgsasl is supported
+CURL_VERSION_THREADSAFE   = (1 << 30)  # libcurl API is thread-safe
 
 # NAME curl_version_info()
 #
@@ -3281,10 +3294,12 @@ CURLPAUSE_CONT      = (CURLPAUSE_RECV_CONT | CURLPAUSE_SEND_CONT)
 
 # unfortunately, the easy.h and multi.h include files need options and info
 # stuff before they can be included!
-from ._easy    import *  # nothing in curl is fun without the easy stuff
-from ._multi   import *
-from ._urlapi  import *
-from ._options import *
-from ._system  import *
+from ._curlver import *  # noqa # libcurl version defines
+from ._easy    import *  # noqa # nothing in curl is fun without the easy stuff
+from ._multi   import *  # noqa
+from ._urlapi  import *  # noqa
+from ._options import *  # noqa
+from ._header  import *  # noqa
+from ._system  import *  # noqa
 
 # eof

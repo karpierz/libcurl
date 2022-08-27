@@ -2,14 +2,14 @@
 # Licensed under the MIT License
 # https://opensource.org/licenses/MIT
 
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -22,7 +22,9 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
-#***************************************************************************
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
 
 import ctypes as ct
 
@@ -30,43 +32,44 @@ from ._platform import CFUNC
 from ._dll      import dll
 
 class FILE(ct.Structure): pass
+va_list = ct.c_void_p
 
-if 0: # deprecated
+if 0:  # deprecated
     mprintf    = (ct.c_int,
                   ct.c_char_p,
-                  )(#...)(
+                  )(  # ...)(
                   ("curl_mprintf", dll), (
                   (1, "format"),
-                  ))#(1, "???"),))
+                  ))  # (1, "???"),))
 
     mfprintf   = (ct.c_int,
                   ct.POINTER(FILE),
                   ct.c_char_p,
-                  )(#...)(
+                  )(  # ...)(
                   ("curl_mfprintf", dll), (
                   (1, "fd"),
                   (1, "format"),
-                  ))#(1, "???"),))
+                  ))  # (1, "???"),))
 
     msprintf   = (ct.c_int,
                   ct.c_char_p,
                   ct.c_char_p,
-                  )(#...)(
+                  )(  # ...)(
                   ("curl_msprintf", dll), (
                   (1, "buffer"),
                   (1, "format"),
-                  ))#(1, "???"),))
+                  ))  # (1, "???"),))
 
     msnprintf  = (ct.c_int,
                   ct.c_char_p,
                   ct.c_size_t,
                   ct.c_char_p,
-                  )(#...)(
+                  )(  # ...)(
                   ("curl_msnprintf", dll), (
                   (1, "buffer"),
                   (1, "maxlength"),
                   (1, "format"),
-                  ))#(1, "???"),))
+                  ))  # (1, "???"),))
 
     mvprintf   = (ct.c_int,
                   ct.c_char_p,
@@ -106,10 +109,10 @@ if 0: # deprecated
 
     maprintf   = (ct.c_char_p,
                   ct.c_char_p,
-                  )(#...)(
+                  )(  # ...)(
                   ("curl_maprintf", dll), (
                   (1, "format"),
-                  ))#(1, "???"),))
+                  ))  # (1, "???"),))
 
     mvaprintf  = (ct.c_char_p,
                   ct.c_char_p,

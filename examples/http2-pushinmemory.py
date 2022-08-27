@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -17,6 +17,8 @@
 #
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
 #
 #***************************************************************************
 
@@ -164,8 +166,7 @@ def main(argv=sys.argv[1:]):
 
         while transfers.value:  # as long as we have transfers going
             still_running = ct.c_int(0)  # keep number of running handles
-            mcode: lcurl.CURLMcode = lcurl.multi_perform(mcurl,
-                                                         ct.byref(still_running))
+            mcode: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
             if mcode:
                 break
 

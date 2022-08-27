@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -17,6 +17,8 @@
 #
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
 #
 #***************************************************************************
 
@@ -84,7 +86,7 @@ def resume_upload(curl: ct.POINTER(lcurl.CURL),
         lcurl.easy_setopt(curl, lcurl.CURLOPT_UPLOAD, 1)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
         if timeout:
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_FTP_RESPONSE_TIMEOUT, timeout)
+            lcurl.easy_setopt(curl, lcurl.CURLOPT_SERVER_RESPONSE_TIMEOUT, timeout)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADERFUNCTION, content_len_function)
         uploaded_len = ct.c_long(0)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADERDATA, ct.byref(uploaded_len))
@@ -99,7 +101,7 @@ def resume_upload(curl: ct.POINTER(lcurl.CURL),
         lcurl.easy_setopt(curl, lcurl.CURLOPT_APPEND, 0)
 
         # Perform the custom request
-        res: lcurl.CURLcode = lcurl.easy_perform(curl)
+        res: int = lcurl.easy_perform(curl)
         for _ in range(1, tries):
             if res == lcurl.CURLE_OK: break
 

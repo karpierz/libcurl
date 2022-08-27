@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -17,6 +17,8 @@
 #
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
 #
 #***************************************************************************
 
@@ -34,53 +36,53 @@ from curltestutils import *  # noqa
 MAX_PARALLEL = 10  # number of simultaneous transfers
 
 urls = [
-    "https://www.microsoft.com",
-    "https://opensource.org",
-    "https://www.google.com",
-    "https://www.yahoo.com",
-    "https://www.ibm.com",
-    "https://www.mysql.com",
-    "https://www.oracle.com",
-    "https://www.ripe.net",
-    "https://www.iana.org",
-    "https://www.amazon.com",
-    "https://www.netcraft.com",
-    "https://www.heise.de",
-    "https://www.chip.de",
-    "https://www.ca.com",
-    "https://www.cnet.com",
-    "https://www.mozilla.org",
-    "https://www.cnn.com",
-    "https://www.wikipedia.org",
-    "https://www.dell.com",
-    "https://www.hp.com",
-    "https://www.cert.org",
-    "https://www.mit.edu",
-    "https://www.nist.gov",
-    "https://www.ebay.com",
-    "https://www.playstation.com",
-    "https://www.uefa.com",
-    "https://www.ieee.org",
-    "https://www.apple.com",
-    "https://www.symantec.com",
-    "https://www.zdnet.com",
-    "https://www.fujitsu.com/global/",
-    "https://www.supermicro.com",
-    "https://www.hotmail.com",
-    "https://www.ietf.org",
-    "https://www.bbc.co.uk",
-    "https://news.google.com",
-    "https://www.foxnews.com",
-    "https://www.msn.com",
-    "https://www.wired.com",
-    "https://www.sky.com",
-    "https://www.usatoday.com",
-    "https://www.cbs.com",
-    "https://www.nbc.com/",
-    "https://slashdot.org",
-    "https://www.informationweek.com",
-    "https://apache.org",
-    "https://www.un.org",
+    b"https://www.microsoft.com",
+    b"https://opensource.org",
+    b"https://www.google.com",
+    b"https://www.yahoo.com",
+    b"https://www.ibm.com",
+    b"https://www.mysql.com",
+    b"https://www.oracle.com",
+    b"https://www.ripe.net",
+    b"https://www.iana.org",
+    b"https://www.amazon.com",
+    b"https://www.netcraft.com",
+    b"https://www.heise.de",
+    b"https://www.chip.de",
+    b"https://www.ca.com",
+    b"https://www.cnet.com",
+    b"https://www.mozilla.org",
+    b"https://www.cnn.com",
+    b"https://www.wikipedia.org",
+    b"https://www.dell.com",
+    b"https://www.hp.com",
+    b"https://www.cert.org",
+    b"https://www.mit.edu",
+    b"https://www.nist.gov",
+    b"https://www.ebay.com",
+    b"https://www.playstation.com",
+    b"https://www.uefa.com",
+    b"https://www.ieee.org",
+    b"https://www.apple.com",
+    b"https://www.symantec.com",
+    b"https://www.zdnet.com",
+    b"https://www.fujitsu.com/global/",
+    b"https://www.supermicro.com",
+    b"https://www.hotmail.com",
+    b"https://www.ietf.org",
+    b"https://www.bbc.co.uk",
+    b"https://news.google.com",
+    b"https://www.foxnews.com",
+    b"https://www.msn.com",
+    b"https://www.wired.com",
+    b"https://www.sky.com",
+    b"https://www.usatoday.com",
+    b"https://www.cbs.com",
+    b"https://www.nbc.com/",
+    b"https://slashdot.org",
+    b"https://www.informationweek.com",
+    b"https://apache.org",
+    b"https://www.un.org",
 ]
 
 
@@ -91,11 +93,11 @@ def write_function(buffer, size, nitems, stream):
     return size * nitems
 
 
-def add_transfer(mcurl: ct.POINTER(lcurl.CURLM), str: bytes):
+def add_transfer(mcurl: ct.POINTER(lcurl.CURLM), url: bytes):
     curl: ct.POINTER(CURL) = lcurl.easy_init()
     lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
-    lcurl.easy_setopt(curl, lcurl.CURLOPT_URL,     url.encode("utf-8"))
-    lcurl.easy_setopt(curl, lcurl.CURLOPT_PRIVATE, url.encode("utf-8"))
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_URL,     url)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_PRIVATE, url)
     if defined("SKIP_PEER_VERIFICATION"):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
     lcurl.multi_add_handle(mcurl, curl)

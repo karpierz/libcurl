@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -17,6 +17,8 @@
 #
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
 #
 #***************************************************************************
 
@@ -48,7 +50,7 @@ def main(argv=sys.argv[1:]):
         # Set the username and password
         lcurl.easy_setopt(curl, lcurl.CURLOPT_USERNAME, b"user")
         lcurl.easy_setopt(curl, lcurl.CURLOPT_PASSWORD, b"secret")
-        # Set the authorisation identity (identity to act as)
+        # Set the authorization identity (identity to act as)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SASL_AUTHZID, b"shared-mailbox");
         # Force PLAIN authentication
         lcurl.easy_setopt(curl, lcurl.CURLOPT_LOGIN_OPTIONS, b"AUTH=PLAIN");
@@ -56,7 +58,7 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, b"pop3://pop.example.com/1")
 
         # Perform the custom request
-        res: lcurl.CURLcode = lcurl.easy_perform(curl)
+        res: int = lcurl.easy_perform(curl)
 
         # Check for errors
         if res != lcurl.CURLE_OK:
