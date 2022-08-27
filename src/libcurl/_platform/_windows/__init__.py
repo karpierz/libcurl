@@ -28,11 +28,11 @@ except ImportError:
     dlclose = lambda handle: 0
 from ctypes import WINFUNCTYPE as CFUNC  # noqa: E402
 
+time_t = ct.c_uint64
+
 # Winsock doesn't have this POSIX type; it's used for the
 # tv_usec value of struct timeval.
 suseconds_t = ct.c_long
-
-time_t = ct.c_uint64
 
 # Taken from the file <winsock.h>
 #

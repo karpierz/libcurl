@@ -8,7 +8,7 @@ requires = ['setuptools>=63.2.0', 'wheel>=0.37.1', 'packaging>=21.3.0', 'tox>=3.
 
 [project]
 name        = 'libcurl-ct'
-version     = '7.84.0a1'
+version     = '7.84.0a2'
 description = 'Python binding for the libcurl C library.'
 license = { text = 'MIT License ; https://opensource.org/licenses/MIT' }
 authors = [
