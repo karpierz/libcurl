@@ -7,7 +7,7 @@ build-backend = 'setuptools.build_meta'
 requires = ['setuptools>=63.2.0', 'wheel>=0.37.1', 'packaging>=21.3.0', 'tox>=3.25.1']
 
 [project]
-name        = 'libcurl'
+name        = 'libcurl-ct'
 version     = '7.84.0a1'
 description = 'Python binding for the libcurl C library.'
 license = { text = 'MIT License ; https://opensource.org/licenses/MIT' }
@@ -61,9 +61,9 @@ test = [
     'deepdiff>=5.8.1',
 ]
 [project.urls]
-Homepage      = 'https://pypi.org/project/libcurl/'
+Homepage      = 'https://pypi.org/project/libcurl-ct/'
 Documentation = 'https://libcurl.readthedocs.io/'
-Download      = 'https://pypi.org/project/libcurl/'
+Download      = 'https://pypi.org/project/libcurl-ct/'
 Source        = 'https://github.com/karpierz/libcurl'
 Issues        = 'https://github.com/karpierz/libcurl/issues'
 

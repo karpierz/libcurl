@@ -1,5 +1,5 @@
-libcurl
-=======
+libcurl-ct
+==========
 
 Python binding for the *libcurl* C library.
 
@@ -133,9 +133,9 @@ Authors
 
 * Adam Karpierz <adam@karpierz.net>
 
-.. |package| replace:: libcurl
-.. |package_bold| replace:: **libcurl**
+.. |package| replace:: libcurl-ct
+.. |package_bold| replace:: **libcurl-ct**
 .. |respository| replace:: https://github.com/karpierz/libcurl.git
 .. _development page: https://github.com/karpierz/libcurl
-.. _PyPI record: https://pypi.org/project/libcurl/
+.. _PyPI record: https://pypi.org/project/libcurl-ct/
 .. _Documentation: https://libcurl.readthedocs.io/

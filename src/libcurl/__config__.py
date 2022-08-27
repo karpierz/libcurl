@@ -1,1 +1,1 @@
-from . import _config as _ ; _.make_config("libcurl.cfg") ; del _
+from . import _config as _ ; _.make_config("libcurl.cfg", "libcurl") ; del _
