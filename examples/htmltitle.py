@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -22,20 +22,20 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Get a web page, extract the title with libxml.
 """
 
-from dataclasses import dataclass
 import sys
-import io
 import ctypes as ct
+from dataclasses import dataclass
+import io
 
 from lxml import etree
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 @dataclass
@@ -88,10 +88,10 @@ data_buffer  = bytearray(b"")
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
+def write_function(buffer, size, nitems, userp):
     # libcurl write callback function
-    data_buffer = lcurl.from_oid(stream)
-    buffer_size = size * nitems
+    data_buffer = lcurl.from_oid(userp)
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     data_buffer += bytes(buffer[:buffer_size])
     return buffer_size
@@ -113,7 +113,7 @@ def init(curl: ct.POINTER(lcurl.CURL), url: str) -> bool:
         print("Failed to set URL [%s]" % error_buffer.raw.decode("utf-8"),
               file=sys.stderr)
         return False
-    if defined("SKIP_PEER_VERIFICATION"):
+    if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
     code = lcurl.easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
     if code != lcurl.CURLE_OK:
@@ -140,7 +140,7 @@ def main(argv=sys.argv[1:]):
     # Ensure one argument is given
 
     if len(argv) < 1:
-        print("Usage: %s <URL>" % app_name)
+        print("Usage: python %s <URL>" % app_name)
         return 1
 
     url: str = argv[0]
@@ -150,14 +150,14 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl:
             print("Failed to create CURL connection", file=sys.stderr)
             return 2
 
         # Initialize CURL connection
         if not init(curl, url):
-            print("Connection initializion failed", file=sys.stderr)
+            print("Connection initialization failed", file=sys.stderr)
             return 1
 
         # Perform the custom request
@@ -176,7 +176,7 @@ def main(argv=sys.argv[1:]):
     # Display the extracted title
     print("Title: %s" % title)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

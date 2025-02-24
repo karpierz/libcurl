@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Shows HTTPS usage with client certs and optional ssl engine use.
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 # An SSL-enabled libcurl is required for this sample to work (at least
@@ -46,7 +46,7 @@ def main(argv=sys.argv[1:]):
 
     if name == "list":
         backend_list = ct.POINTER(ct.POINTER(lcurl.ssl_backend))()
-        result = lcurl.global_sslset(lcurl.sslbackend(-1), None, ct.byref(backend_list))
+        result = lcurl.global_sslset(lcurl.CURLSSLBACKEND_NONE, None, ct.byref(backend_list))
         assert result == lcurl.CURLSSLSET_UNKNOWN_BACKEND
 
         i = 0
@@ -60,7 +60,7 @@ def main(argv=sys.argv[1:]):
         id = int(name)
         result = lcurl.global_sslset(lcurl.sslbackend(id), None, None)
     else:
-        result = lcurl.global_sslset(lcurl.sslbackend(-1), name.encode("utf-8"), None)
+        result = lcurl.global_sslset(lcurl.CURLSSLBACKEND_NONE, name.encode("utf-8"), None)
 
     if result == lcurl.CURLSSLSET_UNKNOWN_BACKEND:
         print("Unknown SSL backend id: %s" % name, file=sys.stderr)

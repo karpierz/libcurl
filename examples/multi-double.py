@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Multi interface code doing two parallel HTTP transfers
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 #
@@ -47,12 +47,12 @@ def main(argv=sys.argv[1:]):
     curl:  ct.POINTER(lcurl.CURL) = lcurl.easy_init()
     curl2: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, [curl, curl2], mcurl):
+    with curl_guard(False, [curl, curl2], mcurl) as guard:
 
         # set options
         lcurl.easy_setopt(curl,  lcurl.CURLOPT_URL, url1.encode("utf-8"))
         lcurl.easy_setopt(curl2, lcurl.CURLOPT_URL, url2.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl,  lcurl.CURLOPT_SSL_VERIFYPEER, 0)
             lcurl.easy_setopt(curl2, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
 
@@ -62,19 +62,19 @@ def main(argv=sys.argv[1:]):
 
         still_running = ct.c_int(1)  # keep number of running handles
         while still_running.value:
+
             mc: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
-            if still_running.value:
-                # wait for activity, timeout or "nothing"
-                mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
+            # wait for activity, timeout or "nothing"
+            if still_running.value: mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
             if mc:
                 break
 
             while True:
-                queued = ct.c_int()
-                msg: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
-                                                                       ct.byref(queued))
-                if not msg: break
-                msg = msg.contents
+                msgs_left = ct.c_int()
+                msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
+                                                                        ct.byref(msgs_left))
+                if not msgp: break
+                msg = msgp.contents
 
                 if msg.msg == lcurl.CURLMSG_DONE:
                     # a transfer ended

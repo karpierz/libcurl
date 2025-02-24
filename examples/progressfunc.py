@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Use the progress callbacks, old and/or new one depending on available
@@ -31,7 +31,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 if not lcurl.CURL_AT_LEAST_VERSION(7, 61, 0):
     # 1. xferinfo was introduced in 7.32.0, no earlier libcurl versions
@@ -40,7 +40,6 @@ if not lcurl.CURL_AT_LEAST_VERSION(7, 61, 0):
     #    plain microseconds.
     print("This example requires curl 7.61.0 or later", file=sys.stderr)
     sys.exit(-1)
-
 
 MINIMAL_PROGRESS_FUNCTIONALITY_INTERVAL = 3000000
 STOP_DOWNLOAD_AFTER_THIS_MANY_BYTES     = 6000
@@ -70,10 +69,10 @@ def xferinfo(clientp, dltotal, dlnow, ultotal, ulnow):
     if time_difference >= MINIMAL_PROGRESS_FUNCTIONALITY_INTERVAL:
         client.lastruntime = curtime_value
         print("TOTAL TIME: %u.%06u" %
-              (curtime_value // 1000000, curtime_value % 1000000),
+              (curtime_value // 1_000_000, curtime_value % 1_000_000),
               file=sys.stderr)
 
-    print("UP: %u of %u  DOWN: %u of %u" %
+    print("UP: %d of %d  DOWN: %d of %d" %
           (ulnow, ultotal, dlnow, dltotal), file=sys.stderr)
 
     if dlnow > STOP_DOWNLOAD_AFTER_THIS_MANY_BYTES:
@@ -88,13 +87,13 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         progress = myprogress(0, curl)
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_XFERINFOFUNCTION, xferinfo)
         # pass the struct pointer into the xferinfo function
@@ -105,8 +104,7 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
     return int(res)
 

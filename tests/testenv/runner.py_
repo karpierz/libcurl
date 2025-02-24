@@ -1,0 +1,1396 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+# This module contains entry points to run a single test. runner_init
+# determines whether they will run in a separate process or in the process of
+# the caller. The relevant interface is asynchronous so it will work in either
+# case. Program arguments are marshalled and then written to the end of a pipe
+# (in controller_ipc_call) which is later read from and the arguments
+# unmarshalled (in ipcrecv) before the desired function is called normally.
+# The function return values are then marshalled and written into another pipe
+# (again in ipcrecv) when is later read from and unmarshalled (in runnerar)
+# before being returned to the caller.
+
+import sys
+import os
+import pathlib
+import time
+
+from .. import globalconfig as config
+import getpart, servers, testutil
+from pathhelp import exe_ext
+from testutil import log_msg
+
+package runner;
+
+Time::HiRes::time()  # TODO: znalezc odpowiednik w pythonie
+
+use strict;
+use warnings;
+use 5.006;
+
+BEGIN {
+    use base qw(Exporter);
+
+    our @EXPORT = qw(
+        check_test_cmd
+        prepro
+        'readtestkeywords',
+        'restore_test_env',
+        'runner_init',
+        'runnerac_clearlocks',
+        'runnerac_shutdown',
+        'runnerac_stopservers',
+        'runnerac_test_preprocess',
+        'runnerac_test_run',
+        'runnerar',
+        'runnerar_ready',
+        'stdoutfilename',
+        'stderrfilename',
+        $DBGCURL
+        $gdb
+        $gdbthis
+        $gdbxwin
+        $shallow
+        $tortalloc
+        '$valgrind_logfile',
+        'valgrind_tool',
+    );
+
+    # these are for debugging only
+    our @EXPORT_OK = qw(
+        singletest_preprocess
+    );
+}
+
+use B qw(
+    svref_2object
+    );
+use Storable qw(
+    freeze
+    thaw
+    );
+
+import servers
+use servers qw(
+    initserverconfig
+    stopserver
+
+    );
+use getpart;
+use globalconfig;
+use testutil qw(
+    subbase64
+    subsha256base64file
+    substrippemfile
+    subnewlines
+    );
+use valgrind;
+
+
+#######################################################################
+# Global variables set elsewhere but used only by this package
+# These may only be set *before* runner_init is called
+our $DBGCURL=$CURL; #"../src/.libs/curl";  # alternative for debugging
+$valgrind_logfile: str = "--log-file"  # the option name for valgrind >=3
+valgrind_tool:    str = "--tool=memcheck"
+our $gdb = check_test_cmd("gdb")
+our $gdbthis = 0;  # run test case with debugger (gdb or lldb)
+our $gdbxwin;      # use windowed gdb when using gdb
+
+# torture test variables
+our $shallow;
+our $tortalloc;
+
+# local variables
+my %oldenv;       # environment variables before test is started
+my $UNITDIR = "./unit";
+CURLLOG: Path = config.LOGDIR/"commands.log" # all command lines run
+my $defserverlogslocktimeout = 5; # timeout to await server logs lock removal
+my $defpostcommanddelay = 0; # delay between command and postcheck sections
+my $multiprocess;   # nonzero with a separate test runner process
+
+# pipes
+my $runnerr;        # pipe that runner reads from
+my $runnerw;        # pipe that runner writes to
+
+# per-runner variables, indexed by runner ID; these are used by controller only
+my %controllerr;    # pipe that controller reads from
+my %controllerw;    # pipe that controller writes to
+
+# OK
+def stdoutfilename(log_dir: Path, test_num) -> Path:
+    """redirected stdout/stderr to these files"""
+    return log_dir/f"stdout{test_num}"
+
+# OK
+def stderrfilename(log_dir: Path, test_num) -> Path:
+    """redirected stdout/stderr to these files"""
+    return log_dir/f"stderr{test_num}"
+
+def runner_init($logdir: Path, $jobs):
+    """
+    Initialize the runner and prepare it to run tests
+    The runner ID returned by this function must be passed into the other
+    runnerac_* functions
+    Called by controller
+    """
+
+    $multiprocess = !!$jobs;
+
+    # enable memory debugging if curl is compiled with it
+    $ENV{'CURL_MEMDEBUG'}    = str($logdir/config.MEMDUMP)
+    $ENV{'CURL_ENTROPY'}     = "12345678"
+    $ENV{'CURL_FORCETIME'}   = 1  # for debug NTLM magic
+    $ENV{'CURL_GLOBAL_INIT'} = 1  # debug curl_global_init/cleanup use
+    $ENV{'HOME'}             = $pwd;
+    $ENV{'CURL_HOME'}        = $ENV{'HOME'}
+    $ENV{'XDG_CONFIG_HOME'}  = $ENV{'HOME'}
+    $ENV{'COLUMNS'}          = 79  # screen width!
+
+    # Incorporate the $logdir into the random seed and re-seed the PRNG.
+    # This gives each runner a unique yet consistent seed which provides
+    # more unique port number selection in each runner, yet is deterministic
+    # across runs.
+    $randseed += unpack('%16C*', $logdir)
+    srand $randseed;
+
+    # create pipes for communication with runner
+    my ($thisrunnerr, $thiscontrollerw, $thiscontrollerr, $thisrunnerw);
+    pipe $thisrunnerr, $thiscontrollerw;
+    pipe $thiscontrollerr, $thisrunnerw;
+
+    my $thisrunnerid;
+    if $multiprocess:
+        # Create a separate process in multiprocess mode
+        my $child = fork();
+        if(0 == $child) {
+            # TODO: set up better signal handlers
+            $SIG{INT} = 'IGNORE';
+            $SIG{TERM} = 'IGNORE';
+            eval {
+                # some msys2 perl versions don't define SIGUSR1
+                $SIG{USR1} = 'IGNORE';
+            };
+
+            $thisrunnerid = $$;
+            if config.verbose: print("Runner $thisrunnerid starting")
+
+            # Here we are the child (runner).
+            close($thiscontrollerw);
+            close($thiscontrollerr);
+            $runnerr = $thisrunnerr;
+            $runnerw = $thisrunnerw;
+
+            # Set this directory as ours
+            config.LOGDIR = $logdir
+            (config.LOGDIR/config.PIDDIR).mkdir(0777)
+            (config.LOGDIR/config.LOCKDIR).mkdir(0777)
+
+            # Initialize various server variables
+            initserverconfig();
+
+            # handle IPC calls
+            event_loop()
+
+            # Can't rely on log_msg here in case it's buffered
+            if config.verbose: print("Runner $thisrunnerid exiting")
+
+            # To reach this point, either the controller has sent
+            # runnerac_stopservers() and runnerac_shutdown() or we have called
+            # runnerabort(). In both cases, there are no more of our servers
+            # running and we can safely exit.
+            exit 0;
+        }
+
+        # Here we are the parent (controller).
+        close($thisrunnerw);
+        close($thisrunnerr);
+
+        $thisrunnerid = $child;
+
+    else:
+        # Create our pid directory
+        (config.LOGDIR/config.PIDDIR).mkdir(0777)
+
+        # Don't create a separate process
+        $thisrunnerid = "integrated"
+
+    $controllerw{$thisrunnerid} = $thiscontrollerw;
+    $runnerr = $thisrunnerr;
+    $runnerw = $thisrunnerw;
+    $controllerr{$thisrunnerid} = $thiscontrollerr;
+
+    return $thisrunnerid;
+
+# OK
+def event_loop():
+    """Loop to execute incoming IPC calls until the shutdown call"""
+    while True:
+        if ipcrecv():
+            break
+
+def check_test_cmd(cmd: str):
+    """Check for a command in the PATH of the machine running curl."""
+    test_paths = [config.LIBDIR/".libs", config.LIBDIR]
+    return servers.checkcmd(cmd, test_paths)
+
+def use_valgrind() -> bool:
+    """See if Valgrind should actually be used"""
+    if config.valgrind:
+        valgrind_option = getpart.get_part("verify", "valgrind")
+        if ! valgrind_option || $valgrind_option[0] !~ /disable/:
+            return True
+    return False
+
+# Massage the command result code into a useful form
+sub normalize_cmdres {
+    my $cmdres = $_[0];
+    my $signal_num  = $cmdres & 127;
+    my $dumped_core = $cmdres & 128;
+
+    if(!$anyway && ($signal_num || $dumped_core)) {
+        $cmdres = 1000;
+    }
+    else {
+        $cmdres >>= 8;
+        $cmdres = (2000 + $signal_num) if($signal_num && !$cmdres);
+    }
+    return ($cmdres, $dumped_core);
+}
+
+# 'prepro' processes the input array and replaces %-variables in the array
+# etc. Returns the processed version of the array
+sub prepro {
+    my $testnum = shift;
+    my (@entiretest) = @_;
+    my $show = 1;
+    my @out;
+    my $data_crlf;
+    my @pshow;
+    my @altshow;
+    my $plvl;
+    my $line;
+    for my $s (@entiretest) {
+        my $f = $s;
+        $line += 1
+        if($s =~ /^ *%if (.*)/) {
+            my $cond = $1;
+            my $rev = 0;
+
+            if($cond =~ /^!(.*)/) {
+                $cond = $1;
+                $rev = 1;
+            }
+            $rev ^= config.feature[$cond] ? 1 : 0;
+            push @pshow, $show; # push the previous state
+            $plvl += 1
+            if($show) {
+                # only if this was showing before we can allow the alternative
+                # to go showing as well
+                push @altshow, $rev ^ 1; # push the reversed show state
+            }
+            else {
+                push @altshow, 0; # the alt should still hide
+            }
+            if($show) {
+                # we only allow show if already showing
+                $show = $rev;
+            }
+            continue
+        }
+        elif ($s =~ /^ *%else/) {
+            if(!$plvl) {
+                print(f"error: test$testnum:$line: %else no %if", file=sys.stderr)
+                break
+            }
+            $show = @altshow.pop()
+            push @altshow, $show; # put it back for consistency
+            continue
+        }
+        elif ($s =~ /^ *%endif/) {
+            if(!$plvl--) {
+                print(f"error: test$testnum:$line: %endif had no %if", file=sys.stderr)
+                break
+            }
+            $show = @pshow.pop()
+            @altshow.pop() # not used here but we must pop it
+            continue
+        }
+        if($show) {
+            # The processor does CRLF replacements in the <data*> sections if
+            # necessary since those parts might be read by separate servers.
+            if($s =~ /^ *<data(.*)\>/) {
+                if($1 =~ /crlf="yes"/ ||
+                   (config.feature["hyper"] && ($keywords{"HTTP"} || $keywords{"HTTPS"}))) {
+                    $data_crlf = 1;
+                }
+            }
+            elif (($s =~ /^ *<\/data/) && $data_crlf) {
+                $data_crlf = 0;
+            }
+            $s = servers.sub_variables($s, $testnum, "%")
+            subbase64(\$s);
+            subsha256base64file(\$s);
+            substrippemfile(\$s);
+            subnewlines(0, \$s) if($data_crlf);
+            push @out, $s;
+        }
+    }
+    return @out;
+}
+
+def readtestkeywords():
+    """Load test keywords into %keywords hash"""
+    global %keywords
+    info_keywords = getpart.get_part("info", "keywords")
+    # Clear the list of keywords from the last test
+    %keywords = {}
+    for kwd in info_keywords:
+        chomp kwd;
+        $keywords[kwd] = True
+
+
+def logs_locked() -> List:
+    """Return a list of log locks that still exist"""
+    opendir(my $lockdir, config.LOGDIR/config.LOCKDIR)
+    locks = []
+    foreach (readdir $lockdir):
+        if (/^(.*)\.lock$/):
+            locks.append($1)
+    return locks
+
+
+def torture($testcmd, $testnum, $gdbline):
+    """Memory allocation test and failure torture testing."""
+
+    # remove memdump first to be sure we get a new nice and clean one
+    (config.LOGDIR/config.MEMDUMP).unlink()
+
+    # First get URL from test server, ignore the output/result
+    testutil.run_client($testcmd)
+
+    if config.verbose: log_msg(" CMD: $testcmd")
+
+    # memanalyze -v is our friend, get the number of allocations made
+    my $count=0;
+    my @out = `$memanalyze -v f"{config.LOGDIR}/{config.MEMDUMP}"`;
+    for(@out) {
+        if(/^Operations: (\d+)/) {
+            $count = $1;
+            break
+        }
+    }
+    if(!$count) {
+        log_msg(" found no functions to make fail")
+        return 0;
+    }
+
+    my @ttests = (1 .. $count);
+    if($shallow && ($shallow < $count)) {
+        my $discard = scalar(@ttests) - $shallow;
+        my $percent = sprintf("%.2f%%", $shallow * 100 / scalar(@ttests));
+        log_msg(" $count functions found, but only fail $shallow ($percent)")
+        while($discard) {
+            my $rm;
+            do {
+                # find a test to discard
+                $rm = rand(scalar(@ttests));
+            } while(!$ttests[$rm]);
+            $ttests[$rm] = undef;
+            $discard -= 1
+        }
+    }
+    else {
+        log_msg(f" {$count} functions to make fail")
+    }
+
+    for (@ttests) {
+        my $limit = $_;
+        my $fail;
+        my $dumped_core;
+
+        if(!defined($limit)) {
+            # --shallow can undefine them
+            continue
+        }
+        if($tortalloc && ($tortalloc != $limit)) {
+            continue
+        }
+
+        if config.verbose:
+            $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst = localtime(time())
+            my $now = sprintf("%02d:%02d:%02d ", $hour, $min, $sec);
+            log_msg("Fail function no: $limit at $now\r", end="")
+
+        # make the memory allocation function number $limit return failure
+        $ENV{'CURL_MEMLIMIT'} = $limit;
+
+        # remove memdump first to be sure we get a new nice and clean one
+        (config.LOGDIR/config.MEMDUMP).unlink()
+
+        my $cmd = $testcmd;
+        if config.valgrind and not $gdbthis:
+            my @valgrindoption = getpart.get_part("verify", "valgrind")
+            if((!@valgrindoption) || ($valgrindoption[0] !~ /disable/)) {
+                valgrind_cmd  = "{config.valgrind} ";
+                if valgrind_tool;
+                    valgrind_cmd += "{valgrind_tool} "
+                valgrind_cmd += "--quiet --leak-check=yes ";
+                valgrind_cmd += "--suppressions=$srcdir/valgrind.supp ";
+                # valgrind_cmd += "--gen-suppressions=all ";
+                valgrind_cmd += "--num-callers=16 ";
+                valgrind_cmd += f"${valgrind_logfile}={config.LOGDIR}/valgrind$testnum";
+                $cmd = f"{valgrind_cmd} $testcmd";
+            }
+        if $gdbthis: log_msg("*** Function number $limit is now set to fail ***")
+
+        my $ret = 0;
+        if($gdbthis) {
+            testutil.run_client($gdbline)
+        }
+        else {
+            $ret = testutil.run_client($cmd)
+        }
+        #log_msg("$_ Returned " . ($ret >> 8) . "")
+
+        # Now clear the variable again
+        del $ENV{'CURL_MEMLIMIT'} if($ENV{'CURL_MEMLIMIT'});
+
+        if(-r "core") {
+            # there's core file present now!
+            log_msg(" core dumped")
+            $dumped_core = 1;
+            $fail = 2;
+        }
+
+        if config.valgrind:
+            my @e = valgrind_parse(config.LOGDIR/"valgrind$testnum")
+            if(@e && $e[0]) {
+                if($automakestyle) {
+                    log_msg("FAIL: torture $testnum - valgrind")
+                }
+                else {
+                    log_msg(" valgrind ERROR ", end="")
+                    log_msg(@e, end="")
+                }
+                $fail = 1;
+            }
+
+        # verify that it returns a proper error code, doesn't leak memory
+        # and doesn't core dump
+        if(($ret & 255) || ($ret >> 8) >= 128) {
+            log_msg(" system() returned $ret")
+            $fail=1;
+        }
+        else {
+            my @memdata=`$memanalyze f"{config.LOGDIR}/{config.MEMDUMP}"`;
+            my $leak=0;
+            for(@memdata) {
+                if($_ != "") {
+                    # well it could be other memory problems as well, but
+                    # we call it leak for short here
+                    $leak=1;
+                }
+            }
+            if($leak) {
+                log_msg("** MEMORY FAILURE")
+                log_msg(@memdata, end="")
+                log_msg(`$memanalyze -l f"{config.LOGDIR}/{config.MEMDUMP}"`, end="")
+                $fail = 1;
+            }
+        }
+        if($fail) {
+            log_msg(f" $testnum: torture FAILED: function number $limit in test.\n",
+                    f" invoke with \"-t$limit\" to repeat this single case.")
+            servers.stopservers(config.verbose)
+            return 1;
+        }
+    }
+
+    if config.verbose: log_msg("")
+    log_msg("torture OK")
+
+    return 0;
+
+
+def restore_test_env(delete_old_env: bool):
+    """restore environment variables that were modified in test"""
+    # delete_old_env: 1 to delete the saved contents after restore
+    global %oldenv
+    for var in %oldenv.keys():
+        if oldenv[var] == 'notset':
+            if $ENV[var]: del $ENV[var]
+        else:
+            $ENV[var] = oldenv[var]
+        if delete_old_env:
+            del oldenv[var]
+
+
+def singletest_startservers($testnum, $testtimings: Dict)"
+    """Start the servers needed to run this test case"""
+
+    # remove old test server files before servers are started/verified
+    (config.LOGDIR/config.SERVERCMD).unlink()
+    (config.LOGDIR/config.SERVERIN).unlink()
+    (config.LOGDIR/config.PROXYIN).unlink()
+
+    # timestamp required servers verification start
+    $testtimings["timesrvrini"] = Time::HiRes::time();
+
+    my $why;
+    my $error;
+    if not config.listonly:
+        my @what = getpart.get_part("client", "server")
+        if(!$what[0]) {
+            warn "Test case $testnum has no server(s) specified";
+            $why = "no server specified";
+            $error = -1;
+        } else {
+            my $err;
+            ($why, $err) = servers.server_for_test(@what)
+            if($err == 1) {
+                # Error indicates an actual problem starting the server
+                $error = -2;
+            } else {
+                $error = -1;
+            }
+        }
+
+    # timestamp required servers verification end
+    testtimings["timesrvrend"] = Time::HiRes::time();
+
+    return ($why, $error);
+
+def singletest_preprocess(test_num):
+    """Generate preprocessed test file"""
+    test_log = config.LOGDIR/f"test{test_num}"
+
+    # Save a preprocessed version of the entire test file. This allows
+    # more "basic" test case readers to enjoy variable replacements.
+    entire_test = getpart.full_test()
+    entire_test = prepro(test_num, entire_test)
+
+    # save the new version
+    try:
+        log_fh = test_log.open("wb")
+    except:
+        die("Failure writing test file")
+    try:
+        chunk = b""
+        for chunk in entire_test:
+            log_fh.write(pack('a*', chunk))
+    except Exception as exc:
+        die(f"Failed to print '{chunk}': {exc.errno}!")
+    finally:
+        try:
+            log_fh.close()
+        except:
+            die("Failure writing test file")
+
+    # in case the process changed the file, reload it
+    getpart.load_test(test_log)
+
+#######################################################################
+# Set up the test environment to run this test case
+sub singletest_setenv {
+    my @setenv = getpart.get_part("client", "setenv")
+    foreach my $s (@setenv) {
+        chomp $s;
+        if($s =~ /([^=]*)=(.*)/) {
+            my ($var, $content) = ($1, $2);
+            # remember current setting, to restore it once test runs
+            $oldenv{$var} = ($ENV{$var})?"$ENV{$var}":'notset';
+            # set new value
+            if(!$content) {
+                del $ENV{$var} if($ENV{$var});
+            }
+            else {
+                if($var =~ /^LD_PRELOAD/) {
+                    if exe_ext('TOOL') && exe_ext('TOOL') == '.exe':
+                        if config.verbose: log_msg("Skipping LD_PRELOAD due to lack of OS support")
+                        continue
+                    if(config.feature["debug"] || !$has_shared) {
+                        if config.verbose: log_msg("Skipping LD_PRELOAD due to no release shared build")
+                        continue
+                    }
+                }
+                $ENV{$var} = "$content";
+                if config.verbose: log_msg("setenv $var = $content")
+            }
+        }
+    }
+    if config.proxy_address:
+        $ENV{http_proxy}  = config.proxy_address
+        $ENV{HTTPS_PROXY} = config.proxy_address
+}
+
+
+#######################################################################
+# Check that test environment is fine to run this test case
+sub singletest_precheck {
+    my $testnum = $_[0];
+    my $why;
+    my @precheck = getpart.get_part("client", "precheck")
+    if(@precheck) {
+        my $cmd = $precheck[0];
+        chomp $cmd;
+        if($cmd) {
+            my @p = split(/ /, $cmd);
+            if($p[0] !~ /\//) {
+                # the first word, the command, does not contain a slash so
+                # we will scan the "improved" PATH to find the command to
+                # be able to run it
+                my $fullp = check_test_cmd($p[0])
+
+                if($fullp) {
+                    $p[0] = $fullp;
+                }
+                $cmd = join(" ", @p);
+            }
+
+            my @o = `$cmd 2> config.LOGDIR/precheck-$testnum`;
+            if($o[0]) {
+                $why = $o[0];
+                $why =~ s/[\r\n]//g;
+            }
+            elif ($?) {
+                $why = "precheck command error";
+            }
+            if config.verbose: log_msg("prechecked $cmd")
+        }
+    }
+    return $why;
+}
+
+
+def singletest_prepare(test_num):
+    """Prepare the test environment to run this test case"""
+
+    if config.feature["TrackMemory"]:
+        (config.LOGDIR/config.MEMDUMP).unlink()
+    Path("core").unlink()
+
+    # remove server output logfiles after servers are started/verified
+    (config.LOGDIR/config.SERVERIN).unlink()
+    (config.LOGDIR/config.PROXYIN).unlink()
+
+    # if this section exists, it might be FTP server instructions:
+    ftp_server_cmds = getpart.get_part("reply", "servercmd")
+    ftp_server_cmds.append(f"Testnum {test_num}\n")
+    # write the instructions to file
+    getpart.write_array(config.LOGDIR/config.SERVERCMD, ftp_server_cmds)
+
+    # create (possibly-empty) files before starting the test
+    for my $partsuffix in ('', '1', '2', '3', '4'):
+        my @inputfile = getpart.get_part("client", "file".$partsuffix)
+        my %fileattr  = getpart.get_partattr("client", "file".$partsuffix)
+        my $filename=$fileattr{'name'};
+        if @inputfile or $filename:
+            if not $filename:
+                log_msg(f" {test_num}: IGNORED: section client=>file has no name attribute")
+                return -1;
+            my $fileContent = ''.join(@inputfile)
+
+            # make directories if needed
+            my $path = $filename;
+            # cut off the file name part
+            $path =~ s/^(.*)\/[^\/]*/$1/;
+            my @ldparts = split(/\//, str(config.LOGDIR))
+            my $nparts = @ldparts;
+            my @parts = split(/\//, $path);
+            if(join("/", @parts[0..$nparts-1]) == str(config.LOGDIR)) {
+                # the file is in config.LOGDIR/
+                my $d = shift @parts;
+                for(@parts) {
+                    $d += "/$_";
+                    mkdir $d; # 0777
+                }
+            }
+            if open(my $outfile, ">", "$filename"):
+                binmode $outfile; # for crapage systems, use binary
+                if $fileattr{'nonewline'}:
+                    # cut off the final newline
+                    chomp($fileContent);
+                print $outfile $fileContent;
+                close($outfile);
+            else:
+                log_msg(f"ERROR: cannot write {$filename}")
+    return 0
+
+
+sub singletest_run($testnum, $testtimings):
+    """Run the test command"""
+
+    # get the command line options to use
+    my ($cmd, @blaha)= getpart.get_part("client", "command")
+    if($cmd) {
+        # make some nice replace operations
+        $cmd =~ s/\n//g; # no newlines please
+        # substitute variables in the command line
+    }
+    else {
+        # there was no command given, use something silly
+        $cmd="-";
+    }
+
+    my $CURLOUT = config.LOGDIR/"curl$testnum.out"; # curl output if not stdout
+
+    # if stdout section exists, we verify that the stdout contained this:
+    my $out="";
+    my %cmdhash = getpart.get_partattr("client", "command")
+    if((!$cmdhash{'option'}) || ($cmdhash{'option'} !~ /no-output/)) {
+        #We may slap on --output!
+        if (not getpart.part_exists("verify", "stdout") ||
+                ($cmdhash{'option'} && $cmdhash{'option'} =~ /force-output/)) {
+            $out=" --output $CURLOUT ";
+        }
+    }
+
+    my @codepieces = getpart.get_part("client", "tool")
+    my $tool="";
+    if(@codepieces) {
+        $tool = $codepieces[0];
+        chomp $tool;
+        $tool .= exe_ext('TOOL')
+    }
+
+    disable_valgrind = False
+    my $CMDLINE="";
+    my $cmdargs;
+    my $cmdtype = $cmdhash{'type'} || "default";
+    my $fail_due_event_based = $run_event_based;
+    if($cmdtype == "perl") {
+        # run the command line prepended with "perl"
+        $cmdargs ="$cmd";
+        $CMDLINE = "$perl ";
+        $tool=$CMDLINE;
+        disable_valgrind = True
+    }
+    elif ($cmdtype == "shell") {
+        # run the command line prepended with "/bin/sh"
+        $cmdargs ="$cmd";
+        $CMDLINE = "/bin/sh ";
+        $tool=$CMDLINE;
+        disable_valgrind = True
+    }
+    elif (!$tool && !$keywords{"unittest"}) {
+        # run curl, add suitable command line options
+        my $inc="";
+        if((!$cmdhash{'option'}) || ($cmdhash{'option'} !~ /no-include/)) {
+            $inc = " --include";
+        }
+        $cmdargs = "$out$inc ";
+
+        if($cmdhash{'option'} && ($cmdhash{'option'} =~ /binary-trace/)) {
+            $cmdargs .= f"--trace {config.LOGDIR}/trace$testnum ";
+        }
+        else {
+            $cmdargs .= f"--trace-ascii {config.LOGDIR}/trace$testnum ";
+        }
+        $cmdargs += "--trace-time ";
+        if($run_event_based) {
+            $cmdargs += "--test-event ";
+            $fail_due_event_based -= 1
+        }
+        $cmdargs .= $cmd;
+        if config.proxy_address:
+            $cmdargs += f" --proxy {config.proxy_address} "
+    }
+    else {
+        $cmdargs = " $cmd"; # $cmd is the command line for the test file
+        $CURLOUT = stdoutfilename(config.LOGDIR, $testnum); # sends received data to stdout
+
+        # Default the tool to a unit test with the same name as the test spec
+        if($keywords{"unittest"} && !$tool) {
+            $tool = "unit$testnum"
+        }
+
+        if($tool =~ /^lib/) {
+            $CMDLINE = config.LIBDIR/"$tool"
+        }
+        elif ($tool =~ /^unit/) {
+            $CMDLINE="$UNITDIR/$tool"
+        }
+
+        if(! -f $CMDLINE) {
+            log_msg(" $testnum: IGNORED: The tool set in the test case for this: '$tool' does not exist")
+            return (-1, 0, 0, "", "", 0);
+        }
+        $DBGCURL=$CMDLINE;
+    }
+
+    if($fail_due_event_based) {
+        log_msg(" $testnum: IGNORED: This test cannot run event based")
+        return (-1, 0, 0, "", "", 0);
+    }
+
+    if($gdbthis) {
+        # gdb is incompatible with valgrind, so disable it when debugging
+        # Perhaps a better approach would be to run it under valgrind anyway
+        # with --db-attach=yes or --vgdb=yes.
+        disable_valgrind = True
+    }
+
+    my @stdintest = getpart.get_part("client", "stdin")
+
+    if(@stdintest) {
+        my $stdinfile = config.LOGDIR/f"stdin-for-$testnum";
+
+        my %hash = getpart.get_partattr("client", "stdin")
+        if($hash{'nonewline'}) {
+            # cut off the final newline from the final line of the stdin data
+            chomp($stdintest[-1]);
+        }
+
+        getpart.write_array($stdinfile, @stdintest)
+
+        $cmdargs += " <$stdinfile";
+    }
+
+    if(!$tool) {
+        $CMDLINE = testutil.shell_quote($CURL)
+    }
+
+    if use_valgrind() and not disable_valgrind:
+        valgrind_cmd  = "{config.valgrind} ";
+        if valgrind_tool:
+            valgrind_cmd += "{valgrind_tool} "
+        valgrind_cmd += "--quiet --leak-check=yes ";
+        valgrind_cmd += "--suppressions=$srcdir/valgrind.supp ";
+        # valgrind_cmd += "--gen-suppressions=all ";
+        valgrind_cmd += "--num-callers=16 ";
+        valgrind_cmd += f"${valgrind_logfile}={config.LOGDIR}/valgrind$testnum";
+        $CMDLINE = f"{valgrind_cmd} $CMDLINE"
+
+    $CMDLINE += "$cmdargs > " . stdoutfilename(config.LOGDIR, $testnum) .
+                " 2> " . stderrfilename(config.LOGDIR, $testnum);
+
+    if config.verbose:
+        log_msg("$CMDLINE")
+
+    try:
+        open(my $cmdlog, ">", CURLLOG)
+    except:
+        die "Failure writing log file";
+
+    with $cmdlog:
+        print $cmdlog "$CMDLINE\n";
+    close($cmdlog) || die "Failure writing log file";
+
+    my $dumped_core;
+    my $cmdres;
+
+    if($gdbthis) {
+        my $gdbinit = config.TESTDIR/"gdbinit$testnum"
+        open(my $gdbcmd, ">", config.LOGDIR/"gdbcmd") || die "Failure writing gdb file";
+        if($gdbthis == 1) {
+            # gdb mode
+            print $gdbcmd "set args $cmdargs\n";
+            print $gdbcmd "show args\n";
+            print $gdbcmd "source $gdbinit\n" if -e $gdbinit;
+        }
+        else {
+            # lldb mode
+            print $gdbcmd "set args $cmdargs\n";
+        }
+        close($gdbcmd) || die "Failure writing gdb file";
+    }
+
+    # Flush output.
+    sys.stdout.reconfigure(line_buffering=False)
+    sys.stderr.reconfigure(line_buffering=False)
+
+    # timestamp starting of test command
+    $$testtimings{"timetoolini"} = Time::HiRes::time();
+
+    # run the command line we built
+    if config.torture:
+        $cmdres = torture($CMDLINE,
+                          $testnum,
+                          f"$gdb --directory {config.LIBDIR} " . testutil.shell_quote($DBGCURL) . f" -x {config.LOGDIR}/gdbcmd");
+    elif ($gdbthis == 1) {
+        # gdb
+        my $GDBW = ($gdbxwin) ? "-w" : "";
+        testutil.run_client(f"$gdb --directory {config.LIBDIR} " . testutil.shell_quote($DBGCURL) . f" $GDBW -x {config.LOGDIR}/gdbcmd")
+        $cmdres=0; # makes it always continue after a debugged run
+    }
+    elif ($gdbthis == 2) {
+        # $gdb is "lldb"
+        print "runs lldb -- $CURL $cmdargs\n";
+        testutil.run_client(f"lldb -- $CURL $cmdargs")
+        $cmdres=0; # makes it always continue after a debugged run
+    }
+    else {
+        # Convert the raw result code into a more useful one
+        $cmdres, $dumped_core = normalize_cmdres(testutil.run_client(f"$CMDLINE"))
+    }
+
+    # timestamp finishing of test command
+    $$testtimings{"timetoolend"} = Time::HiRes::time();
+
+    return (0, $cmdres, $dumped_core, $CURLOUT, $tool, use_valgrind() and not disable_valgrind)
+
+
+#######################################################################
+# Clean up after test command
+sub singletest_clean {
+    my ($testnum, $dumped_core, $testtimings)=@_;
+
+    if(!$dumped_core) {
+        if(-r "core") {
+            # there's core file present now!
+            $dumped_core = 1;
+        }
+    }
+
+    if($dumped_core) {
+        log_msg("core dumped")
+        if(0 && $gdb) {
+            log_msg("running gdb for post-mortem analysis:")
+            open(my $gdbcmd, ">", config.LOGDIR/"gdbcmd2") || die "Failure writing gdb file";
+            print $gdbcmd "bt\n";
+            close($gdbcmd) || die "Failure writing gdb file";
+            testutil.run_client(f"$gdb --directory libtest -x {config.LOGDIR}/gdbcmd2 -batch " . testutil.shell_quote($DBGCURL) . " core ")
+            # (config.LOGDIR/"gdbcmd2").unlink()
+        }
+    }
+
+    # If a server logs advisor read lock file exists, it is an indication
+    # that the server has not yet finished writing out all its log files,
+    # including server request log files used for protocol verification.
+    # So, if the lock file exists the script waits here a certain amount
+    # of time until the server removes it, or the given time expires.
+    my $serverlogslocktimeout = $defserverlogslocktimeout;
+    my %cmdhash = getpart.get_partattr("client", "command")
+    if($cmdhash{'timeout'}) {
+        # test is allowed to override default server logs lock timeout
+        if($cmdhash{'timeout'} =~ /(\d+)/) {
+            $serverlogslocktimeout = $1 if($1 >= 0);
+        }
+    }
+    if serverlogslocktimeout:
+        my $lockretry = $serverlogslocktimeout * 20;
+        my @locks;
+        while((@locks = logs_locked()) && $lockretry--):
+            processhelp.portable_sleep(0.05)
+        if(($lockretry < 0) &&
+           ($serverlogslocktimeout >= $defserverlogslocktimeout)) {
+            log_msg("Warning: server logs lock timeout ",
+                    f"($serverlogslocktimeout seconds) expired (locks: {@locks.join(', ')})")
+        }
+
+    # Test harness ssh server does not have this synchronization mechanism,
+    # this implies that some ssh server based tests might need a small delay
+    # once that the client command has run to avoid false test failures.
+    #
+    # gnutls-serv also lacks this synchronization mechanism, so gnutls-serv
+    # based tests might need a small delay once that the client command has
+    # run to avoid false test failures.
+    my $postcommanddelay = $defpostcommanddelay;
+    if $cmdhash{'delay'}:
+        # test is allowed to specify a delay after command is executed
+        if ($cmdhash{'delay'} =~ /(\d+)/):
+            $postcommanddelay = $1 if($1 > 0);
+
+    if $postcommanddelay: processhelp.portable_sleep($postcommanddelay)
+
+    # timestamp removal of server logs advisor read lock
+    $$testtimings{"timesrvrlog"} = Time::HiRes::time();
+
+    # test definition might instruct to stop some servers
+    # stop also all servers relative to the given one
+
+    my @killtestservers = getpart.get_part("client", "killserver")
+    if(@killtestservers) {
+        foreach my $server (@killtestservers) {
+            chomp $server;
+            if(stopserver($server)) {
+                log_msg(" $testnum: killserver FAILED")
+                return 1; # normal error if asked to fail on unexpected alive
+            }
+        }
+    }
+    return 0;
+}
+
+def singletest_postcheck(test_num) -> int:
+    """Verify that the postcheck succeeded"""
+
+    # run the postcheck command
+    postcheck: List = getpart.get_part("client", "postcheck")
+    if not postcheck:
+        return 0
+
+    cmd = "".join(postcheck)
+    chomp cmd;
+    if cmd:
+        if config.verbose: log_msg(f"postcheck {cmd}")
+        rc = testutil.run_client(cmd)
+        # Must run the postcheck command in torture mode in order
+        # to clean up, but the result can't be relied upon.
+        if rc != 0 and not config.torture:
+            log_msg(f" {test_num}: postcheck FAILED")
+            return -1
+
+    return 0
+
+# OK
+def runner_test_preprocess(test_num) -> Tuple:
+    """Get ready to run a single test case"""
+
+    test_timings: Dict = {}
+
+    if testutil.clear_logs():
+        log_msg("Warning: log messages were lost")
+
+    # timestamp test preparation start
+    # TODO: this metric now shows only a portion of the prep time; better would
+    # be to time singletest_preprocess below instead
+    test_timings["timeprepini"] = Time::HiRes::time()
+
+    # Load test metadata
+    # ignore any error here--if there were one, it would have been
+    # caught during the selection phase and this test would not be
+    # running now
+    getpart.load_test(config.TESTDIR/f"test{testnum}")
+    readtestkeywords()
+
+    # Restore environment variables that were modified in a previous run.
+    # Test definition may instruct to (un)set environment vars.
+    restore_test_env(delete_old_env=True)
+
+    # Start the servers needed to run this test case
+    why, error = singletest_startservers(test_num, test_timings)
+
+    if not why:
+        # Generate preprocessed test file
+        # This must be done after the servers are started so server
+        # variables are available for substitution.
+        singletest_preprocess(test_num)
+
+        # Set up the test environment to run this test case
+        singletest_setenv()
+
+        # Check that the test environment is fine to run this test case
+        if not config.listonly:
+            why   = singletest_precheck(test_num)
+            error = -1
+
+    return (why, error, testutil.clear_logs(), test_timings)
+
+# OK
+def runner_test_run(test_num):
+    """
+    Run a single test case with an environment that already been prepared
+    Returns 0=success, -1=skippable failure, -2=permanent error,
+      1=unskippable test failure, as first integer, plus any log messages,
+      plus more return values when error is 0
+    """
+
+    if testutil.clear_logs():
+        log_msg("Warning: log messages were lost")
+
+    # Prepare the test environment to run this test case
+    error = singletest_prepare(test_num)
+    if error:
+        return (-2, testutil.clear_logs())
+
+    # Run the test command
+    test_timings = {}
+
+    error, cmdres, dumped_core, CURLOUT, tool, used_valgrind = singletest_run(test_num, test_timings)
+    if error:
+        return (-2, testutil.clear_logs(), test_timings)
+
+    # Clean up after test command
+    error = singletest_clean(test_num, dumped_core, test_timings)
+    if error:
+        return (error, testutil.clear_logs(), test_timings)
+
+    # Verify that the postcheck succeeded
+    error = singletest_postcheck(test_num)
+    if error:
+        return (error, testutil.clear_logs(), test_timings)
+
+    # restore environment variables that were modified
+    restore_test_env(delete_old_env=False)
+
+    return (0, testutil.clear_logs(), test_timings, cmdres, CURLOUT, tool, used_valgrind)
+
+# OK
+def runnerac_clearlocks(*args):
+    """
+    Async call runner_clearlocks
+    Called by controller
+    """
+    return controller_ipc_call(runner_clearlocks, *args)
+
+def runnerac_shutdown(runner_id, *args):
+    """
+    Async call runner_shutdown
+    This call does NOT generate an IPC response and must be the last IPC call
+    received.
+    Called by controller
+    """
+    err = controller_ipc_call(runner_shutdown, runner_id, *args)
+    # These have no more use
+    close($controllerw{runner_id}); undef $controllerw{runner_id};
+    close($controllerr{runner_id}); undef $controllerr{runner_id};
+    return err
+
+# OK
+def runnerac_stopservers(*args):
+    """
+    Async call of runner_stopservers
+    Called by controller
+    """
+    return controller_ipc_call(runner_stopservers, *args)
+
+# OK
+def runnerac_test_preprocess(*args):
+    """
+    Async call of runner_test_preprocess
+    Called by controller
+    """
+    return controller_ipc_call(runner_test_preprocess, *args)
+
+# OK
+def runnerac_test_run(*args):
+    """
+    Async call of runner_test_run
+    Called by controller
+    """
+    return controller_ipc_call(runner_test_run, *args)
+
+###################################################################
+# Call an arbitrary function via IPC
+# The first argument is the function reference, the second is the runner ID
+# Returns 0 on success, -1 on error writing to runner
+# Called by controller (indirectly, via a more specific function)
+def controller_ipc_call($funcref, $runnerid, *args):
+    my $funcref = shift @_;
+    my $runnerid = shift @_;
+    # Get the name of the function from the reference
+    my $cv = svref_2object($funcref);
+    my $gv = $cv->GV;
+    # Prepend the name to the function arguments so it's marshalled along with them
+    unshift @_, $gv->NAME;
+    # Marshall the arguments into a flat string
+    my $margs = freeze \@_;
+
+    # Send IPC call via pipe
+    my $err;
+    while(! defined ($err = syswrite($controllerw{$runnerid}, (pack "L", length($margs)) . $margs)) || $err <= 0) {
+        if((!defined $err && ! $!{EINTR}) || (defined $err && $err == 0)) {
+            # Runner has likely died
+            return -1;
+        }
+        # system call was interrupted, probably by ^C; restart it so we stay in sync
+    }
+
+    if(!$multiprocess) {
+        # Call the remote function here in single process mode
+        ipcrecv();
+     }
+     return 0;
+
+
+###################################################################
+# Receive async response of a previous call via IPC
+# The first return value is the runner ID or undef on error
+# Called by controller
+def runnerar($runnerid):
+
+    my $err;
+    my $datalen;
+    while(! defined ($err = sysread($controllerr{$runnerid}, $datalen, 4)) || $err <= 0) {
+        if((!defined $err && ! $!{EINTR}) || (defined $err && $err == 0)) {
+            # Runner is likely dead and closed the pipe
+            return undef;
+        }
+        # system call was interrupted, probably by ^C; restart it so we stay in sync
+    }
+    my $len=unpack("L", $datalen);
+    my $buf;
+    while(! defined ($err = sysread($controllerr{$runnerid}, $buf, $len)) || $err <= 0) {
+        if((!defined $err && ! $!{EINTR}) || (defined $err && $err == 0)) {
+            # Runner is likely dead and closed the pipe
+            return undef;
+        }
+        # system call was interrupted, probably by ^C; restart it so we stay in sync
+    }
+
+    # Decode response values
+    my $resarrayref = thaw $buf;
+
+    # First argument is runner ID
+    # TODO: remove this; it's unneeded since it's passed in
+    unshift @$resarrayref, $runnerid;
+    return @$resarrayref;
+
+
+def runnerar_ready($blocking):
+    # Returns runner ID if a response from an async call is ready or error
+    # First value is ready, second is error, however an error case shows up
+    # as ready in Linux, so you can't trust it.
+    # argument is 0 for nonblocking, undef for blocking, anything else for timeout
+    # Called by controller
+
+    my $rin = "";
+    my %idbyfileno;
+    my $maxfileno=0;
+    foreach my $p (keys(%controllerr)) {
+        my $fd = fileno($controllerr{$p});
+        vec($rin, $fd, 1) = 1;
+        $idbyfileno{$fd} = $p;  # save the runner ID for each pipe fd
+        if($fd > $maxfileno) {
+            $maxfileno = $fd;
+        }
+    }
+    $maxfileno || die "Internal error: no runners are available to wait on\n";
+
+    # Wait for any pipe from any runner to be ready
+    # This may be interrupted and return EINTR, but this is ignored and the
+    # caller will need to later call this function again.
+    # TODO: this is relatively slow with hundreds of fds
+    my $ein = $rin;
+    if(select(my $rout=$rin, undef, my $eout=$ein, $blocking) >= 1) {
+        for my $fd (0..$maxfileno) {
+            # Return an error condition first in case it's both
+            if(vec($eout, $fd, 1)) {
+                return (undef, $idbyfileno{$fd});
+            }
+            if(vec($rout, $fd, 1)) {
+                return ($idbyfileno{$fd}, undef);
+            }
+        }
+        die("Internal pipe readiness inconsistency\n")
+    }
+    return (undef, undef)
+
+def runnerabort():
+    """
+    Cleanly abort and exit the runner
+    This uses print since there is no longer any controller to write logs.
+    """
+    print(f"Controller is gone: runner $$ for {config.LOGDIR} exiting")
+    error, logs = runner_stopservers()
+    print(logs, end="")
+    runner_shutdown()
+
+###################################################################
+# Receive an IPC call in the runner and execute it
+# The IPC is read from the $runnerr pipe and the response is
+# written to the $runnerw pipe
+# Returns 0 if more IPC calls are expected or 1 if the runner should exit
+sub ipcrecv {
+    my $err;
+    my $datalen;
+    while(! defined ($err = sysread($runnerr, $datalen, 4)) || $err <= 0) {
+        if((!defined $err && ! $!{EINTR}) || (defined $err && $err == 0)) {
+            # pipe has closed; controller is gone and we must exit
+            runnerabort();
+            # Special case: no response will be forthcoming
+            return 1;
+        }
+        # system call was interrupted, probably by ^C; restart it so we stay in sync
+    }
+    my $len=unpack("L", $datalen);
+    my $buf;
+    while(! defined ($err = sysread($runnerr, $buf, $len)) || $err <= 0) {
+        if((!defined $err && ! $!{EINTR}) || (defined $err && $err == 0)) {
+            # pipe has closed; controller is gone and we must exit
+            runnerabort();
+            # Special case: no response will be forthcoming
+            return 1;
+        }
+        # system call was interrupted, probably by ^C; restart it so we stay in sync
+    }
+
+    # Decode the function name and arguments
+    my $argsarrayref = thaw $buf;
+
+    # The name of the function to call is the first argument
+    my $funcname = shift @$argsarrayref;
+
+    # print "ipcrecv $funcname\n";
+    # Synchronously call the desired function
+    my @res;
+    if($funcname == "runner_clearlocks") {
+        @res = runner_clearlocks(@$argsarrayref);
+    }
+    elif ($funcname == "runner_shutdown") {
+        runner_shutdown(@$argsarrayref);
+        # Special case: no response will be forthcoming
+        return 1;
+    }
+    elif ($funcname == "runner_stopservers") {
+        @res = runner_stopservers(@$argsarrayref);
+    }
+    elif ($funcname == "runner_test_preprocess") {
+        @res = runner_test_preprocess(@$argsarrayref);
+    }
+    elif ($funcname == "runner_test_run") {
+        @res = runner_test_run(@$argsarrayref);
+    } else {
+        die "Unknown IPC function $funcname\n";
+    }
+    # print "ipcrecv results\n";
+
+    # Marshall the results to return
+    $buf = freeze \@res;
+
+    while(! defined ($err = syswrite($runnerw, (pack "L", length($buf)) . $buf)) || $err <= 0) {
+        if((!defined $err && ! $!{EINTR}) || (defined $err && $err == 0)) {
+            # pipe has closed; controller is gone and we must exit
+            runnerabort();
+            # Special case: no response will be forthcoming
+            return 1;
+        }
+        # system call was interrupted, probably by ^C; restart it so we stay in sync
+    }
+
+    return 0;
+}
+
+# OK
+def runner_clearlocks(lock_dir: Path):
+    """Kill the server processes that still have lock files in a directory"""
+    if testutil.clear_logs():
+        log_msg("Warning: log messages were lost")
+    servers.clearlocks(lock_dir)
+    return testutil.clear_logs()
+
+# OK
+def runner_stopservers():
+    """Kill all server processes"""
+    error = servers.stopservers(config.verbose)
+    logs  = testutil.clear_logs()
+    return (error, logs)
+
+def runner_shutdown():
+    """Shut down this runner"""
+    close($runnerr); undef $runnerr;
+    close($runnerw); undef $runnerw;

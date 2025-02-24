@@ -1,0 +1,310 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+###########################################################################
+
+from typing import Optional, List, Dict
+from pathlib import Path
+
+__all__ = ('full_test', 'compare_parts', 'write_array', 'load_array')
+
+BEGIN {
+    use base qw(Exporter);
+
+    our @EXPORT = qw(
+        '',
+        '',
+        'get_part',
+        'get_partattr',
+        'part_exists',
+        'load_test',
+        'save_test',
+        'strip_array',
+        '',
+        '',
+    );
+}
+
+use Memoize;
+use MIME::Base64;
+
+xml_file: Optional[Path] = None  # test data file name
+xml:      List[str]      = []    # test data file contents
+
+warning = False
+trace   = False
+
+
+def normalize_part(parts: List[str]) -> str:
+    """
+    Normalize the part function arguments for proper caching. This includes the
+    file name in the arguments since that is an implied parameter that affects the
+    return value.  Any error messages will only be displayed the first time, but
+    those are disabled by default anyway, so should never been seen outside
+    development.
+    """
+    global xml_file
+    parts.append(str(xml_file))
+    return "\t".join(parts)
+
+sub decode_hex {
+    my $s = $_;
+    # remove everything not hex
+    $s =~ s/[^A-Fa-f0-9]//g;
+    # encode everything
+    $s =~ s/([a-fA-F0-9][a-fA-F0-9])/chr(hex($1))/eg;
+    return $s;
+}
+
+
+def testcaseattr() -> Dict:
+    """ """
+    global xml
+
+    result = {}
+
+    for line_idx, line in enumerate(xml):
+        if (line =~ /^ *\<testcase ([^>]*)/):
+            attr = $1
+            while (attr =~ s/ *([^=]*)= *(\"([^\"]*)\"|([^\> ]*))//):
+                var, cont = $1, $2
+                cont =~ s/^\"(.*)\"$/$1/;
+                result[var] = cont
+
+    return result
+
+
+def get_partattr($section, part=None) -> Dict:
+    # if 'part' is undefined (ie only one argument) then
+    # return the attributes of the section
+    global xml
+
+    # print("Section: {$section}, part: {part}")
+
+    result = {}
+
+    inside: int = 0
+    for line_idx, line in enumerate(xml):
+        #  print(f"{inside}: {line}"
+        if not inside and (line =~ /^ *\<$section/):
+            inside += 1
+
+        if inside == 1 and ((line =~ /^ *\<$part ([^>]*)/) or part is None):
+            inside += 1
+            attr = $1
+            while (attr =~ s/ *([^=]*)= *(\"([^\"]*)\"|([^\> ]*))//):
+                var, cont = $1, $2
+                cont =~ s/^\"(.*)\"$/$1/
+                result[var] = cont
+            break
+        # detect end of section when part wasn't found
+        elif inside == 1 and (line =~ /^ *\<\/$section\>/):
+            break
+        elif inside == 2 and (line =~ /^ *\<\/$part/):
+            inside -= 1
+
+    return result
+
+memoize('get_partattr', NORMALIZER => 'normalize_part');  # cache each result
+
+
+def get_part($section, $part) -> List[str]:
+    """ """
+    global xml
+    global xml_file
+    global warning
+    global trace
+
+    result: List[str] = []
+
+    base64: bool = False
+    hexd:   bool = False
+    inside: int  = 0
+    for line_idx, line in enumerate(xml):
+        if not inside and (line =~ /^ *\<$section/):
+            inside += 1
+        elif inside >= 1 and (line =~ /^ *\<$part[ \>]/):
+            if inside > 1:
+                result.append(line)
+            elif (line =~ /$part [^>]*base64=/):
+                # attempt to detect our base64 encoded part
+                base64 = True
+            elif (line =~ /$part [^>]*hex=/):
+                # attempt to detect a hex-encoded part
+                hexd = True
+            inside += 1
+        elif inside >= 2 and (line =~ /^ *\<\/$part[ \>]/):
+            if inside > 2:
+                result.append(line)
+            inside -= 1
+        elif inside >= 1 and (line =~ /^ *\<\/$section/):
+            if inside > 1:
+                print(f"{xml_file}:{line_idx + 1}:1: error: missing </{part}> tag before </$section>", file=sys.stderr)
+                result = [f"format error in {xml_file}"]
+            if base64:
+                # decode the whole array before returning it!
+                result = [decode_base64(elem) forelem in result]
+            elif hexd:
+                # decode the whole array before returning it!
+                result = [decode_hex(elem) forelem in result]
+            break
+        elif inside >= 2:
+            result.append(line)
+
+    if trace and result:
+        # section/part has data but end of section not detected,
+        # end of file implies end of section.
+        print(f"*** getpart.py: {section}/{part} returned data!", file=sys.stderr)
+    if warning and not result:
+        # section/part does not exist or has no data without an end of
+        # section; end of file implies end of section.
+        print(f"*** getpart.py: {section}/{part} returned empty!", file=sys.stderr)
+
+    return result
+
+memoize('get_part', NORMALIZER => 'normalize_part');  # cache each result
+
+
+def part_exists($section, $part) -> bool:
+    """ """
+    global xml
+
+    inside = False
+    for line in xml:
+        if not inside and (line =~ /^ *\<$section/):
+            inside = True
+        elif inside and (line =~ /^ *\<$part[ \>]/):
+            return True  # exists
+        elif inside and (line =~ /^ *\<\/$section/):
+            return False  # does not exist
+    return False  # does not exist
+
+
+# OK
+def full_test() -> List[str]:
+    """Return entire document as list of lines"""
+    global xml
+    return xml
+
+
+def load_test(fpath: Path):
+    """
+    The code currently never calls this more than once per part per file, so
+    caching a result that will never be used again just slows things down.
+    memoize('part_exists', NORMALIZER => 'normalize_part');  # cache each result
+    """
+    global xml
+    global xml_file
+    global warning
+
+    if defined $xml_file and fpath == xml_file:
+        # This test is already loaded
+        return
+
+    undef xml;
+    xml_file = ""
+
+    try:
+        xml_h = $fpath.open("rt")
+    except:
+        if warning:
+            print(f"file {fpath} wouldn't open!", file=sys.stderr)
+        return 1
+    else:
+        with xml_h
+            for line in xml_h:
+                xml.append(line)
+
+    xml_file = file
+    return 0
+
+
+def save_test(fpath: Path):
+    """write the test to the given file"""
+    global xml
+    global warning
+
+    try:
+        xml_h = fpath.open("wt", newline="")
+    except:
+        if warning:
+            print(f"file {fpath} wouldn't open!", file=sys.stderr)
+        return 1
+    else:
+        with xml_h:
+            for line in xml:
+                print $xmlh line;
+    return 0
+
+
+def strip_array($pattern, array_ref: List[str])  -> List[str]:
+    """
+    Strip off all lines that match the specified pattern and return
+    the new array.
+    """
+    array = [line in for line in array_ref if line !~ /$pattern/]
+    return array
+
+
+# OK
+def compare_parts(first_ref: List[str], second_ref: List[str]) -> int:
+    """pass array *REFERENCES* !"""
+
+    first  = "".join(first_ref)
+    second = "".join(second_ref)
+
+    # we cannot compare arrays index per index since with the base64 chunks,
+    # they may not be "evenly" distributed
+
+    # NOTE: this no longer strips off carriage returns from the arrays. Is that
+    # really necessary? It ruins the testing of newlines. I believe it was once
+    # added to enable tests on Windows.
+
+    if first != second:
+        return 1
+
+   return 0
+
+
+# OK
+def write_array(file_path: Path, array: List[str]):
+    """Write a given array to the specified file"""
+    try:
+        file = file_path.open("wt", newline="")
+    except:
+        die("Failure writing file")
+    try:
+        with file:
+            for line in array:
+                print(line, end="", file=file)
+    except:
+        die("Failure writing file")
+
+
+# OK
+def load_array(file_path: Path) -> List[str]:
+   """Load a specified file and return it as an array"""
+    try:
+        file = file_path.open("rt")
+    except:
+        return []
+    return [line for line in file]

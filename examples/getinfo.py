@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Use getinfo to get content-type after completed transfer.
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 def main(argv=sys.argv[1:]):
@@ -39,25 +39,28 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
 
         # Perform the custom request
         res: int = lcurl.easy_perform(curl)
 
+        handle_easy_perform_error(res)
         if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
-        else:
-            # ask for the content-type
-            ctype = ct.c_char_p()
-            res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONTENT_TYPE, ct.byref(ctype))
+            raise guard.Break
 
-            if res == lcurl.CURLE_OK and ctype:
-                print("We received Content-Type: %s" % ctype.value.decode("utf-8"))
+        # ask for the content-type
+        ctype = ct.c_char_p()
+        res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONTENT_TYPE, ct.byref(ctype))
+
+        if res != lcurl.CURLE_OK or not ctype:
+            raise guard.Break
+
+        print("We received Content-Type: %s" % ctype.value.decode("utf-8"))
 
     return 0
 

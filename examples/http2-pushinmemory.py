@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,20 +20,19 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 HTTP/2 server push. Receive all data in memory.
 """
 
-from dataclasses import dataclass
 import sys
 import ctypes as ct
+from dataclasses import dataclass
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 from debug import debug_function
-
 
 MAX_FILES = 10
 
@@ -59,9 +58,9 @@ push_index = 1
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    chunk = ct.cast(stream, ct.POINTER(MemoryStruct)).contents
-    buffer_size = size * nitems
+def write_function(buffer, size, nitems, userp):
+    chunk = ct.cast(userp, ct.POINTER(MemoryStruct)).contents
+    buffer_size = nitems * size
 
     memory = libc.realloc(chunk.memory, chunk.size + buffer_size + 1)
     if not memory:
@@ -78,7 +77,8 @@ def write_function(buffer, size, nitems, stream):
 
 @lcurl.push_callback
 def server_push_callback(parent, easy, num_headers, headers, userp):
-    # called when there's an incoming push
+    # called when there is an incoming push
+
     global MAX_FILES, files, push_index
 
     transfersp = ct.cast(userp, ct.POINTER(ct.c_int))
@@ -133,8 +133,7 @@ def setup(curl: ct.POINTER(lcurl.CURL), config: debug_config, url: str) -> int:
 
 def main(argv=sys.argv[1:]):
 
-    url: str = (argv[0] if len(argv) >= 1 else
-                "https://localhost:8443/index.html")
+    url: str = argv[0] if len(argv) >= 1 else "https://localhost:8443/index.html"
 
     global files, push_index
 
@@ -144,7 +143,7 @@ def main(argv=sys.argv[1:]):
     mcurl: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
     curl:  ct.POINTER(lcurl.CURL)  = lcurl.easy_init()
 
-    with curl_guard(False, None, mcurl):
+    with curl_guard(False, None, mcurl) as guard:
         if not curl: return 1
 
         # set options
@@ -164,8 +163,9 @@ def main(argv=sys.argv[1:]):
         lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_PUSHDATA,
                                   ct.byref(transfers))
 
+        still_running = ct.c_int(0)  # keep number of running handles
         while transfers.value:  # as long as we have transfers going
-            still_running = ct.c_int(0)  # keep number of running handles
+
             mcode: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
             if mcode:
                 break
@@ -179,11 +179,11 @@ def main(argv=sys.argv[1:]):
             # more easy handles but *we* need to clean them up when they are
             # done.
             while True:
-                queued = ct.c_int(0)
-                msg: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
-                                                                       ct.byref(queued))
-                if not msg: break
-                msg = msg.contents
+                msgs_left = ct.c_int(0)
+                msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
+                                                                        ct.byref(msgs_left))
+                if not msgp: break
+                msg = msgp.contents
 
                 if msg.msg == lcurl.CURLMSG_DONE:
                     transfers.value -= 1

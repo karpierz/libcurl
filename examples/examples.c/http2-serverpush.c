@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -29,12 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* somewhat unix-specific */
-#include <sys/time.h>
-#include <unistd.h>
-
 /* curl stuff */
 #include <curl/curl.h>
+#include <curl/mprintf.h>
 
 #ifndef CURLPIPE_MULTIPLEX
 #error "too old libcurl, cannot do HTTP/2 server push!"
@@ -56,7 +53,7 @@ void dump(const char *text, unsigned char *ptr, size_t size,
   fprintf(stderr, "%s, %lu bytes (0x%lx)\n",
           text, (unsigned long)size, (unsigned long)size);
 
-  for(i = 0; i<size; i += width) {
+  for(i = 0; i < size; i += width) {
 
     fprintf(stderr, "%4.4lx: ", (unsigned long)i);
 
@@ -77,7 +74,7 @@ void dump(const char *text, unsigned char *ptr, size_t size,
         break;
       }
       fprintf(stderr, "%c",
-              (ptr[i + c] >= 0x20) && (ptr[i + c]<0x80)?ptr[i + c]:'.');
+              (ptr[i + c] >= 0x20) && (ptr[i + c] < 0x80) ? ptr[i + c] : '.');
       /* check again for 0D0A, to avoid an extra \n if it's at width */
       if(nohex && (i + c + 2 < size) && ptr[i + c + 1] == 0x0D &&
          ptr[i + c + 2] == 0x0A) {
@@ -100,10 +97,7 @@ int my_trace(CURL *handle, curl_infotype type,
   switch(type) {
   case CURLINFO_TEXT:
     fprintf(stderr, "== Info: %s", data);
-    /* FALLTHROUGH */
-  default: /* in case a new one is introduced to shock us */
     return 0;
-
   case CURLINFO_HEADER_OUT:
     text = "=> Send header";
     break;
@@ -122,6 +116,8 @@ int my_trace(CURL *handle, curl_infotype type,
   case CURLINFO_SSL_DATA_IN:
     text = "<= Recv SSL data";
     break;
+  default: /* in case a new one is introduced to shock us */
+    return 0;
   }
 
   dump(text, (unsigned char *)data, size, 1);
@@ -130,7 +126,7 @@ int my_trace(CURL *handle, curl_infotype type,
 
 #define OUTPUTFILE "dl"
 
-static int setup(CURL *hnd)
+static int setup(CURL *hnd, const char *url)
 {
   FILE *out = fopen(OUTPUTFILE, "wb");
   if(!out)
@@ -141,7 +137,7 @@ static int setup(CURL *hnd)
   curl_easy_setopt(hnd, CURLOPT_WRITEDATA, out);
 
   /* set the same URL */
-  curl_easy_setopt(hnd, CURLOPT_URL, "https://localhost:8443/index.html");
+  curl_easy_setopt(hnd, CURLOPT_URL, url);
 
   /* please be verbose */
   curl_easy_setopt(hnd, CURLOPT_VERBOSE, 1L);
@@ -161,7 +157,7 @@ static int setup(CURL *hnd)
   return 0; /* all is good */
 }
 
-/* called when there's an incoming push */
+/* called when there is an incoming push */
 static int server_push_callback(CURL *parent,
                                 CURL *easy,
                                 size_t num_headers,
@@ -177,7 +173,7 @@ static int server_push_callback(CURL *parent,
 
   (void)parent; /* we have no use for this */
 
-  snprintf(filename, 128, "push%u", count++);
+  curl_msnprintf(filename, 128, "push%u", count++);
 
   /* here's a new stream, save it in a new file for each new push */
   out = fopen(filename, "wb");
@@ -193,7 +189,7 @@ static int server_push_callback(CURL *parent,
   fprintf(stderr, "**** push callback approves stream %u, got %lu headers!\n",
           count, (unsigned long)num_headers);
 
-  for(i = 0; i<num_headers; i++) {
+  for(i = 0; i < num_headers; i++) {
     headp = curl_pushheader_bynum(headers, i);
     fprintf(stderr, "**** header %lu: %s\n", (unsigned long)i, headp);
   }
@@ -211,12 +207,16 @@ static int server_push_callback(CURL *parent,
 /*
  * Download a file over HTTP/2, take care of server push.
  */
-int main(void)
+int main(int argc, char *argv[])
 {
   CURL *easy;
   CURLM *multi_handle;
   int transfers = 1; /* we start with one */
   struct CURLMsg *m;
+  const char *url = "https://localhost:8443/index.html";
+
+  if(argc == 2)
+    url = argv[1];
 
   /* init a multi stack */
   multi_handle = curl_multi_init();
@@ -224,7 +224,7 @@ int main(void)
   easy = curl_easy_init();
 
   /* set options */
-  if(setup(easy)) {
+  if(setup(easy, url)) {
     fprintf(stderr, "failed\n");
     return 1;
   }

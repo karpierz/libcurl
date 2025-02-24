@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,22 +20,21 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-SMTP example using TLS
+Send SMTP email using implicit TLS
 """
 
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 if not lcurl.CURL_AT_LEAST_VERSION(7, 20, 0):
     print("This example requires curl 7.20.0 or later", file=sys.stderr)
     sys.exit(-1)
-
 
 # This is a simple example showing how to send mail using libcurl's SMTP
 # capabilities. It builds on the smtp-mail.c example to add authentication
@@ -54,11 +53,11 @@ payload_text: str = (
     "Message-ID: <dcd7cb36-11db-487a-9f3a-e652a9458efd@"
     "rfcpedant.example.org>\r\n"
     "Subject: SMTP example message\r\n"
-    "\r\n"  # empty line to divide headers from body, see RFC5322
+    "\r\n"  # empty line to divide headers from body, see RFC 5322
     "The body of the message starts here.\r\n"
     "\r\n"
     "It could be a lot of lines, could be MIME encoded, whatever.\r\n"
-    "Check RFC5322.\r\n"
+    "Check RFC 5322.\r\n"
 )
 
 payload_data: bytes = payload_text.encode("utf-8")
@@ -71,9 +70,9 @@ class upload_status(ct.Structure):
 
 
 @lcurl.read_callback
-def payload_source(buffer, size, nitems, stream):
-    upload_ctx = ct.cast(stream, ct.POINTER(upload_status)).contents
-    buffer_size = size * nitems
+def payload_source(buffer, size, nitems, userp):
+    upload_ctx = ct.cast(userp, ct.POINTER(upload_status)).contents
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     data = payload_data[upload_ctx.bytes_read:]
     if not data: return 0
@@ -92,7 +91,7 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         # Set username and password
@@ -100,19 +99,19 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_PASSWORD, b"secret")
         # This is the URL for your mailserver. Note the use of port 587 here,
         # instead of the normal SMTP port (25). Port 587 is commonly used for
-        # secure mail submission (see RFC4403), but you should use whatever
+        # secure mail submission (see RFC 4403), but you should use whatever
         # matches your server configuration.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        # In this example, we will start with a plain text connection, and upgrade
-        # to Transport Layer Security (TLS) using the STARTTLS command. Be careful
-        # of using libcurl.CURLUSESSL_TRY here, because if TLS upgrade fails,
-        # the transfer will continue anyway - see the security discussion in the
+        # In this example, we start with a plain text connection, and upgrade to
+        # Transport Layer Security (TLS) using the STARTTLS command. Be careful
+        # of using CURLUSESSL_TRY here, because if TLS upgrade fails, the
+        # transfer continues anyway - see the security discussion in the libcurl
         # libcurl tutorial for more details.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_USE_SSL, lcurl.CURLUSESSL_ALL)
         # If your server does not have a valid certificate, then you can disable
         # part of the Transport Layer Security protection by setting the
         # CURLOPT_SSL_VERIFYPEER and CURLOPT_SSL_VERIFYHOST options to 0 (false).
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         #   lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYHOST, 0)
         # That is, in general, a bad idea. It is still better than sending your
@@ -122,8 +121,8 @@ def main(argv=sys.argv[1:]):
         # libcurl using CURLOPT_CAINFO and/or CURLOPT_CAPATH. See docs/SSLCERTS
         # for more information.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_CAINFO, b"/path/to/certificate.pem")
-        # Note that this option is not strictly required, omitting it will result
-        # in libcurl sending the MAIL FROM command with empty sender data. All
+        # Note that this option is not strictly required, omitting it results in
+        # libcurl sending the MAIL FROM command with empty sender data. All
         # autoresponses should have an empty reverse-path, and should be directed
         # to the address in the reverse-path which triggered them. Otherwise,
         # they could cause an endless loop. See RFC 5321 Section 4.5.5 for more
@@ -142,16 +141,16 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_READFUNCTION, payload_source)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_READDATA, ct.byref(upload_ctx))
         lcurl.easy_setopt(curl, lcurl.CURLOPT_UPLOAD, 1)
-        # Since the traffic will be encrypted, it is very useful to turn on debug
-        # information within libcurl to see what is happening during the transfer.
+        # Since the traffic is encrypted, it is useful to turn on debug
+        # information within libcurl to see what is happening during the
+        # transfer.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
         # Send the message
         res = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
         # Free the list of recipients
         lcurl.slist_free_all(recipients)

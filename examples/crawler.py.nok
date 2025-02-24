@@ -1,0 +1,253 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Jeroen Ooms <jeroenooms@gmail.com>
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+"""
+Web crawler based on curl and libxml2 to stress-test curl with
+hundreds of concurrent connections to various servers.
+"""
+
+import sys
+import ctypes as ct
+import signal
+
+#include <libxml/HTMLparser.h>
+#include <libxml/xpath.h>
+#include <libxml/uri.h>
+import libcurl as lcurl
+from curl_utils import *  # noqa
+
+# Parameters
+max_con: int               = 200
+max_total: int             = 20000
+max_requests: int          = 500
+max_link_per_page: int     = 5
+follow_relative_links: int = 0
+
+start_page: str = "https://www.reuters.com"
+
+
+pending_interrupt = False
+
+def sighandler(dummy: int):
+    global pending_interrupt
+    pending_interrupt = True
+
+
+# resizable buffer
+class memory(ct.Structure):
+    _fields_ = [
+    ("buf",  ct.c_char_p),  # char *
+    ("size", ct.c_size_t),
+]
+
+
+@lcurl.write_callback
+def grow_buffer(buffer, size, nitems, userp):
+    mem = ct.cast(userp, ct.POINTER(memory)).contents
+    buffer_size = nitems * size
+    if buffer_size == 0: return 0
+
+    ptr = libc.realloc(mem.buf, mem.size + buffer_size)  # char *
+    if not ptr:
+        # out of memory
+        print("not enough memory (realloc returned NULL)")
+        return 0
+
+    mem.buf = ptr
+    ct.memmove(ct.byref(mem.buf, mem.size), buffer, buffer_size)
+    mem.size += buffer_size
+    return buffer_size
+
+
+def make_handle(URL: str) -> ct.POINTER(lcurl.CURL):
+
+    curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
+
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
+    # Important: use HTTP2 over HTTPS
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION,
+                            lcurl.CURL_HTTP_VERSION_2TLS)
+    # buffer body
+    mem = ct.cast(libc.malloc(ct.sizeof(memory)), ct.POINTER(memory)).contents
+    mem.size = 0;
+    mem.buf  = libc.malloc(1)
+
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, grow_buffer)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, ct.byref(mem))
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_PRIVATE,   ct.byref(mem))
+
+    # For completeness
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_ACCEPT_ENCODING, b"")
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_TIMEOUT, 5)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
+    # only allow redirects to HTTP and HTTPS URLs
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_REDIR_PROTOCOLS_STR, b"http,https")
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_AUTOREFERER, 1)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_MAXREDIRS, 10)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_CONNECTTIMEOUT, 2)
+    # each transfer needs to be done within 20 seconds!
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_TIMEOUT_MS, 20000)
+    # connect fast or fail
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_CONNECTTIMEOUT_MS, 2000)
+    # skip files larger than a gigabyte
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_MAXFILESIZE_LARGE,
+                            lcurl.off_t(1024 * 1024 * 1024).value)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_COOKIEFILE, b"")
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_FILETIME, 1)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT, b"mini crawler")
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTPAUTH, lcurl.CURLAUTH_ANY)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_UNRESTRICTED_AUTH, 1)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_PROXYAUTH, lcurl.CURLAUTH_ANY)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_EXPECT_100_TIMEOUT_MS, 0)
+
+    return curl
+
+
+def follow_links(multi: ct.POINTER(lcurl.CURLM), mem: memory, url: str) -> int:
+    # HREF finder implemented in libxml2 but could be any HTML parser
+
+    opts: int = (HTML_PARSE_NOBLANKS  | HTML_PARSE_NOERROR |
+                 HTML_PARSE_NOWARNING | HTML_PARSE_NONET)
+
+    doc: htmlDocPtr = htmlReadMemory(mem.buf, mem.size, url, NULL, opts)
+    if not doc:
+        return 0
+
+    xpath: ct.POINTER(xmlChar) = ct.cast(b"//a/@href", ct.POINTER(xmlChar))
+    context: xmlXPathContextPtr = xmlXPathNewContext(doc)
+    result:  xmlXPathObjectPtr  = xmlXPathEvalExpression(xpath, context)
+    xmlXPathFreeContext(context)
+    if not result:
+        return 0
+
+    nodeset: xmlNodeSetPtr = result.value.nodesetval
+    if xmlXPathNodeSetIsEmpty(nodeset):
+        xmlXPathFreeObject(result)
+        return 0
+    nodeset = nodeset.value
+
+    count = 0
+    for i in range(nodeset.nodeNr):
+        r = rand()  # double
+        x = int(r * (nodeset.nodeNr // RAND_MAX))
+        node: ct.POINTER(xmlNode) = nodeset.nodeTab[x].valuexmlChildrenNode
+        href: ct.POINTER(xmlChar) = xmlNodeListGetString(doc, node, 1)
+        if follow_relative_links:
+            orig: ct.POINTER(xmlChar) = href
+            href = xmlBuildURI(href, ct.cast(url.encode("utf-8"), ct.POINTER(xmlChar)))
+            xmlFree(orig)
+
+        link: ct.c_char_p = ct.cast(href, ct.c_char_p)
+        if not link or len(link) < 20:
+            continue
+        if link.startswith(b"http://") or link.startswith(b"https://"):
+            lcurl.multi_add_handle(multi, make_handle(link))
+            count += 1
+            if count - 1 == max_link_per_page:
+                break
+        xmlFree(link)
+
+    xmlXPathFreeObject(result)
+
+    return count
+
+
+def is_html(ctype: ct.c_char_p) -> bool:
+    return ctype and len(ctype.value) > 10 and b"text/html" in ctype.value
+
+
+def main(argv=sys.argv[1:]):
+
+    signal.signal(signal.SIGINT, sighandler)
+    # LIBXML_TEST_VERSION;
+
+    lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
+    multi: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
+
+    with curl_guard(True, None, multi) as guard:
+
+        lcurl.multi_setopt(multi, lcurl.CURLMOPT_MAX_TOTAL_CONNECTIONS, max_con)
+        lcurl.multi_setopt(multi, lcurl.CURLMOPT_MAX_HOST_CONNECTIONS, 6)
+
+        # enables http/2 if available
+        lcurl.multi_setopt(multi,
+                           lcurl.CURLMOPT_PIPELINING, lcurl.CURLPIPE_MULTIPLEX)
+
+        # sets html start page
+        lcurl.multi_add_handle(multi, make_handle(start_page))
+
+        pending  = 0
+        complete = 0
+        still_running = ct.c_int(1)
+        while still_running.value and not pending_interrupt:
+
+            num_fds = ct.c_int(0)
+            lcurl.multi_wait(multi, None, 0, 1000, ct.byref(num_fds))
+            lcurl.multi_perform(multi, ct.byref(still_running))
+
+            # See how the transfers went
+            while True:
+                msgs_left = ct.c_int(0)
+                msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
+                                                                        ct.byref(msgs_left))
+                if not msgp: break
+                msg = msgp.contents
+
+                if msg.msg != lcurl.CURLMSG_DONE: continue
+
+                handle: ct.POINTER(lcurl.CURL) = msg.easy_handle
+
+                url = ct.c_char_p(None)
+                mem = ct.POINTER(memory)()
+                lcurl.easy_getinfo(handle, lcurl.CURLINFO_PRIVATE, ct.byref(mem))
+                lcurl.easy_getinfo(handle, lcurl.CURLINFO_EFFECTIVE_URL, ct.byref(url))
+                url = url.value.decode("utf-8") if url else None
+                if msg.data.result == lcurl.CURLE_OK:
+                    res_status = ct.c_long()
+                    lcurl.easy_getinfo(handle, lcurl.CURLINFO_RESPONSE_CODE, ct.byref(res_status))
+                    if res_status.value == 200:
+                        ctype = ct.c_char_p(None)
+                        lcurl.easy_getinfo(handle, lcurl.CURLINFO_CONTENT_TYPE, ct.byref(ctype))
+                        print("[%d] HTTP 200 (%s): %s" % (complete, ctype, url))
+                        if is_html(ctype) and mem.contents.size > 100:
+                            if pending < max_requests and (complete + pending) < max_total:
+                                pending += follow_links(multi, mem, url)
+                                still_running.value = 1
+                    else:
+                        print("[%d] HTTP %d: %s" % (complete, res_status.value, url))
+                else:
+                    print("[%d] Connection failure: %s" % (complete, url))
+
+                lcurl.multi_remove_handle(multi, handle)
+                lcurl.easy_cleanup(handle)
+                libc.free(mem.contents.buf)
+                libc.free(mem)
+
+                complete += 1
+                pending  -= 1
+
+    return 0
+
+
+sys.exit(main())

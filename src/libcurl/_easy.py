@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 # **************************************************************************
 #                                  _   _ ____  _
@@ -9,7 +8,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -40,53 +39,52 @@ class blob(ct.Structure):
     _fields_ = [
     ("data",  ct.c_void_p),
     ("len",   ct.c_size_t),
-    ("flags", ct.c_uint),  # bit 0 is defined, the rest are reserved and should be
-                           # left zeroes
+    ("flags", ct.c_uint),  # bit 0 is defined, the rest are reserved and
+                           # should be left zeroes
 ]
 
 easy_init = CFUNC(ct.POINTER(CURL))(
-                  ("curl_easy_init", dll), (
-                  ))
+    ("curl_easy_init", dll),)
 
 easy_setopt = CFUNC(CURLcode,
-                    ct.POINTER(CURL),
-                    CURLoption,
-                    ct.c_void_p)(
-                    ("curl_easy_setopt", dll), (
-                    (1, "curl"),
-                    (1, "option"),
-                    (1, "value"),))
+    ct.POINTER(CURL),
+    CURLoption,
+    ct.c_void_p)(
+    ("curl_easy_setopt", dll), (
+    (1, "curl"),
+    (1, "option"),
+    (1, "value"),))
 
 easy_perform = CFUNC(CURLcode,
-                     ct.POINTER(CURL))(
-                     ("curl_easy_perform", dll), (
-                     (1, "curl"),))
+    ct.POINTER(CURL))(
+    ("curl_easy_perform", dll), (
+    (1, "curl"),))
 
 easy_cleanup = CFUNC(None,
-                     ct.POINTER(CURL))(
-                     ("curl_easy_cleanup", dll), (
-                     (1, "curl"),))
+    ct.POINTER(CURL))(
+    ("curl_easy_cleanup", dll), (
+    (1, "curl"),))
 
 # NAME curl_easy_getinfo()
 #
 # DESCRIPTION
 #
-# Request internal information from the curl session with this function.  The
-# third argument MUST be a pointer to a long, a pointer to a char * or a
-# pointer to a double (as the documentation describes elsewhere).  The data
-# pointed to will be filled in accordingly and can be relied upon only if the
-# function returns CURLE_OK.  This function is intended to get used *AFTER* a
-# performed transfer, all results from this function are undefined until the
-# transfer is completed.
-
+# Request internal information from the curl session with this function.
+# The third argument MUST be pointing to the specific type of the used option
+# which is documented in each manpage of the option. The data pointed to
+# will be filled in accordingly and can be relied upon only if the function
+# returns CURLE_OK. This function is intended to get used *AFTER* a performed
+# transfer, all results from this function are undefined until the transfer
+# is completed.
+#
 easy_getinfo = CFUNC(CURLcode,
-                     ct.POINTER(CURL),
-                     CURLINFO,
-                     ct.c_void_p)(
-                     ("curl_easy_getinfo", dll), (
-                     (1, "curl"),
-                     (1, "info"),
-                     (1, "value"),))
+    ct.POINTER(CURL),
+    CURLINFO,
+    ct.c_void_p)(
+    ("curl_easy_getinfo", dll), (
+    (1, "curl"),
+    (1, "info"),
+    (1, "value"),))
 
 # NAME curl_easy_duphandle()
 #
@@ -98,26 +96,26 @@ easy_getinfo = CFUNC(CURLcode,
 # be transferred. It is useful in multithreaded applications when you can run
 # curl_easy_duphandle() for each new thread to avoid a series of identical
 # curl_easy_setopt() invokes in every thread.
-
+#
 easy_duphandle = CFUNC(ct.POINTER(CURL),
-                       ct.POINTER(CURL))(
-                       ("curl_easy_duphandle", dll), (
-                       (1, "curl"),))
+    ct.POINTER(CURL))(
+    ("curl_easy_duphandle", dll), (
+    (1, "curl"),))
 
 # NAME curl_easy_reset()
 #
 # DESCRIPTION
 #
-# Re-initializes a CURL handle to the default values. This puts back the
+# Re-initializes a curl handle to the default values. This puts back the
 # handle to the same state as it was in when it was just created.
 #
 # It does keep: live connections, the Session ID cache, the DNS cache and the
 # cookies.
-
+#
 easy_reset = CFUNC(None,
-                   ct.POINTER(CURL))(
-                   ("curl_easy_reset", dll), (
-                   (1, "curl"),))
+    ct.POINTER(CURL))(
+    ("curl_easy_reset", dll), (
+    (1, "curl"),))
 
 # NAME curl_easy_recv()
 #
@@ -125,17 +123,17 @@ easy_reset = CFUNC(None,
 #
 # Receives data from the connected socket. Use after successful
 # curl_easy_perform() with CURLOPT_CONNECT_ONLY option.
-
+#
 easy_recv = CFUNC(CURLcode,
-                  ct.POINTER(CURL),
-                  ct.c_void_p,
-                  ct.c_size_t,
-                  ct.POINTER(ct.c_size_t))(
-                  ("curl_easy_recv", dll), (
-                  (1, "curl"),
-                  (1, "buffer"),
-                  (1, "buflen"),
-                  (1, "n"),))
+    ct.POINTER(CURL),
+    ct.c_void_p,
+    ct.c_size_t,
+    ct.POINTER(ct.c_size_t))(
+    ("curl_easy_recv", dll), (
+    (1, "curl"),
+    (1, "buffer"),
+    (1, "buflen"),
+    (1, "n"),))
 
 # NAME curl_easy_send()
 #
@@ -143,27 +141,27 @@ easy_recv = CFUNC(CURLcode,
 #
 # Sends data over the connected socket. Use after successful
 # curl_easy_perform() with CURLOPT_CONNECT_ONLY option.
-
+#
 easy_send = CFUNC(CURLcode,
-                  ct.POINTER(CURL),
-                  ct.c_void_p,
-                  ct.c_size_t,
-                  ct.POINTER(ct.c_size_t))(
-                  ("curl_easy_send", dll), (
-                  (1, "curl"),
-                  (1, "buffer"),
-                  (1, "buflen"),
-                  (1, "n"),))
+    ct.POINTER(CURL),
+    ct.c_void_p,
+    ct.c_size_t,
+    ct.POINTER(ct.c_size_t))(
+    ("curl_easy_send", dll), (
+    (1, "curl"),
+    (1, "buffer"),
+    (1, "buflen"),
+    (1, "n"),))
 
 # NAME curl_easy_upkeep()
 #
 # DESCRIPTION
 #
 # Performs connection upkeep for the given session handle.
-
+#
 easy_upkeep = CFUNC(CURLcode,
-                    ct.POINTER(CURL))(
-                    ("curl_easy_upkeep", dll), (
-                    (1, "curl"),))
+    ct.POINTER(CURL))(
+    ("curl_easy_upkeep", dll), (
+    (1, "curl"),))
 
 # eof

@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,23 +20,22 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 HTTP/2 server push
 """
 
-from dataclasses import dataclass
 import sys
 import ctypes as ct
+from dataclasses import dataclass
 from pathlib import Path
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 from debug import debug_function
 
 here = Path(__file__).resolve().parent
-
 
 OUT_DIR  = here/"output"
 OUT_FILE = OUT_DIR/"dl"
@@ -49,9 +48,9 @@ class debug_config:
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    config = lcurl.from_oid(stream)
-    buffer_size = size * nitems
+def write_function(buffer, size, nitems, userp):
+    config = lcurl.from_oid(userp)
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     bwritten = bytes(buffer[:buffer_size])
     nwritten = config.outstream.write(bwritten)
@@ -62,11 +61,11 @@ count = 0
 
 @lcurl.push_callback
 def server_push_callback(parent, easy, num_headers, headers, userp):
-    # called when there's an incoming push
+    # called when there is an incoming push
 
     transfersp = ct.cast(userp, ct.POINTER(ct.c_int))
 
-    global OUT_DIR, count
+    global count
 
     file_path = OUT_DIR/("push%u" % count)
     count += 1
@@ -81,14 +80,14 @@ def server_push_callback(parent, easy, num_headers, headers, userp):
         return lcurl.CURL_PUSH_DENY
 
     # write to this file
-    #!!!curl_easy_setopt(easy, CURLOPT_WRITEDATA, out)
+    #!!!lcurl.easy_setopt(easy, lcurl.CURLOPT_WRITEDATA, out)
 
-    print("**** push callback approves stream %u, got %u headers!" %
+    print("**** push callback approves stream %d, got %d headers!" %
           (count, num_headers), file=sys.stderr)
 
     for i in range(num_headers):
         headp = lcurl.pushheader_bynum(headers, i)
-        print("**** header %u: %s" % (i, headp.encode("utf-8")),
+        print("**** header %d: %s" % (i, headp.encode("utf-8")),
               file=sys.stderr)
 
     headp = lcurl.pushheader_byname(headers, b":path")
@@ -110,12 +109,12 @@ def setup(curl: ct.POINTER(lcurl.CURL), config: debug_config, url: str) -> int:
     except OSError as exc:
         config.outstream = None
         print("error: could not open file %s for writing: %s" %
-              (OUT_FILE, os.strerror(exc.errno)), file=sys.stderr)
+              (OUT_FILE, exc.strerror), file=sys.stderr)
         return 1  # failed
 
     # set the URL
     lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-    # send all data to this function 
+    # send all data to this function
     lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
     # write to this file
     lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, id(config))
@@ -142,8 +141,7 @@ def setup(curl: ct.POINTER(lcurl.CURL), config: debug_config, url: str) -> int:
 
 def main(argv=sys.argv[1:]):
 
-    url: str = (argv[0] if len(argv) >= 1 else
-                "https://localhost:8443/index.html")
+    url: str = argv[0] if len(argv) >= 1 else "https://localhost:8443/index.html"
 
     config = debug_config(True)  # enable ascii tracing
 
@@ -151,7 +149,7 @@ def main(argv=sys.argv[1:]):
     mcurl: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
     curl:  ct.POINTER(lcurl.CURL)  = lcurl.easy_init()
 
-    with curl_guard(False, None, mcurl):
+    with curl_guard(False, None, mcurl) as guard:
         if not curl: return 1
 
         # set options
@@ -171,12 +169,12 @@ def main(argv=sys.argv[1:]):
         lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_PUSHDATA,
                                   ct.byref(transfers))
 
-        still_running = ct.c_int(1)  # keep number of running handles
         while transfers.value:  # as long as we have transfers going
+
+            still_running = ct.c_int(1)  # keep number of running handles
             mcode: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
-            if still_running.value:
-                # wait for activity, timeout or "nothing"
-                mcode = lcurl.multi_poll(mcurl, None, 0, 1000, None)
+            # wait for activity, timeout or "nothing"
+            if still_running.value: mcode = lcurl.multi_poll(mcurl, None, 0, 1000, None)
             if mcode:
                 break
 
@@ -184,11 +182,11 @@ def main(argv=sys.argv[1:]):
             # has created and added one or more easy handles but we need to
             # clean them up when we are done.
             while True:
-                queued = ct.c_int(0)
-                msg: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
-                                                                       ct.byref(queued))
-                if not msg: break
-                msg = msg.contents
+                msgs_left = ct.c_int(0)
+                msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
+                                                                        ct.byref(msgs_left))
+                if not msgp: break
+                msg = msgp.contents
 
                 if msg.msg == lcurl.CURLMSG_DONE:
                     transfers.value -= 1

@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,15 +18,17 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
+ * SPDX-License-Identifier: curl
+ *
  ***************************************************************************/
 #include "test.h"
 
 #include "memdebug.h"
 
 /* The size of data should be kept below MAX_INITIAL_POST_SIZE! */
-static char data[]="this is a short string.\n";
+static char testdata[]="this is a short string.\n";
 
-static size_t data_size = sizeof(data) / sizeof(char);
+static size_t data_size = sizeof(testdata) / sizeof(char);
 
 static int progress_callback(void *clientp, double dltotal, double dlnow,
                              double ultotal, double ulnow)
@@ -48,7 +50,7 @@ static int progress_callback(void *clientp, double dltotal, double dlnow,
   return 0;
 }
 
-int test(char *URL)
+CURLcode test(char *URL)
 {
   CURL *curl;
   CURLcode res = CURLE_OK;
@@ -71,20 +73,15 @@ int test(char *URL)
   /* Now specify we want to POST data */
   test_setopt(curl, CURLOPT_POST, 1L);
 
-#ifdef CURL_DOES_CONVERSIONS
-  /* Convert the POST data to ASCII */
-  test_setopt(curl, CURLOPT_TRANSFERTEXT, 1L);
-#endif
-
   /* Set the expected POST size */
   test_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)data_size);
-  test_setopt(curl, CURLOPT_POSTFIELDS, data);
+  test_setopt(curl, CURLOPT_POSTFIELDS, testdata);
 
   /* we want to use our own progress function */
-  test_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-  test_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
-
-  /* pointer to pass to our read function */
+  CURL_IGNORE_DEPRECATION(
+    test_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    test_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
+  )
 
   /* get verbose debug output please */
   test_setopt(curl, CURLOPT_VERBOSE, 1L);

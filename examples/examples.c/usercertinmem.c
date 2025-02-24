@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 2013 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -31,16 +31,24 @@
  * must be used in real circumstances when a secure connection is required.
  */
 
+#ifndef OPENSSL_SUPPRESS_DEPRECATED
+#define OPENSSL_SUPPRESS_DEPRECATED
+#endif
+
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/pem.h>
 #include <curl/curl.h>
 #include <stdio.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic ignored "-Woverlength-strings"
+#endif
+
 static size_t writefunction(void *ptr, size_t size, size_t nmemb, void *stream)
 {
   fwrite(ptr, size, nmemb, stream);
-  return (nmemb*size);
+  return nmemb * size;
 }
 
 static CURLcode sslctx_function(CURL *curl, void *sslctx, void *parm)
@@ -94,7 +102,7 @@ static CURLcode sslctx_function(CURL *curl, void *sslctx, void *parm)
     "omTxJBzcoTWcFbLUvFUufQb1nA5V9FrWk9p2rSVzTMVD\n"\
     "-----END CERTIFICATE-----\n";
 
-/*replace the XXX with the actual RSA key*/
+/* replace the XXX with the actual RSA key */
   const char *mykey =
     "-----BEGIN RSA PRIVATE KEY-----\n"\
     "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"\
@@ -133,31 +141,31 @@ static CURLcode sslctx_function(CURL *curl, void *sslctx, void *parm)
     printf("PEM_read_bio_X509 failed...\n");
   }
 
-  /*tell SSL to use the X509 certificate*/
+  /* tell SSL to use the X509 certificate */
   ret = SSL_CTX_use_certificate((SSL_CTX*)sslctx, cert);
   if(ret != 1) {
     printf("Use certificate failed\n");
   }
 
-  /*create a bio for the RSA key*/
+  /* create a bio for the RSA key */
   kbio = BIO_new_mem_buf((char *)mykey, -1);
   if(!kbio) {
     printf("BIO_new_mem_buf failed\n");
   }
 
-  /*read the key bio into an RSA object*/
+  /* read the key bio into an RSA object */
   rsa = PEM_read_bio_RSAPrivateKey(kbio, NULL, 0, NULL);
   if(!rsa) {
     printf("Failed to create key bio\n");
   }
 
-  /*tell SSL to use the RSA key from memory*/
+  /* tell SSL to use the RSA key from memory */
   ret = SSL_CTX_use_RSAPrivateKey((SSL_CTX*)sslctx, rsa);
   if(ret != 1) {
     printf("Use Key failed\n");
   }
 
-  /* free resources that have been allocated by openssl functions */
+  /* free resources that have been allocated by OpenSSL functions */
   if(bio)
     BIO_free(bio);
 
@@ -192,15 +200,14 @@ int main(void)
   curl_easy_setopt(ch, CURLOPT_SSLCERTTYPE, "PEM");
 
   /* both VERIFYPEER and VERIFYHOST are set to 0 in this case because there is
-     no CA certificate*/
+     no CA certificate */
 
   curl_easy_setopt(ch, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(ch, CURLOPT_SSL_VERIFYHOST, 0L);
   curl_easy_setopt(ch, CURLOPT_URL, "https://www.example.com/");
   curl_easy_setopt(ch, CURLOPT_SSLKEYTYPE, "PEM");
 
-  /* first try: retrieve page without user certificate and key -> will fail
-   */
+  /* first try: retrieve page without user certificate and key -> fails */
   rv = curl_easy_perform(ch);
   if(rv == CURLE_OK) {
     printf("*** transfer succeeded ***\n");
@@ -209,7 +216,7 @@ int main(void)
     printf("*** transfer failed ***\n");
   }
 
-  /* second try: retrieve page using user certificate and key -> will succeed
+  /* second try: retrieve page using user certificate and key -> succeeds
    * load the certificate and key by installing a function doing the necessary
    * "modifications" to the SSL CONTEXT just before link init
    */
@@ -224,5 +231,5 @@ int main(void)
 
   curl_easy_cleanup(ch);
   curl_global_cleanup();
-  return rv;
+  return (int)rv;
 }

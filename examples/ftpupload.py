@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Performs an FTP upload and renames the file just after a successful
@@ -28,15 +28,13 @@ transfer.
 """
 
 import sys
-import os
 import ctypes as ct
 from pathlib import Path
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 here = Path(__file__).resolve().parent
-
 
 LOCAL_FILE = here/"input/uploadthis.txt"
 
@@ -44,18 +42,14 @@ UPLOAD_FILE_AS = "while-uploading.txt"
 RENAME_FILE_TO = "renamed-and-fine.txt"
 
 
-# NOTE: if you want this example to work on Windows with libcurl as a
-# DLL, you MUST also provide a read callback with CURLOPT_READFUNCTION.
-# Failing to do so will give you a crash since a DLL may not use the
-# variable's memory when passed in to it from an app like this.
+# NOTE: if you want this example to work on Windows with libcurl as a DLL,
+# you MUST also provide a read callback with CURLOPT_READFUNCTION. Failing to
+# do so might give you a crash since a DLL may not use the variable's memory
+# when passed in to it from an app like this. */
 @lcurl.read_callback
 def read_function(buffer, size, nitems, stream):
-    file = lcurl.from_oid(stream)
-    bread = file.read(size * nitems)
-    if not bread: return 0
-    nread = len(bread)
-    ct.memmove(buffer, bread, nread)
-    print("*** We read %u bytes from file" % nread, file=sys.stderr)
+    nread = lcurl.read_from_file(buffer, size, nitems, stream)
+    print("*** We read %d bytes from file" % nread, file=sys.stderr)
     return nread
 
 
@@ -70,25 +64,25 @@ def main(argv=sys.argv[1:]):
     try:
         fd_src = LOCAL_FILE.open("rb")
     except OSError as exc:
-        print("Couldn't open '%s': %s" %
-              (LOCAL_FILE, os.strerror(exc.errno)))
-        return 1  # cannot continue
+        print("Couldn't open '%s': %s" % (LOCAL_FILE, exc.strerror))
+        return 2  # cannot continue
 
     # get the file size
     try:
         fsize: int = file_size(fd_src)
-    except:
+    except OSError as exc:
+        print("Couldn't open '%s': %s" % (LOCAL_FILE, exc.strerror))
         fd_src.close()
         return 1  # cannot continue
 
-    print("Local file size: %u bytes." % fsize)
+    print("Local file size: %d bytes." % fsize)
 
-    # In windows, this will init the winsock stuff
+    # In Windows, this inits the Winsock stuff
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     # get a curl handle
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with fd_src, curl_guard(True, curl):
+    with fd_src, curl_guard(True, curl) as guard:
         if not curl: return 1
 
         # build a list of FTP commands to pass to libcurl
@@ -118,13 +112,12 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
         # clean up the FTP commands list
         lcurl.slist_free_all(headerlist)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

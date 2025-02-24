@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 # **************************************************************************
 #                                  _   _ ____  _
@@ -9,7 +8,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -29,35 +28,28 @@
 # If you have libcurl problems, all docs and details are found here:
 #   https://curl.se/libcurl/
 
+import os
+import io
 import ctypes as ct
 
 from ._platform import CFUNC, defined, from_oid
-from ._platform import time_t
-from ._platform import SOCKET, INVALID_SOCKET, sockaddr as C_sockaddr, fd_set  # noqa: N812
+from ._platform import time_t, timeval
+from ._platform import SOCKET, INVALID_SOCKET, fd_set, sockaddr as _sockaddr  # noqa: N812
 from ._dll      import dll
 
 NULL = ct.c_void_p(0)
 
 # ifdef CURL_NO_OLDIES
 # define CURL_STRICTER
-CURL_STRICTER = 1
+CURL_STRICTER = 1  # not used since 8.11.0
 # endif
 
 off_t = ct.c_int64
 
-if defined("CURL_STRICTER"):
-    # typedef struct Curl_easy  CURL;
-    # typedef struct Curl_share CURLSH;
-    class Curl_easy(ct.Structure): pass
-    class Curl_share(ct.Structure): pass
-    CURL   = Curl_easy
-    CURLSH = Curl_share
-else:
-    # typedef void CURL;
-    # typedef void CURLSH;
-    CURL   = ct.c_ubyte  # void
-    CURLSH = ct.c_ubyte  # void
-# endif
+# typedef void CURL;
+# typedef void CURLSH;
+CURL   = None  # void
+CURLSH = None  # void
 
 # socket typedef
 # typedef SOCKET curl_socket_t;
@@ -77,23 +69,26 @@ sslbackend = ct.c_int
     CURLSSLBACKEND_NONE,
     CURLSSLBACKEND_OPENSSL,
     CURLSSLBACKEND_GNUTLS,
-    CURLSSLBACKEND_NSS,
+    CURLSSLBACKEND_NSS,        # deprecated from 8.3.0
     CURLSSLBACKEND_OBSOLETE4,  # Was QSOSSL.
-    CURLSSLBACKEND_GSKIT,
-    CURLSSLBACKEND_POLARSSL,
+    CURLSSLBACKEND_GSKIT,      # deprecated from 8.3.0
+    CURLSSLBACKEND_POLARSSL,   # deprecated from 7.69.0
     CURLSSLBACKEND_WOLFSSL,
     CURLSSLBACKEND_SCHANNEL,
     CURLSSLBACKEND_SECURETRANSPORT,
-    CURLSSLBACKEND_AXTLS,  # never used since 7.63.0
+    CURLSSLBACKEND_AXTLS,      # deprecated from 7.61.0
     CURLSSLBACKEND_MBEDTLS,
-    CURLSSLBACKEND_MESALINK,
+    CURLSSLBACKEND_MESALINK,   # deprecated from 7.82.0
     CURLSSLBACKEND_BEARSSL,
     CURLSSLBACKEND_RUSTLS,
-) = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+
+) = (0, 1, 2, 3, 4, 5, 6, 7,
+     8, 9, 10, 11, 12, 13, 14)
 
 # aliases for library clones and renames
-CURLSSLBACKEND_LIBRESSL  = CURLSSLBACKEND_OPENSSL
+CURLSSLBACKEND_AWSLC     = CURLSSLBACKEND_OPENSSL
 CURLSSLBACKEND_BORINGSSL = CURLSSLBACKEND_OPENSSL
+CURLSSLBACKEND_LIBRESSL  = CURLSSLBACKEND_OPENSSL
 
 # deprecated names:
 CURLSSLBACKEND_CYASSL    = CURLSSLBACKEND_WOLFSSL
@@ -115,8 +110,8 @@ httppost._fields_ = [
                                                  # file, this link should link to following
                                                  # files
     ("flags",          ct.c_long),               # as defined below
-    ("showfilename",   ct.c_char_p),             # The file name to show. If not set, the
-                                                 # actual file name will be used (if this
+    ("showfilename",   ct.c_char_p),             # The filename to show. If not set, the
+                                                 # actual filename will be used (if this
                                                  # is a file part)
     ("userp",          ct.c_void_p),             # custom pointer used for
                                                  # HTTPPOST_CALLBACK posts
@@ -126,9 +121,9 @@ httppost._fields_ = [
 ]
 
 # for curl_httppost.flags
-# specified content is a file name
+# specified content is a filename
 CURL_HTTPPOST_FILENAME = (1 << 0)
-# specified content is a file name
+# specified content is a filename
 CURL_HTTPPOST_READFILE = (1 << 1)
 # name is only stored pointer do not free in formfree
 CURL_HTTPPOST_PTRNAME = (1 << 2)
@@ -150,42 +145,34 @@ CURL_PROGRESSFUNC_CONTINUE = 0x10000001
 
 # This is the CURLOPT_PROGRESSFUNCTION callback prototype. It is now
 # considered deprecated but was the only choice up until 7.31.0
-# typedef int (*curl_progress_callback)(void *clientp,
-#                                       double dltotal,
-#                                       double dlnow,
-#                                       double ultotal,
-#                                       double ulnow);
+#
 progress_callback = CFUNC(ct.c_int,
-                          ct.c_void_p,  # clientp
-                          ct.c_double,  # dltotal
-                          ct.c_double,  # dlnow
-                          ct.c_double,  # ultotal
-                          ct.c_double)  # ulnow
+    ct.c_void_p,  # clientp
+    ct.c_double,  # dltotal
+    ct.c_double,  # dlnow
+    ct.c_double,  # ultotal
+    ct.c_double)  # ulnow
 
 # This is the CURLOPT_XFERINFOFUNCTION callback prototype. It was introduced
 # in 7.32.0, avoids the use of floating point numbers and provides more
 # detailed information.
-# typedef int (*curl_xferinfo_callback)(void *clientp,
-#                                       curl_off_t dltotal,
-#                                       curl_off_t dlnow,
-#                                       curl_off_t ultotal,
-#                                       curl_off_t ulnow);
+#
 xferinfo_callback = CFUNC(ct.c_int,
-                          ct.c_void_p,  # clientp
-                          off_t,        # dltotal
-                          off_t,        # dlnow
-                          off_t,        # ultotal
-                          off_t)        # ulnow
+    ct.c_void_p,  # clientp
+    off_t,        # dltotal
+    off_t,        # dlnow
+    off_t,        # ultotal
+    off_t)        # ulnow
 
 # The maximum receive buffer size configurable via CURLOPT_BUFFERSIZE.
-CURL_MAX_READ_SIZE = 524288
+CURL_MAX_READ_SIZE = 10 * 1024 * 1024
 
-# Tests have proven that 20K is a very bad buffer size for uploads on
-# Windows, while 16K for some odd reason performed a lot better.
-# We do the ifndef check to allow this value to easier be changed at build
-# time for those who feel adventurous. The practical minimum is about
-# 400 bytes since libcurl uses a buffer of this size as a scratch area
-# (unrelated to network send operations).
+# Tests have proven that 20K is a bad buffer size for uploads on Windows,
+# while 16K for some odd reason performed a lot better. We do the ifndef
+# check to allow this value to easier be changed at build time for those
+# who feel adventurous. The practical minimum is about 400 bytes since
+# libcurl uses a buffer of this size as a scratch area (unrelated to
+# network send operations).
 CURL_MAX_WRITE_SIZE = 16384
 
 # The only reason to have a max limit for this is to avoid the risk of a bad
@@ -197,24 +184,22 @@ CURL_MAX_HTTP_HEADER = (100 * 1024)
 # will signal libcurl to pause receiving on the current transfer.
 CURL_WRITEFUNC_PAUSE = 0x10000001
 
-# typedef size_t (*curl_write_callback)(char *buffer,
-#                                       size_t size,
-#                                       size_t nitems,
-#                                       void *outstream);
+# This is a magic return code for the write callback that, when returned,
+# will signal an error from the callback.
+CURL_WRITEFUNC_ERROR = 0xFFFFFFFF
+
 write_callback = CFUNC(ct.c_size_t,
-                       ct.POINTER(ct.c_ubyte),  # buffer
-                       ct.c_size_t,             # size
-                       ct.c_size_t,             # nitems
-                       ct.c_void_p)             # outstream
+    ct.POINTER(ct.c_ubyte),  # buffer
+    ct.c_size_t,             # size
+    ct.c_size_t,             # nitems
+    ct.c_void_p)             # outstream
 
 # This callback will be called when a new resolver request is made
-# typedef int (*curl_resolver_start_callback)(void *resolver_state,
-#                                             void *reserved,
-#                                             void *userdata);
+#
 resolver_start_callback = CFUNC(ct.c_int,
-                                ct.c_void_p,  # resolver_state
-                                ct.c_void_p,  # reserved
-                                ct.c_void_p)  # userdata
+    ct.c_void_p,  # resolver_state
+    ct.c_void_p,  # reserved
+    ct.c_void_p)  # userdata
 
 # enumeration of file types
 curlfiletype = ct.c_int
@@ -226,9 +211,9 @@ curlfiletype = ct.c_int
     CURLFILETYPE_DEVICE_CHAR,
     CURLFILETYPE_NAMEDPIPE,
     CURLFILETYPE_SOCKET,
-    CURLFILETYPE_DOOR,  # is possible only on Sun Solaris now
-
+    CURLFILETYPE_DOOR,    # is possible only on Sun Solaris now
     CURLFILETYPE_UNKNOWN  # should never occur
+
 ) = range(0, 9)
 
 CURLFINFOFLAG_KNOWN_FILENAME   = (1 << 0)
@@ -262,7 +247,8 @@ class fileinfo(ct.Structure):
     ("hardlinks", ct.c_long),
     ("strings",   _fileinfo_strings),
     ("flags",     ct.c_uint),
-    # used internally
+    # These are libcurl private struct fields. Previously used by libcurl, so
+    # they must never be interfered with.
     ("b_data",    ct.POINTER(ct.c_ubyte)),
     ("b_size",    ct.c_size_t),
     ("b_used",    ct.c_size_t),
@@ -277,13 +263,10 @@ CURL_CHUNK_BGN_FUNC_SKIP = 2  # skip this chunk over
 # download of an individual chunk started. Note that parameter "remains" works
 # only for FTP wildcard downloading (for now), otherwise is not used
 #
-# typedef long (*curl_chunk_bgn_callback)(const void *transfer_info,
-#                                         void *ptr,
-#                                         int remains);
 chunk_bgn_callback = CFUNC(ct.c_long,
-                           ct.c_void_p,  # transfer_info
-                           ct.c_void_p,  # ptr
-                           ct.c_int)     # remains
+    ct.c_void_p,  # transfer_info
+    ct.c_void_p,  # ptr
+    ct.c_int)     # remains
 
 # return codes for CURLOPT_CHUNK_END_FUNCTION
 CURL_CHUNK_END_FUNC_OK   = 0
@@ -293,42 +276,35 @@ CURL_CHUNK_END_FUNC_FAIL = 1  # tell the lib to end the task
 # download of an individual chunk finished.
 # Note! After this callback was set then it have to be called FOR ALL chunks.
 # Even if downloading of this chunk was skipped in CHUNK_BGN_FUNC.
-# This is the reason why we don't need "transfer_info" parameter in this
+# This is the reason why we do not need "transfer_info" parameter in this
 # callback and we are not interested in "remains" parameter too.
 #
-# typedef long (*curl_chunk_end_callback)(void *ptr);
 chunk_end_callback = CFUNC(ct.c_long,
-                           ct.c_void_p)  # ptr
+    ct.c_void_p)  # ptr
 
 # return codes for FNMATCHFUNCTION
 CURL_FNMATCHFUNC_MATCH   = 0  # string corresponds to the pattern
-CURL_FNMATCHFUNC_NOMATCH = 1  # pattern doesn't match the string
+CURL_FNMATCHFUNC_NOMATCH = 1  # pattern does not match the string
 CURL_FNMATCHFUNC_FAIL    = 2  # an error occurred
 
 # callback type for wildcard downloading pattern matching. If the
 # string matches the pattern, return CURL_FNMATCHFUNC_MATCH value, etc.
 #
-# typedef int (*curl_fnmatch_callback)(void *ptr,
-#                                      const char *pattern,
-#                                      const char *string);
 fnmatch_callback = CFUNC(ct.c_int,
-                         ct.c_void_p,  # ptr
-                         ct.c_char_p,  # pattern
-                         ct.c_char_p)  # string
+    ct.c_void_p,  # ptr
+    ct.c_char_p,  # pattern
+    ct.c_char_p)  # string
 
 # These are the return codes for the seek callbacks
 CURL_SEEKFUNC_OK       = 0
 CURL_SEEKFUNC_FAIL     = 1  # fail the entire transfer
-CURL_SEEKFUNC_CANTSEEK = 2  # tell libcurl seeking can't be done, so
+CURL_SEEKFUNC_CANTSEEK = 2  # tell libcurl seeking cannot be done, so
 #                           # libcurl might try other means instead
 
-# typedef int (*curl_seek_callback)(void *instream,
-#                                   curl_off_t offset,
-#                                   int origin); /* 'whence' */
 seek_callback = CFUNC(ct.c_int,
-                      ct.c_void_p,  # instream
-                      off_t,        # offset
-                      ct.c_int)     # origin # 'whence'
+    ct.c_void_p,  # instream
+    off_t,        # offset
+    ct.c_int)     # origin # 'whence'
 
 # This is a return code for the read callback that, when returned, will
 # signal libcurl to immediately abort the current transfer.
@@ -344,27 +320,22 @@ CURL_TRAILERFUNC_OK = 0
 # want to abort the request
 CURL_TRAILERFUNC_ABORT = 1
 
-# typedef size_t (*curl_read_callback)(char *buffer,
-#                                      size_t size,
-#                                      size_t nitems,
-#                                      void *instream);
 read_callback = CFUNC(ct.c_size_t,
-                      ct.POINTER(ct.c_ubyte),  # buffer
-                      ct.c_size_t,             # size
-                      ct.c_size_t,             # nitems
-                      ct.c_void_p)             # instream
+    ct.POINTER(ct.c_ubyte),  # buffer
+    ct.c_size_t,             # size
+    ct.c_size_t,             # nitems
+    ct.c_void_p)             # instream
 
-# typedef int (*curl_trailer_callback)(struct curl_slist **list,
-#                                      void *userdata);
 trailer_callback = CFUNC(ct.c_int,
-                         ct.POINTER(ct.POINTER(slist)),  # list
-                         ct.c_void_p)                    # userdata
+    ct.POINTER(ct.POINTER(slist)),  # list
+    ct.c_void_p)                    # userdata
 
 curlsocktype = ct.c_int
 (
     CURLSOCKTYPE_IPCXN,   # socket created for a specific IP connection
     CURLSOCKTYPE_ACCEPT,  # socket created by accept() call
     CURLSOCKTYPE_LAST     # never use
+
 ) = range(3)
 
 # The return code from the sockopt_callback can signal information back
@@ -373,13 +344,10 @@ CURL_SOCKOPT_OK    = 0
 CURL_SOCKOPT_ERROR = 1  # causes libcurl to abort and return CURLE_ABORTED_BY_CALLBACK
 CURL_SOCKOPT_ALREADY_CONNECTED = 2
 
-# typedef int (*curl_sockopt_callback)(void *clientp,
-#                                      curl_socket_t curlfd,
-#                                      curlsocktype purpose);
 sockopt_callback = CFUNC(ct.c_int,
-                         ct.c_void_p,   # clientp
-                         socket_t,      # curlfd
-                         curlsocktype)  # purpose
+    ct.c_void_p,   # clientp
+    socket_t,      # curlfd
+    curlsocktype)  # purpose
 
 class sockaddr(ct.Structure):
     _fields_ = [
@@ -389,22 +357,17 @@ class sockaddr(ct.Structure):
     ("addrlen",  ct.c_uint),  # addrlen was a socklen_t type before 7.18.0 but it
                               # turned really ugly and painful on the systems that
                               # lack this type
-    ("addr",     C_sockaddr),
+    ("addr",     _sockaddr),
 ]
 
-# typedef curl_socket_t (*curl_opensocket_callback)(void *clientp,
-#                                                   curlsocktype purpose,
-#                                                   struct curl_sockaddr *address);
 opensocket_callback = CFUNC(socket_t,
-                            ct.c_void_p,           # clientp
-                            curlsocktype,          # purpose
-                            ct.POINTER(sockaddr))  # address
+    ct.c_void_p,           # clientp
+    curlsocktype,          # purpose
+    ct.POINTER(sockaddr))  # address
 
-# typedef int (*curl_closesocket_callback)(void *clientp,
-#                                          curl_socket_t item);
 closesocket_callback = CFUNC(ct.c_int,
-                             ct.c_void_p,  # clientp
-                             socket_t)     # item
+    ct.c_void_p,  # clientp
+    socket_t)     # item
 
 curlioerr = ct.c_int
 (
@@ -412,6 +375,7 @@ curlioerr = ct.c_int
     CURLIOE_UNKNOWNCMD,   # command was unknown to callback
     CURLIOE_FAILRESTART,  # failed to restart the read
     CURLIOE_LAST          # never use
+
 ) = range(4)
 
 curliocmd = ct.c_int
@@ -419,35 +383,28 @@ curliocmd = ct.c_int
     CURLIOCMD_NOP,          # no operation
     CURLIOCMD_RESTARTREAD,  # restart the read stream from start
     CURLIOCMD_LAST          # never use
+
 ) = range(3)
 
-# typedef curlioerr (*curl_ioctl_callback)(CURL *handle,
-#                                          int cmd,
-#                                          void *clientp);
 ioctl_callback = CFUNC(curlioerr,
-                       ct.POINTER(CURL),  # handle
-                       curliocmd,         # cmd
-                       ct.c_void_p)       # clientp
+    ct.POINTER(CURL),  # handle
+    curliocmd,         # cmd
+    ct.c_void_p)       # clientp
 
 # ifndef CURL_DID_MEMORY_FUNC_TYPEDEFS
 
 # The following typedef's are signatures of malloc, free, realloc, strdup and
-# calloc respectively.  Function pointers of these types can be passed to the
+# calloc respectively. Function pointers of these types can be passed to the
 # curl_global_init_mem() function to set user defined memory management
 # callback routines.
-
-# typedef void *(*curl_malloc_callback)(size_t size);
-# typedef void (*curl_free_callback)(void *ptr);
-# typedef void *(*curl_realloc_callback)(void *ptr, size_t size);
-# typedef char *(*curl_strdup_callback)(const char *str);
-# typedef void *(*curl_calloc_callback)(size_t nmemb, size_t size);
+#
 malloc_callback  = CFUNC(ct.c_void_p, ct.c_size_t)  # size
-free_callback    = CFUNC(None,        ct.c_void_p)  # ptr
 realloc_callback = CFUNC(ct.c_void_p, ct.c_void_p,  # ptr
                                       ct.c_size_t)  # size
-strdup_callback  = CFUNC(ct.c_char_p, ct.c_char_p)  # str
 calloc_callback  = CFUNC(ct.c_void_p, ct.c_size_t,  # nmemb
                                       ct.c_size_t)  # size
+free_callback    = CFUNC(None,        ct.c_void_p)  # ptr
+strdup_callback  = CFUNC(ct.c_void_p, ct.c_char_p)  # str
 
 # define CURL_DID_MEMORY_FUNC_TYPEDEFS
 # endif
@@ -463,32 +420,24 @@ infotype = ct.c_int
     CURLINFO_SSL_DATA_IN,   # 5
     CURLINFO_SSL_DATA_OUT,  # 6
     CURLINFO_END
+
 ) = range(0, 8)
 
-# typedef int (*curl_debug_callback)(CURL *handle,       /* the handle/transfer this concerns */
-#                                    curl_infotype type, /* what kind of data */
-#                                    char *data,         /* points to the data */
-#                                    size_t size,        /* size of the data pointed to */
-#                                    void *userptr);     /* whatever the user please */
 debug_callback = CFUNC(ct.c_int,
-                       ct.POINTER(CURL),        # handle  # the handle/transfer this concerns
-                       infotype,                # type    # what kind of data
-                       ct.POINTER(ct.c_ubyte),  # data    # points to the data
-                       ct.c_size_t,             # size    # size of the data pointed to
-                       ct.c_void_p)             # userptr # whatever the user please
+    ct.POINTER(CURL),        # handle  # the handle/transfer this concerns
+    infotype,                # type    # what kind of data
+    ct.POINTER(ct.c_ubyte),  # data    # points to the data
+    ct.c_size_t,             # size    # size of the data pointed to
+    ct.c_void_p)             # userptr # whatever the user please
 
 # This is the CURLOPT_PREREQFUNCTION callback prototype.
-# typedef int (*curl_prereq_callback)(void *clientp,
-#                                     char *conn_primary_ip,
-#                                     char *conn_local_ip,
-#                                     int conn_primary_port,
-#                                     int conn_local_port);
+#
 prereq_callback = CFUNC(ct.c_int,
-                        ct.c_void_p,  # clientp
-                        ct.c_char_p,  # conn_primary_ip
-                        ct.c_char_p,  # conn_local_ip
-                        ct.c_int,     # conn_primary_port
-                        ct.c_int)     # conn_local_port
+    ct.c_void_p,  # clientp
+    ct.c_char_p,  # conn_primary_ip
+    ct.c_char_p,  # conn_local_ip
+    ct.c_int,     # conn_primary_port
+    ct.c_int)     # conn_local_port
 
 # Return code for when the pre-request callback has terminated without
 # any errors
@@ -539,22 +488,22 @@ CURLcode = ct.c_int
     CURLE_WRITE_ERROR,               # 23
     CURLE_OBSOLETE24,                # 24 - NOT USED
     CURLE_UPLOAD_FAILED,             # 25 - failed upload "command"
-    CURLE_READ_ERROR,                # 26 - couldn't open/read from file
+    CURLE_READ_ERROR,                # 26 - could not open/read from file
     CURLE_OUT_OF_MEMORY,             # 27
     CURLE_OPERATION_TIMEDOUT,        # 28 - the timeout time was reached
     CURLE_OBSOLETE29,                # 29 - NOT USED
     CURLE_FTP_PORT_FAILED,           # 30 - FTP PORT operation failed
     CURLE_FTP_COULDNT_USE_REST,      # 31 - the REST command failed
     CURLE_OBSOLETE32,                # 32 - NOT USED
-    CURLE_RANGE_ERROR,               # 33 - RANGE "command" didn't work
-    CURLE_HTTP_POST_ERROR,           # 34
+    CURLE_RANGE_ERROR,               # 33 - RANGE "command" did not work
+    CURLE_OBSOLETE34,                # 34
     CURLE_SSL_CONNECT_ERROR,         # 35 - wrong when connecting with SSL
-    CURLE_BAD_DOWNLOAD_RESUME,       # 36 - couldn't resume download
+    CURLE_BAD_DOWNLOAD_RESUME,       # 36 - could not resume download
     CURLE_FILE_COULDNT_READ_FILE,    # 37
     CURLE_LDAP_CANNOT_BIND,          # 38
     CURLE_LDAP_SEARCH_FAILED,        # 39
     CURLE_OBSOLETE40,                # 40 - NOT USED
-    CURLE_FUNCTION_NOT_FOUND,        # 41 - NOT USED starting with 7.53.0
+    CURLE_OBSOLETE41,                # 41 - NOT USED starting with 7.53.0
     CURLE_ABORTED_BY_CALLBACK,       # 42
     CURLE_BAD_FUNCTION_ARGUMENT,     # 43
     CURLE_OBSOLETE44,                # 44 - NOT USED
@@ -573,9 +522,9 @@ CURLcode = ct.c_int
     CURLE_RECV_ERROR,                # 56 - failure in receiving network data
     CURLE_OBSOLETE57,                # 57 - NOT IN USE
     CURLE_SSL_CERTPROBLEM,           # 58 - problem with the local certificate
-    CURLE_SSL_CIPHER,                # 59 - couldn't use specified cipher
+    CURLE_SSL_CIPHER,                # 59 - could not use specified cipher
     CURLE_PEER_FAILED_VERIFICATION,  # 60 - peer's certificate or fingerprint
-                                     #      wasn't verified fine
+                                     #      was not verified fine
     CURLE_BAD_CONTENT_ENCODING,      # 61 - Unrecognized/bad encoding
     CURLE_OBSOLETE62,                # 62 - NOT IN USE since 7.82.0
     CURLE_FILESIZE_EXCEEDED,         # 63 - Maximum file size exceeded
@@ -592,7 +541,7 @@ CURLcode = ct.c_int
     CURLE_TFTP_UNKNOWNID,            # 72 - Unknown transfer ID
     CURLE_REMOTE_FILE_EXISTS,        # 73 - File already exists
     CURLE_TFTP_NOSUCHUSER,           # 74 - No such user
-    CURLE_CONV_FAILED,               # 75 - conversion failed
+    CURLE_OBSOLETE75,                # 75 - NOT IN USE since 7.82.0
     CURLE_OBSOLETE76,                # 76 - NOT IN USE since 7.82.0
     CURLE_SSL_CACERT_BADFILE,        # 77 - could not load CACERT file, missing
                                      #      or wrong format
@@ -603,7 +552,7 @@ CURLcode = ct.c_int
     CURLE_SSL_SHUTDOWN_FAILED,       # 80 - Failed to shut down the SSL
                                      #      connection
     CURLE_AGAIN,                     # 81 - socket is not ready for send/recv,
-                                     #      wait till it's ready and try again (Added
+                                     #      wait till it is ready and try again (Added
                                      #      in 7.18.2)
     CURLE_SSL_CRL_BADFILE,           # 82 - could not load CRL file, missing or
                                      #      wrong format (Added in 7.19.0)
@@ -629,8 +578,11 @@ CURLcode = ct.c_int
     CURLE_PROXY,                     # 97 - proxy handshake error
     CURLE_SSL_CLIENTCERT,            # 98 - client-side certificate required
     CURLE_UNRECOVERABLE_POLL,        # 99 - poll/select returned fatal error
+    CURLE_TOO_LARGE,                 # 100 - a value/data met its maximum
+    CURLE_ECH_REQUIRED,              # 101 - ECH tried but failed
     CURL_LAST  # never use!
-) = range(0, 101)
+
+) = range(0, 103)
 
 # CURLcode OLDIES section moved at the eof
 
@@ -673,41 +625,36 @@ CURLproxycode = ct.c_int
     CURLPX_UNKNOWN_MODE,
     CURLPX_USER_REJECTED,
     CURLPX_LAST  # never use
+
 ) = range(35)
 
 # This prototype applies to all conversion callbacks
 #
-# typedef CURLcode (*curl_conv_callback)(char *buffer, size_t length);
 conv_callback = CFUNC(CURLcode,
-                      ct.POINTER(ct.c_ubyte),  # buffer
-                      ct.c_size_t)             # length
+    ct.POINTER(ct.c_ubyte),  # buffer
+    ct.c_size_t)             # length
 
-# typedef CURLcode (*curl_ssl_ctx_callback)(CURL *curl,    /* easy handle */
-#                                           void *ssl_ctx, /* actually an OpenSSL
-#                                                             or WolfSSL SSL_CTX,
-#                                                             or an mbedTLS
-#                                                           mbedtls_ssl_config */
-#                                           void *userptr);
-ssl_ctx_callback =  CFUNC(CURLcode,
-                          ct.POINTER(CURL),  # curl    # easy handle
-                          ct.c_void_p,       # ssl_ctx # actually an OpenSSL
-                                                       #  or WolfSSL SSL_CTX,
-                                                       #  or an mbedTLS
-                                                       # mbedtls_ssl_config
-                          ct.c_void_p)       # userptr
+ssl_ctx_callback = CFUNC(CURLcode,
+    ct.POINTER(CURL),  # curl    # easy handle
+    ct.c_void_p,       # ssl_ctx # actually an OpenSSL
+    #                            # or wolfSSL SSL_CTX,
+    #                            # or an mbedTLS
+    #                            # mbedtls_ssl_config
+    ct.c_void_p)       # userptr
 
 proxytype = ct.c_int
 (
     CURLPROXY_HTTP,            # added in 7.10, new in 7.19.4 default is to use CONNECT HTTP/1.1
     CURLPROXY_HTTP_1_0,        # added in 7.19.4, force to use CONNECT HTTP/1.0
-    CURLPROXY_HTTPS,           # added in 7.52.0
+    CURLPROXY_HTTPS,           # HTTPS but stick to HTTP/1 added in 7.52.0
+    CURLPROXY_HTTPS2,          # HTTPS and attempt HTTP/2 added in 8.2.0
     CURLPROXY_SOCKS4,          # support added in 7.15.2, enum existed already in 7.10
     CURLPROXY_SOCKS5,          # added in 7.10
     CURLPROXY_SOCKS4A,         # added in 7.18.0
     CURLPROXY_SOCKS5_HOSTNAME  # Use the SOCKS5 protocol but pass along the
-                               # host name rather than the IP address. added
+                               # hostname rather than the IP address. added
                                # in 7.18.0
-) = (0, 1, 2, 4, 5, 6, 7)  # this enum was added in 7.10
+) = (0, 1, 2, 3, 4, 5, 6, 7)  # this enum was added in 7.10
 
 # Bitmasks for CURLOPT_HTTPAUTH and CURLOPT_PROXYAUTH options:
 #
@@ -735,7 +682,9 @@ CURLAUTH_GSSNEGOTIATE = CURLAUTH_NEGOTIATE
 CURLAUTH_GSSAPI    = CURLAUTH_NEGOTIATE
 CURLAUTH_NTLM      = (ct.c_ulong(1).value << 3)
 CURLAUTH_DIGEST_IE = (ct.c_ulong(1).value << 4)
-CURLAUTH_NTLM_WB   = (ct.c_ulong(1).value << 5)
+if not defined("CURL_NO_OLDIES"):
+    # functionality removed since 8.8.0
+    CURLAUTH_NTLM_WB = (ct.c_ulong(1).value << 5)
 CURLAUTH_BEARER    = (ct.c_ulong(1).value << 6)
 CURLAUTH_AWS_SIGV4 = (ct.c_ulong(1).value << 7)
 CURLAUTH_ONLY      = (ct.c_ulong(1).value << 31)
@@ -766,6 +715,7 @@ khtype = ct.c_int
     CURLKHTYPE_DSS,
     CURLKHTYPE_ECDSA,
     CURLKHTYPE_ED25519
+
 ) = range(6)
 
 class khkey(ct.Structure):
@@ -784,11 +734,12 @@ khstat = ct.c_int
     CURLKHSTAT_FINE_ADD_TO_FILE,
     CURLKHSTAT_FINE,
     CURLKHSTAT_REJECT,  # reject the connection, return an error
-    CURLKHSTAT_DEFER,   # do not accept it, but we can't answer right now so
-                        # this causes a CURLE_DEFER error but otherwise the
+    CURLKHSTAT_DEFER,   # do not accept it, but we cannot answer right now.
+                        # Causes a CURLE_PEER_FAILED_VERIFICATION error but the
                         # connection will be left intact etc
     CURLKHSTAT_FINE_REPLACE,  # accept and replace the wrong key
     CURLKHSTAT_LAST     # not for use, only a marker for last-in-list
+
 ) = range(6)
 
 # this is the set of status codes pass in to the callback
@@ -798,35 +749,22 @@ khmatch = ct.c_int
     CURLKHMATCH_MISMATCH,  # host found, key mismatch!
     CURLKHMATCH_MISSING,   # no matching host/key found
     CURLKHMATCH_LAST       # not for use, only a marker for last-in-list
+
 ) = range(4)
 
-# typedef int (*curl_sshkeycallback) (CURL *easy,     /* easy handle */
-#                                     const struct curl_khkey *knownkey, /* known */
-#                                     const struct curl_khkey *foundkey, /* found */
-#                                     enum curl_khmatch, /* libcurl's view on the keys */
-#                                     void *clientp); /* custom pointer passed with */
-#                                                     /* CURLOPT_SSH_KEYDATA */
 sshkeycallback = CFUNC(ct.c_int,
-                       ct.POINTER(CURL),   # easy     # easy handle
-                       ct.POINTER(khkey),  # knownkey # known
-                       ct.POINTER(khkey),  # foundkey # found
-                       khmatch,            # libcurl's view on the keys
-                       ct.c_void_p)        # clientp  # custom pointer passed with
-#                                                     # CURLOPT_SSH_KEYDATA
+    ct.POINTER(CURL),   # easy     # easy handle
+    ct.POINTER(khkey),  # knownkey # known
+    ct.POINTER(khkey),  # foundkey # found
+    khmatch,            # match    # libcurl's view on the keys
+    ct.c_void_p)        # clientp  # custom pointer passed with CURLOPT_SSH_KEYDATA
 
-# typedef int (*curl_sshhostkeycallback) (void *clientp,/* custom pointer passed*/
-#                                                       /* with CURLOPT_SSH_HOSTKEYDATA */
-#                                         int keytype, /* CURLKHTYPE */
-#                                         const char *key, /*hostkey to check*/
-#                                         size_t keylen); /*length of the key*/
-#                                         /*return CURLE_OK to accept*/
-#                                         /*or something else to refuse*/
-sshhostkeycallback = CFUNC(ct.c_int,  # return CURLE_OK to accept or something else to refuse
-                           ct.c_void_p,             # clientp # custom pointer passed
-                                                              # with CURLOPT_SSH_HOSTKEYDATA
-                           ct.c_int,                # keytype # CURLKHTYPE
-                           ct.POINTER(ct.c_ubyte),  # key     # hostkey to check
-                           ct.c_size_t)             # keylen  # length of the key
+sshhostkeycallback = CFUNC(ct.c_int,   # return CURLE_OK to accept or something else to refuse
+    ct.c_void_p,             # clientp # custom pointer passed
+                                       # with CURLOPT_SSH_HOSTKEYDATA
+    ct.c_int,                # keytype # CURLKHTYPE
+    ct.POINTER(ct.c_ubyte),  # key     # hostkey to check
+    ct.c_size_t)             # keylen  # length of the key
 
 # parameter for the CURLOPT_USE_SSL option
 usessl = ct.c_int
@@ -836,6 +774,7 @@ usessl = ct.c_int
     CURLUSESSL_CONTROL,  # SSL for the control connection or fail
     CURLUSESSL_ALL,      # SSL for all communication or fail
     CURLUSESSL_LAST      # not an option, never use
+
 ) = range(5)
 
 # Definition of bits for the CURLOPT_SSL_OPTIONS argument:
@@ -868,6 +807,9 @@ CURLSSLOPT_NATIVE_CA = (1 << 4)
 # a client certificate for authentication. (Schannel)
 CURLSSLOPT_AUTO_CLIENT_CERT = (1 << 5)
 
+# If possible, send data using TLS 1.3 early data
+CURLSSLOPT_EARLYDATA = (1 << 6)
+
 # The default connection attempt delay in milliseconds for happy eyeballs.
 # CURLOPT_HAPPY_EYEBALLS_TIMEOUT_MS.3 and happy-eyeballs-timeout-ms.d document
 # this value, keep them in sync.
@@ -885,6 +827,7 @@ ftpccc = ct.c_int
     CURLFTPSSL_CCC_PASSIVE,  # Let the server initiate the shutdown
     CURLFTPSSL_CCC_ACTIVE,   # Initiate the shutdown
     CURLFTPSSL_CCC_LAST      # not an option, never use
+
 ) = range(4)
 
 # parameter for the CURLOPT_FTPSSLAUTH option
@@ -894,6 +837,7 @@ ftpauth = ct.c_int
     CURLFTPAUTH_SSL,      # use "AUTH SSL"
     CURLFTPAUTH_TLS,      # use "AUTH TLS"
     CURLFTPAUTH_LAST      # not an option, never use
+
 ) = range(4)
 
 # parameter for the CURLOPT_FTP_CREATE_MISSING_DIRS option
@@ -906,6 +850,7 @@ ftpcreatedir = ct.c_int
     CURLFTP_CREATE_DIR_RETRY,  # (FTP only) if CWD fails, try MKD and then CWD
                                # again even if MKD failed!
     CURLFTP_CREATE_DIR_LAST    # not an option, never use
+
 ) = range(4)
 
 # parameter for the CURLOPT_FTP_FILEMETHOD option
@@ -916,6 +861,7 @@ ftpmethod = ct.c_int
     CURLFTPMETHOD_NOCWD,      # no CWD at all
     CURLFTPMETHOD_SINGLECWD,  # one CWD to full dir, then work on file
     CURLFTPMETHOD_LAST        # not an option, never use
+
 ) = range(5)
 
 # bitmask defines for CURLOPT_HEADEROPT
@@ -947,31 +893,26 @@ CURLSTScode = ct.c_int
     CURLSTS_OK,
     CURLSTS_DONE,
     CURLSTS_FAIL
+
 ) = range(3)
 
-# typedef CURLSTScode (*curl_hstsread_callback)(CURL *easy,
-#                                               struct curl_hstsentry *e,
-#                                               void *userp);
 hstsread_callback = CFUNC(CURLSTScode,
-                          ct.POINTER(CURL),       # easy
-                          ct.POINTER(hstsentry),  # entry
-                          ct.c_void_p)            # userp
+    ct.POINTER(CURL),       # easy
+    ct.POINTER(hstsentry),  # entry
+    ct.c_void_p)            # userp
 
-# typedef CURLSTScode (*curl_hstswrite_callback)(CURL *easy,
-#                                                struct curl_hstsentry *e,
-#                                                struct curl_index *i,
-#                                                void *userp);
 hstswrite_callback = CFUNC(CURLSTScode,
-                           ct.POINTER(CURL),       # easy
-                           ct.POINTER(hstsentry),  # entry
-                           ct.POINTER(index),      # index
-                           ct.c_void_p)            # userp
+    ct.POINTER(CURL),       # easy
+    ct.POINTER(hstsentry),  # entry
+    ct.POINTER(index),      # index
+    ct.c_void_p)            # userp
 
 # CURLHSTS_* are bits for the CURLOPT_HSTS option
 CURLHSTS_ENABLE       = ct.c_long(1 << 0).value
 CURLHSTS_READONLYFILE = ct.c_long(1 << 1).value
 
-# CURLPROTO_ defines are for the CURLOPT_*PROTOCOLS options
+# The CURLPROTO_ defines below are for the **deprecated** CURLOPT_*PROTOCOLS
+# options. Do not use.
 CURLPROTO_HTTP    = (1 << 0)
 CURLPROTO_HTTPS   = (1 << 1)
 CURLPROTO_FTP     = (1 << 2)
@@ -1016,8 +957,9 @@ CURLOPTTYPE_BLOB          = 40000
 # string options from the header file
 
 # define CURLOPT(na,t,nu) na = t + nu
+# define CURLOPTDEPRECATED(na,t,nu,v,m) na CURL_DEPRECATED(v,m) = t + nu
 
-# CURLOPT aliases that make no run-time difference
+# CURLOPT aliases that make no runtime difference
 
 # 'char *' argument to a string with a trailing zero
 CURLOPTTYPE_STRINGPOINT = CURLOPTTYPE_OBJECTPOINT
@@ -1075,14 +1017,14 @@ if 1:  # enum
     # Time-out the read operation after this amount of seconds
     CURLOPT_TIMEOUT = CURLOPTTYPE_LONG + 13
 
-    # If the CURLOPT_INFILE is used, this can be used to inform libcurl about
+    # If CURLOPT_READDATA is used, this can be used to inform libcurl about
     # how large the file being sent really is. That allows better error
     # checking and better verifies that the upload was successful. -1 means
     # unknown size.
     #
     # For large file support, there is also a _LARGE version of the key
     # which takes an off_t type, allowing platforms with larger off_t
-    # sizes to handle larger files.  See below for INFILESIZE_LARGE.
+    # sizes to handle larger files. See below for INFILESIZE_LARGE.
     CURLOPT_INFILESIZE = CURLOPTTYPE_LONG + 14
 
     # POST static input fields.
@@ -1113,7 +1055,7 @@ if 1:  # enum
     #
     # Note there is also a _LARGE version of this key which uses
     # off_t types, allowing for large file offsets on platforms which
-    # use larger-than-32-bit off_t's.  Look below for RESUME_FROM_LARGE.
+    # use larger-than-32-bit off_t's. Look below for RESUME_FROM_LARGE.
     CURLOPT_RESUME_FROM = CURLOPTTYPE_LONG + 21
 
     # Set cookie in request:
@@ -1124,6 +1066,7 @@ if 1:  # enum
     CURLOPT_HTTPHEADER = CURLOPTTYPE_SLISTPOINT + 23
 
     # This points to a linked list of post entries, struct curl_httppost
+    # Deprecated from 7.56.0, Use CURLOPT_MIMEPOST
     CURLOPT_HTTPPOST = CURLOPTTYPE_OBJECTPOINT + 24
 
     # name of the file keeping your private SSL-certificate
@@ -1172,8 +1115,7 @@ if 1:  # enum
     # send linked-list of post-transfer QUOTE commands
     CURLOPT_POSTQUOTE = CURLOPTTYPE_SLISTPOINT + 39
 
-    # OBSOLETE, do not use!
-    CURLOPT_OBSOLETE40 = CURLOPTTYPE_OBJECTPOINT + 40
+    # 40 is not used
 
     # talk a lot
     CURLOPT_VERBOSE = CURLOPTTYPE_LONG + 41
@@ -1213,6 +1155,7 @@ if 1:  # enum
     CURLOPT_TRANSFERTEXT = CURLOPTTYPE_LONG + 53
 
     # HTTP PUT
+    # Deprecated from 7.12.1, Use CURLOPT_UPLOAD
     CURLOPT_PUT = CURLOPTTYPE_LONG + 54
 
     # 55 = OBSOLETE
@@ -1221,6 +1164,7 @@ if 1:  # enum
     # Function that will be called instead of the internal progress display
     # function. This function should be defined as the curl_progress_callback
     # prototype defines.
+    # Deprecated from 7.32.0, Use CURLOPT_XFERINFOFUNCTION
     CURLOPT_PROGRESSFUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 56
 
     # Data passed to the CURLOPT_PROGRESSFUNCTION and CURLOPT_XFERINFOFUNCTION
@@ -1238,15 +1182,15 @@ if 1:  # enum
     # size of the POST input data, if strlen() is not good to use
     CURLOPT_POSTFIELDSIZE = CURLOPTTYPE_LONG + 60
 
-    # tunnel non-http operations through a HTTP proxy
+    # tunnel non-http operations through an HTTP proxy
     CURLOPT_HTTPPROXYTUNNEL = CURLOPTTYPE_LONG + 61
 
     # Set the interface string to use as outgoing network interface
     CURLOPT_INTERFACE = CURLOPTTYPE_STRINGPOINT + 62
 
-    # Set the krb4/5 security level, this also enables krb4/5 awareness.  This
-    # is a string, 'clear', 'safe', 'confidential' or 'private'.  If the string
-    # is set but doesn't match one of these, 'private' will be used.
+    # Set the krb4/5 security level, this also enables krb4/5 awareness. This
+    # is a string, 'clear', 'safe', 'confidential' or 'private'. If the string
+    # is set but does not match one of these, 'private' will be used.  */
     CURLOPT_KRBLEVEL = CURLOPTTYPE_STRINGPOINT + 63
 
     # Set if we should verify the peer in ssl handshake, set 1 to verify.
@@ -1272,26 +1216,26 @@ if 1:  # enum
     # Max amount of cached alive connections
     CURLOPT_MAXCONNECTS = CURLOPTTYPE_LONG + 71
 
-    # OBSOLETE, do not use!
-    CURLOPT_OBSOLETE72 = CURLOPTTYPE_LONG + 72
-
+    # 72 = OBSOLETE
     # 73 = OBSOLETE
 
     # Set to explicitly use a new connection for the upcoming transfer.
-    # Do not use this unless you're absolutely sure of this, as it makes the
+    # Do not use this unless you are absolutely sure of this, as it makes the
     # operation slower and is less friendly for the network.
     CURLOPT_FRESH_CONNECT = CURLOPTTYPE_LONG + 74
 
-    # Set to explicitly forbid the upcoming transfer's connection to be re-used
-    # when done. Do not use this unless you're absolutely sure of this, as it
+    # Set to explicitly forbid the upcoming transfer's connection to be reused
+    # when done. Do not use this unless you are absolutely sure of this, as it
     # makes the operation slower and is less friendly for the network.
     CURLOPT_FORBID_REUSE = CURLOPTTYPE_LONG + 75
 
-    # Set to a file name that contains random data for libcurl to use to
+    # Set to a filename that contains random data for libcurl to use to
     # seed the random engine when doing SSL connects.
+    # Deprecated from 7.84.0, Serves no purpose anymore
     CURLOPT_RANDOM_FILE = CURLOPTTYPE_STRINGPOINT + 76
 
     # Set to the Entropy Gathering Daemon socket pathname
+    # Deprecated from 7.84.0, Serves no purpose anymore
     CURLOPT_EGDSOCKET = CURLOPTTYPE_STRINGPOINT + 77
 
     # Time-out connect operations after this amount of seconds, if connects are
@@ -1311,11 +1255,11 @@ if 1:  # enum
     # provided hostname.
     CURLOPT_SSL_VERIFYHOST = CURLOPTTYPE_LONG + 81
 
-    # Specify which file name to write all known cookies in after completed
-    # operation. Set file name to "-" (dash) to make it go to stdout.
+    # Specify which filename to write all known cookies in after completed
+    # operation. Set filename to "-" (dash) to make it go to stdout.
     CURLOPT_COOKIEJAR = CURLOPTTYPE_STRINGPOINT + 82
 
-    # Specify which SSL ciphers to use
+    # Specify which TLS 1.2 (1.1, 1.0) ciphers to use
     CURLOPT_SSL_CIPHER_LIST = CURLOPTTYPE_STRINGPOINT + 83
 
     # Specify which HTTP version to use! This must be set to one of the
@@ -1345,6 +1289,7 @@ if 1:  # enum
 
     # Non-zero value means to use the global dns cache
     # DEPRECATED, do not use!
+    # Deprecated from 7.11.1, Use CURLOPT_SHARE
     CURLOPT_DNS_USE_GLOBAL_CACHE = CURLOPTTYPE_LONG + 91
 
     # DNS cache timeout
@@ -1409,7 +1354,7 @@ if 1:  # enum
     CURLOPT_HTTPAUTH = CURLOPTTYPE_VALUES + 107
 
     # Set the ssl context callback function, currently only for OpenSSL or
-    # WolfSSL ssl_ctx, or mbedTLS mbedtls_ssl_config in the second argument.
+    # wolfSSL ssl_ctx, or mbedTLS mbedtls_ssl_config in the second argument.
     # The function must match the curl_ssl_ctx_callback prototype.
     CURLOPT_SSL_CTX_FUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 108
 
@@ -1427,12 +1372,11 @@ if 1:  # enum
     # Note that setting multiple bits may cause extra network round-trips.
     CURLOPT_PROXYAUTH = CURLOPTTYPE_VALUES + 111
 
-    # FTP option that changes the timeout, in seconds, associated with
-    # getting a response.  This is different from transfer timeout time and
-    # essentially places a demand on the FTP server to acknowledge commands
-    # in a timely manner.
-    CURLOPT_FTP_RESPONSE_TIMEOUT    = CURLOPTTYPE_LONG + 112
-    CURLOPT_SERVER_RESPONSE_TIMEOUT = CURLOPT_FTP_RESPONSE_TIMEOUT  # alias
+    # Option that changes the timeout, in seconds, associated with getting a
+    # response. This is different from transfer timeout time and essentially
+    # places a demand on the server to acknowledge commands in a timely
+    # manner. For FTP, SMTP, IMAP and POP3.
+    CURLOPT_SERVER_RESPONSE_TIMEOUT = CURLOPTTYPE_LONG + 112
 
     # Set this option to one of the CURL_IPRESOLVE_* defines (see below) to
     # tell libcurl to use those IP versions only. This only has effect on
@@ -1443,22 +1387,22 @@ if 1:  # enum
     # an HTTP or FTP server.
     #
     # Note there is also _LARGE version which adds large file support for
-    # platforms which have larger off_t sizes.  See MAXFILESIZE_LARGE below.
+    # platforms which have larger off_t sizes. See MAXFILESIZE_LARGE below.
     CURLOPT_MAXFILESIZE = CURLOPTTYPE_LONG + 114
 
     # See the comment for INFILESIZE above, but in short, specifies
     # the size of the file being uploaded.  -1 means unknown.
     CURLOPT_INFILESIZE_LARGE = CURLOPTTYPE_OFF_T + 115
 
-    # Sets the continuation offset.  There is also a CURLOPTTYPE_LONG version
+    # Sets the continuation offset. There is also a CURLOPTTYPE_LONG version
     # of this; look above for RESUME_FROM.
     CURLOPT_RESUME_FROM_LARGE = CURLOPTTYPE_OFF_T + 116
 
     # Sets the maximum size of data that will be downloaded from
-    # an HTTP or FTP server.  See MAXFILESIZE above for the LONG version.
+    # an HTTP or FTP server. See MAXFILESIZE above for the LONG version.
     CURLOPT_MAXFILESIZE_LARGE = CURLOPTTYPE_OFF_T + 117
 
-    # Set this option to the file name of your .netrc file you want libcurl
+    # Set this option to the filename of your .netrc file you want libcurl
     # to parse (using the CURLOPT_NETRC option). If not set, libcurl will do
     # a poor attempt to find the user's home directory and check for a .netrc
     # file in there.
@@ -1495,7 +1439,9 @@ if 1:  # enum
     # CURLFTPAUTH_TLS     - try "AUTH TLS" first, then SSL
     CURLOPT_FTPSSLAUTH = CURLOPTTYPE_VALUES + 129
 
+    # Deprecated from 7.18.0, Use CURLOPT_SEEKFUNCTION
     CURLOPT_IOCTLFUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 130
+    # Deprecated from 7.18.0, Use CURLOPT_SEEKDATA
     CURLOPT_IOCTLDATA     = CURLOPTTYPE_CBPOINT + 131
 
     # 132 OBSOLETE. Gone in 7.16.0
@@ -1534,15 +1480,18 @@ if 1:  # enum
 
     # Function that will be called to convert from the
     # network encoding (instead of using the iconv calls in libcurl)
+    # Deprecated from 7.82.0, Serves no purpose anymore
     CURLOPT_CONV_FROM_NETWORK_FUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 142
 
     # Function that will be called to convert to the
     # network encoding (instead of using the iconv calls in libcurl)
+    # Deprecated from 7.82.0, Serves no purpose anymore
     CURLOPT_CONV_TO_NETWORK_FUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 143
 
     # Function that will be called to convert from UTF8
     # (instead of using the iconv calls in libcurl)
     # Note that this is used only for SSL certificate processing
+    # Deprecated from 7.82.0, Serves no purpose anymore
     CURLOPT_CONV_FROM_UTF8_FUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 144
 
     # if the connection proceeds too quickly then need to slow it down
@@ -1557,7 +1506,7 @@ if 1:  # enum
     CURLOPT_SOCKOPTFUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 148
     CURLOPT_SOCKOPTDATA = CURLOPTTYPE_CBPOINT + 149
 
-    # set to 0 to disable session ID re-use for this transfer, default is
+    # set to 0 to disable session ID reuse for this transfer, default is
     # enabled (== 1)
     CURLOPT_SSL_SESSIONID_CACHE = CURLOPTTYPE_LONG + 150
 
@@ -1594,7 +1543,7 @@ if 1:  # enum
 
     # Callback function for opening socket (instead of socket(2)). Optionally,
     # callback is able change the address or refuse to connect returning
-    # CURL_SOCKET_BAD.  The callback should have type
+    # CURL_SOCKET_BAD. The callback should have type
     # curl_opensocket_callback
     CURLOPT_OPENSOCKETFUNCTION = CURLOPTTYPE_FUNCTIONPOINT + 163
     CURLOPT_OPENSOCKETDATA     = CURLOPTTYPE_CBPOINT + 164
@@ -1644,6 +1593,7 @@ if 1:  # enum
 
     # Socks Service
     # DEPRECATED, do not use!
+    # Deprecated from 7.49.0, Use CURLOPT_PROXY_SERVICE_NAME
     CURLOPT_SOCKS5_GSSAPI_SERVICE = CURLOPTTYPE_STRINGPOINT + 179
 
     # Socks Service
@@ -1653,14 +1603,16 @@ if 1:  # enum
     # transfer, which thus helps the app which takes URLs from users or other
     # external inputs and want to restrict what protocol(s) to deal
     # with. Defaults to CURLPROTO_ALL.
+    # Deprecated from 7.85.0, Use CURLOPT_PROTOCOLS_STR
     CURLOPT_PROTOCOLS = CURLOPTTYPE_LONG + 181
 
     # set the bitmask for the protocols that libcurl is allowed to follow to,
     # as a subset of the CURLOPT_PROTOCOLS ones. That means the protocol needs
     # to be set in both bitmasks to be allowed to get redirected to.
+    # Deprecated from 7.85.0, Use CURLOPT_REDIR_PROTOCOLS_STR
     CURLOPT_REDIR_PROTOCOLS = CURLOPTTYPE_LONG + 182
 
-    # set the SSH knownhost file name to use
+    # set the SSH knownhost filename to use
     CURLOPT_SSH_KNOWNHOSTS = CURLOPTTYPE_STRINGPOINT + 183
 
     # set the SSH host key callback, must point to a curl_sshkeycallback
@@ -1741,7 +1693,7 @@ if 1:  # enum
     # future libcurl release.
     #
     # libcurl will ask for the compressed methods it knows of, and if that
-    # isn't any, it will not ask for transfer-encoding at all even if this
+    # is not any, it will not ask for transfer-encoding at all even if this
     # option is set to 1.
     CURLOPT_TRANSFER_ENCODING = CURLOPTTYPE_LONG + 207
 
@@ -1753,7 +1705,8 @@ if 1:  # enum
     # allow GSSAPI credential delegation
     CURLOPT_GSSAPI_DELEGATION = CURLOPTTYPE_VALUES + 210
 
-    # Set the name servers to use for DNS resolution
+    # Set the name servers to use for DNS resolution.
+    # Only supported by the c-ares DNS backend
     CURLOPT_DNS_SERVERS = CURLOPTTYPE_STRINGPOINT + 211
 
     # Time-out accept operations (currently for FTP only) after this amount
@@ -1801,12 +1754,13 @@ if 1:  # enum
     CURLOPT_LOGIN_OPTIONS = CURLOPTTYPE_STRINGPOINT + 224
 
     # Enable/disable TLS NPN extension (http2 over ssl might fail without)
+    # Deprecated from 7.86.0, Has no function
     CURLOPT_SSL_ENABLE_NPN = CURLOPTTYPE_LONG + 225
 
     # Enable/disable TLS ALPN extension (http2 over ssl might fail without)
     CURLOPT_SSL_ENABLE_ALPN = CURLOPTTYPE_LONG + 226
 
-    # Time to wait for a response to a HTTP request containing an
+    # Time to wait for a response to an HTTP request containing an
     # Expect: 100-continue header before sending the data anyway.
     CURLOPT_EXPECT_100_TIMEOUT_MS = CURLOPTTYPE_LONG + 227
 
@@ -1839,7 +1793,7 @@ if 1:  # enum
     # Service Name
     CURLOPT_SERVICE_NAME = CURLOPTTYPE_STRINGPOINT + 236
 
-    # Wait/don't wait for pipe/mutex to clarify
+    # Wait/do not wait for pipe/mutex to clarify
     CURLOPT_PIPEWAIT = CURLOPTTYPE_LONG + 237
 
     # Set the protocol used when curl is given a URL without a protocol
@@ -1848,10 +1802,10 @@ if 1:  # enum
     # Set stream weight, 1 - 256 (default is 16)
     CURLOPT_STREAM_WEIGHT = CURLOPTTYPE_LONG + 239
 
-    # Set stream dependency on another CURL handle
+    # Set stream dependency on another curl handle
     CURLOPT_STREAM_DEPENDS = CURLOPTTYPE_OBJECTPOINT + 240
 
-    # Set E-xclusive stream dependency on another CURL handle
+    # Set E-xclusive stream dependency on another curl handle
     CURLOPT_STREAM_DEPENDS_E = CURLOPTTYPE_OBJECTPOINT + 241
 
     # Do not send any tftp option requests to the server
@@ -1915,7 +1869,7 @@ if 1:  # enum
     # password for the SSL private key for proxy
     CURLOPT_PROXY_KEYPASSWD = CURLOPTTYPE_STRINGPOINT + 258
 
-    # Specify which SSL ciphers to use for proxy
+    # Specify which TLS 1.2 (1.1, 1.0) ciphers to use for proxy
     CURLOPT_PROXY_SSL_CIPHER_LIST = CURLOPTTYPE_STRINGPOINT + 259
 
     # CRL file for proxy
@@ -2000,7 +1954,7 @@ if 1:  # enum
     # alt-svc control bitmask
     CURLOPT_ALTSVC_CTRL = CURLOPTTYPE_LONG + 286
 
-    # alt-svc cache file name to possibly read from/write to
+    # alt-svc cache filename to possibly read from/write to
     CURLOPT_ALTSVC = CURLOPTTYPE_STRINGPOINT + 287
 
     # maximum age (idle time) of a connection to consider it for reuse
@@ -2011,7 +1965,7 @@ if 1:  # enum
     CURLOPT_SASL_AUTHZID = CURLOPTTYPE_STRINGPOINT + 289
 
     # allow RCPT TO command to fail for some recipients
-    CURLOPT_MAIL_RCPT_ALLLOWFAILS = CURLOPTTYPE_LONG + 290
+    CURLOPT_MAIL_RCPT_ALLOWFAILS = CURLOPTTYPE_LONG + 290
 
     # the private SSL-certificate as a "blob"
     CURLOPT_SSLCERT_BLOB       = CURLOPTTYPE_BLOB + 291
@@ -2026,12 +1980,12 @@ if 1:  # enum
 
     # the EC curves requested by the TLS client (RFC 8422, 5.1);
     # OpenSSL support via 'set_groups'/'set_curves':
-    # https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set1_groups.html
+    # https://docs.openssl.org/master/man3/SSL_CTX_set1_curves/
     CURLOPT_SSL_EC_CURVES = CURLOPTTYPE_STRINGPOINT + 298
 
     # HSTS bitmask
     CURLOPT_HSTS_CTRL = CURLOPTTYPE_LONG + 299
-    # HSTS file name
+    # HSTS filename
     CURLOPT_HSTS = CURLOPTTYPE_STRINGPOINT + 300
 
     # HSTS read callback
@@ -2086,7 +2040,37 @@ if 1:  # enum
     # set the SSH host key callback custom pointer
     CURLOPT_SSH_HOSTKEYDATA = CURLOPTTYPE_CBPOINT + 317
 
-    CURLOPT_LASTENTRY = CURLOPT_SSH_HOSTKEYDATA + 1  # the last unused
+    # specify which protocols that are allowed to be used for the transfer,
+    # which thus helps the app which takes URLs from users or other external
+    # inputs and want to restrict what protocol(s) to deal with. Defaults to
+    # all built-in protocols.
+    CURLOPT_PROTOCOLS_STR = CURLOPTTYPE_STRINGPOINT + 318
+
+    # specify which protocols that libcurl is allowed to follow directs to
+    CURLOPT_REDIR_PROTOCOLS_STR = CURLOPTTYPE_STRINGPOINT + 319
+
+    # WebSockets options
+    CURLOPT_WS_OPTIONS = CURLOPTTYPE_LONG + 320
+
+    # CA cache timeout
+    CURLOPT_CA_CACHE_TIMEOUT = CURLOPTTYPE_LONG + 321
+
+    # Can leak things, gonna exit() soon
+    CURLOPT_QUICK_EXIT = CURLOPTTYPE_LONG + 322
+
+    # set a specific client IP for HAProxy PROXY protocol header?
+    CURLOPT_HAPROXY_CLIENT_IP = CURLOPTTYPE_STRINGPOINT + 323
+
+    # millisecond version
+    CURLOPT_SERVER_RESPONSE_TIMEOUT_MS = CURLOPTTYPE_LONG + 324
+
+    # set ECH configuration
+    CURLOPT_ECH = CURLOPTTYPE_STRINGPOINT + 325
+
+    # maximum number of keepalive probes (Linux, *BSD, macOS, etc.)
+    CURLOPT_TCP_KEEPCNT = CURLOPTTYPE_LONG + 326
+
+    CURLOPT_LASTENTRY = CURLOPT_TCP_KEEPCNT + 1  # the last unused
 # end enum CURLoption
 
 # CURLoption OLDIES section moved at the eof
@@ -2094,10 +2078,16 @@ if 1:  # enum
 # define CURL_NO_OLDIES to test if your app builds with all the obsolete stuff removed!
 if not defined("CURL_NO_OLDIES"):
 
-    # Previously obsolete error code re-used in 7.38.0
+    # removed in 7.53.0
+    CURLE_FUNCTION_NOT_FOUND = CURLE_OBSOLETE41
+
+    # removed in 7.56.0
+    CURLE_HTTP_POST_ERROR = CURLE_OBSOLETE34
+
+    # Previously obsolete error code reused in 7.38.0
     CURLE_OBSOLETE16 = CURLE_HTTP2
 
-    # Previously obsolete error codes re-used in 7.24.0
+    # Previously obsolete error codes reused in 7.24.0
     CURLE_OBSOLETE10 = CURLE_FTP_ACCEPT_FAILED
     CURLE_OBSOLETE12 = CURLE_FTP_ACCEPT_TIMEOUT
 
@@ -2154,6 +2144,7 @@ if not defined("CURL_NO_OLDIES"):
     CURLE_FTP_BAD_DOWNLOAD_RESUME = CURLE_BAD_DOWNLOAD_RESUME
     CURLE_LDAP_INVALID_URL        = CURLE_OBSOLETE62
     CURLE_CONV_REQD               = CURLE_OBSOLETE76
+    CURLE_CONV_FAILED             = CURLE_OBSOLETE75
 
     # This was the error code 50 in 7.7.3 and a few earlier versions, this
     # is no longer used by libcurl but is instead #defined here only to not
@@ -2167,6 +2158,8 @@ if not defined("CURL_NO_OLDIES"):
 
     # Since long deprecated options with no code in the lib that does anything
     # with them.
+    CURLOPT_OBSOLETE72  = 9999
+    CURLOPT_OBSOLETE40  = 9999
     CURLOPT_WRITEINFO   = CURLOPT_OBSOLETE40
     CURLOPT_CLOSEPOLICY = CURLOPT_OBSOLETE72
 
@@ -2208,6 +2201,12 @@ if not defined("CURL_NO_OLDIES"):
     CURLOPT_SSLCERTPASSWD = CURLOPT_KEYPASSWD
     CURLOPT_KRB4LEVEL     = CURLOPT_KRBLEVEL
 
+    #
+    CURLOPT_FTP_RESPONSE_TIMEOUT = CURLOPT_SERVER_RESPONSE_TIMEOUT
+
+    # Added in 8.2.0
+    CURLOPT_MAIL_RCPT_ALLLOWFAILS = CURLOPT_MAIL_RCPT_ALLOWFAILS
+
 else:
     # This is set if CURL_NO_OLDIES is defined at compile-time
     del CURLOPT_DNS_USE_GLOBAL_CACHE  # soon obsolete
@@ -2220,24 +2219,29 @@ CURL_IPRESOLVE_WHATEVER = 0  # default, uses addresses to all IP versions that y
 CURL_IPRESOLVE_V4       = 1  # uses only IPv4 addresses/connections
 CURL_IPRESOLVE_V6       = 2  # uses only IPv6 addresses/connections
 
-# three convenient "aliases" that follow the name scheme better
+# Convenient "aliases"
 CURLOPT_RTSPHEADER = CURLOPT_HTTPHEADER
 
 # These enums are for use with the CURLOPT_HTTP_VERSION option.
 (
-    CURL_HTTP_VERSION_NONE,               # setting this means we don't care, and that we'd
-                                          # like the library to choose the best possible
-                                          # for us!
+    CURL_HTTP_VERSION_NONE,               # setting this means we do not care, and that we
+                                          # would like the library to choose the best
+                                          # possible for us!
     CURL_HTTP_VERSION_1_0,                # please use HTTP 1.0 in the request
     CURL_HTTP_VERSION_1_1,                # please use HTTP 1.1 in the request
     CURL_HTTP_VERSION_2_0,                # please use HTTP 2 in the request
     CURL_HTTP_VERSION_2TLS,               # use version 2 for HTTPS, version 1.1 for HTTP
     CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE,  # please use HTTP 2 without HTTP/1.1
                                           # Upgrade
-    CURL_HTTP_VERSION_3,                  # Makes use of explicit HTTP/3 without fallback.
-                                          # Use CURLOPT_ALTSVC to enable HTTP/3 upgrade
-    CURL_HTTP_VERSION_LAST  # *ILLEGAL* http version
-) = (0, 1, 2, 3, 4, 5, 30, 30+1)
+    CURL_HTTP_VERSION_3,                  # Use HTTP/3, fallback to HTTP/2 or HTTP/1 if
+                                          # needed. For HTTPS only. For HTTP, this option
+                                          # makes libcurl return error.
+    CURL_HTTP_VERSION_3ONLY,              # Use HTTP/3 without fallback. For HTTPS
+                                          # only. For HTTP, this makes libcurl
+                                          # return error.
+    CURL_HTTP_VERSION_LAST                # *ILLEGAL* http version
+
+) = (0, 1, 2, 3, 4, 5, 30, 31, 31+1)
 
 # Convenience definition simple because the name of the version is HTTP/2 and
 # not 2.0. The 2_0 version of the enum name was set while the version was
@@ -2262,6 +2266,7 @@ CURL_HTTP_VERSION_2 = CURL_HTTP_VERSION_2_0
     CURL_RTSPREQ_RECORD,
     CURL_RTSPREQ_RECEIVE,
     CURL_RTSPREQ_LAST  # last in list
+
 ) = range(13)
 
 # These enums are for use with the CURLOPT_NETRC option.
@@ -2275,37 +2280,36 @@ CURL_NETRC_OPTION = ct.c_int
                           # Unless one is set programmatically, the .netrc
                           # will be queried.
     CURL_NETRC_LAST
+
 ) = range(4)
 
-(
-    CURL_SSLVERSION_DEFAULT,
-    CURL_SSLVERSION_TLSv1,  # TLS 1.x
-    CURL_SSLVERSION_SSLv2,
-    CURL_SSLVERSION_SSLv3,
-    CURL_SSLVERSION_TLSv1_0,
-    CURL_SSLVERSION_TLSv1_1,
-    CURL_SSLVERSION_TLSv1_2,
-    CURL_SSLVERSION_TLSv1_3,
+CURL_SSLVERSION_DEFAULT = 0
+CURL_SSLVERSION_TLSv1   = 1  # TLS 1.x
+CURL_SSLVERSION_SSLv2   = 2
+CURL_SSLVERSION_SSLv3   = 3
+CURL_SSLVERSION_TLSv1_0 = 4
+CURL_SSLVERSION_TLSv1_1 = 5
+CURL_SSLVERSION_TLSv1_2 = 6
+CURL_SSLVERSION_TLSv1_3 = 7
 
-    CURL_SSLVERSION_LAST  # never use, keep last
-) = range(9)
+CURL_SSLVERSION_LAST    = 8  # never use, keep last
 
-if 1:  # enum
-    CURL_SSLVERSION_MAX_NONE    = 0
-    CURL_SSLVERSION_MAX_DEFAULT = (CURL_SSLVERSION_TLSv1   << 16)
-    CURL_SSLVERSION_MAX_TLSv1_0 = (CURL_SSLVERSION_TLSv1_0 << 16)
-    CURL_SSLVERSION_MAX_TLSv1_1 = (CURL_SSLVERSION_TLSv1_1 << 16)
-    CURL_SSLVERSION_MAX_TLSv1_2 = (CURL_SSLVERSION_TLSv1_2 << 16)
-    CURL_SSLVERSION_MAX_TLSv1_3 = (CURL_SSLVERSION_TLSv1_3 << 16)
-    # never use, keep last
-    CURL_SSLVERSION_MAX_LAST    = (CURL_SSLVERSION_LAST    << 16)
-# end enum
+CURL_SSLVERSION_MAX_NONE    = 0
+CURL_SSLVERSION_MAX_DEFAULT = (CURL_SSLVERSION_TLSv1   << 16)
+CURL_SSLVERSION_MAX_TLSv1_0 = (CURL_SSLVERSION_TLSv1_0 << 16)
+CURL_SSLVERSION_MAX_TLSv1_1 = (CURL_SSLVERSION_TLSv1_1 << 16)
+CURL_SSLVERSION_MAX_TLSv1_2 = (CURL_SSLVERSION_TLSv1_2 << 16)
+CURL_SSLVERSION_MAX_TLSv1_3 = (CURL_SSLVERSION_TLSv1_3 << 16)
+
+# never use, keep last
+CURL_SSLVERSION_MAX_LAST    = (CURL_SSLVERSION_LAST    << 16)
 
 CURL_TLSAUTH = ct.c_int
 (
     CURL_TLSAUTH_NONE,
     CURL_TLSAUTH_SRP,
     CURL_TLSAUTH_LAST  # never use, keep last
+
 ) = range(3)
 
 # symbols to use with CURLOPT_POSTREDIR.
@@ -2328,6 +2332,7 @@ TimeCond = ct.c_int
     CURL_TIMECOND_LASTMOD,
 
     CURL_TIMECOND_LAST
+
 ) = range(5)
 
 # Special size_t value signaling a null-terminated string.
@@ -2335,9 +2340,16 @@ CURL_ZERO_TERMINATED = ct.c_size_t(-1).value
 
 # curl_strequal() and curl_strnequal() are subject for removal in a future
 # release
-if 0:  # deprecated
-    strequal  = CFUNC(ct.c_int, ct.c_char_p, ct.c_char_p)(("curl_strequal",  dll),)
-    strnequal = CFUNC(ct.c_int, ct.c_char_p, ct.c_char_p, ct.c_size_t)(("curl_strnequal", dll),)
+if 1:  # deprecated
+    strequal = CFUNC(ct.c_int,
+        ct.c_char_p,
+        ct.c_char_p)(
+        ("curl_strequal",  dll),)
+    strnequal = CFUNC(ct.c_int,
+        ct.c_char_p,
+        ct.c_char_p,
+        ct.c_size_t)(
+        ("curl_strnequal", dll),)
 
 # Mime/form handling support.
 # typedef struct curl_mime      curl_mime;      /* Mime context. */
@@ -2354,22 +2366,22 @@ CURLMIMEOPT_FORMESCAPE = (1 << 0)  # Use backslash-escaping for forms.
 #
 # Create a mime context and return its handle. The easy parameter is the
 # target handle.
-
+#
 mime_init = CFUNC(ct.POINTER(mime),
-                  ct.POINTER(CURL))(
-                  ("curl_mime_init", dll), (
-                  (1, "easy"),))
+    ct.POINTER(CURL))(
+    ("curl_mime_init", dll), (
+    (1, "easy"),))
 
 # NAME curl_mime_free()
 #
 # DESCRIPTION
 #
 # release a mime handle and its substructures.
-
+#
 mime_free = CFUNC(None,
-                  ct.POINTER(mime))(
-                  ("curl_mime_free", dll), (
-                  (1, "mime"),))
+    ct.POINTER(mime))(
+    ("curl_mime_free", dll), (
+    (1, "mime"),))
 
 # NAME curl_mime_addpart()
 #
@@ -2377,78 +2389,78 @@ mime_free = CFUNC(None,
 #
 # Append a new empty part to the given mime context and return a handle to
 # the created part.
-
+#
 mime_addpart = CFUNC(ct.POINTER(mimepart),
-                     ct.POINTER(mime))(
-                     ("curl_mime_addpart", dll), (
-                     (1, "mime"),))
+    ct.POINTER(mime))(
+    ("curl_mime_addpart", dll), (
+    (1, "mime"),))
 
 # NAME curl_mime_name()
 #
 # DESCRIPTION
 #
 # Set mime/form part name.
-
+#
 mime_name = CFUNC(CURLcode,
-                  ct.POINTER(mimepart),
-                  ct.c_char_p)(
-                  ("curl_mime_name", dll), (
-                  (1, "part"),
-                  (1, "name"),))
+    ct.POINTER(mimepart),
+    ct.c_char_p)(
+    ("curl_mime_name", dll), (
+    (1, "part"),
+    (1, "name"),))
 
 # NAME curl_mime_filename()
 #
 # DESCRIPTION
 #
-# Set mime part remote file name.
-
+# Set mime part remote filename.
+#
 mime_filename = CFUNC(CURLcode,
-                      ct.POINTER(mimepart),
-                      ct.c_char_p)(
-                      ("curl_mime_filename", dll), (
-                      (1, "part"),
-                      (1, "filename"),))
+    ct.POINTER(mimepart),
+    ct.c_char_p)(
+    ("curl_mime_filename", dll), (
+    (1, "part"),
+    (1, "filename"),))
 
 # NAME curl_mime_type()
 #
 # DESCRIPTION
 #
 # Set mime part type.
-
+#
 mime_type = CFUNC(CURLcode,
-                  ct.POINTER(mimepart),
-                  ct.c_char_p)(
-                  ("curl_mime_type", dll), (
-                  (1, "part"),
-                  (1, "mimetype"),))
+    ct.POINTER(mimepart),
+    ct.c_char_p)(
+    ("curl_mime_type", dll), (
+    (1, "part"),
+    (1, "mimetype"),))
 
 # NAME curl_mime_encoder()
 #
 # DESCRIPTION
 #
 # Set mime data transfer encoder.
-
+#
 mime_encoder = CFUNC(CURLcode,
-                     ct.POINTER(mimepart),
-                     ct.c_char_p)(
-                     ("curl_mime_encoder", dll), (
-                     (1, "part"),
-                     (1, "encoding"),))
+    ct.POINTER(mimepart),
+    ct.c_char_p)(
+    ("curl_mime_encoder", dll), (
+    (1, "part"),
+    (1, "encoding"),))
 
 # NAME curl_mime_data()
 #
 # DESCRIPTION
 #
 # Set mime part data source from memory data,
-
+#
 mime_data = CFUNC(CURLcode,
-                  ct.POINTER(mimepart),
-                  ct.POINTER(ct.c_ubyte),
-                  ct.c_size_t)(
-                  ("curl_mime_data", dll), (
-                  (1, "part"),
-                  (1, "data"),
-                  (1, "datasize"),))
+    ct.POINTER(mimepart),
+    ct.POINTER(ct.c_ubyte),
+    ct.c_size_t)(
+    ("curl_mime_data", dll), (
+    (1, "part"),
+    (1, "data"),
+    (1, "datasize"),))
 
 @CFUNC(CURLcode, ct.POINTER(mimepart), ct.c_char_p)
 def mime_string(part, data):
@@ -2461,99 +2473,103 @@ def mime_string(part, data):
 # DESCRIPTION
 #
 # Set mime part data source from named file.
-
+#
 mime_filedata = CFUNC(CURLcode,
-                      ct.POINTER(mimepart),
-                      ct.c_char_p)(
-                      ("curl_mime_filedata", dll), (
-                      (1, "part"),
-                      (1, "filename"),))
+    ct.POINTER(mimepart),
+    ct.c_char_p)(
+    ("curl_mime_filedata", dll), (
+    (1, "part"),
+    (1, "filename"),))
 
 # NAME curl_mime_data_cb()
 #
 # DESCRIPTION
 #
 # Set mime part data source from callback function.
-
+#
 mime_data_cb = CFUNC(CURLcode,
-                     ct.POINTER(mimepart),
-                     off_t,
-                     read_callback,
-                     seek_callback,
-                     free_callback,
-                     ct.c_void_p)(
-                     ("curl_mime_data_cb", dll), (
-                     (1, "part"),
-                     (1, "datasize"),
-                     (1, "readfunc"),
-                     (1, "seekfunc"),
-                     (1, "freefunc"),
-                     (1, "arg"),))
+    ct.POINTER(mimepart),
+    off_t,
+    read_callback,
+    seek_callback,
+    free_callback,
+    ct.c_void_p)(
+    ("curl_mime_data_cb", dll), (
+    (1, "part"),
+    (1, "datasize"),
+    (1, "readfunc"),
+    (1, "seekfunc"),
+    (1, "freefunc"),
+    (1, "arg"),))
 
 # NAME curl_mime_subparts()
 #
 # DESCRIPTION
 #
 # Set mime part data source from subparts.
-
+#
 mime_subparts = CFUNC(CURLcode,
-                      ct.POINTER(mimepart),
-                      ct.POINTER(mime))(
-                      ("curl_mime_subparts", dll), (
-                      (1, "part"),
-                      (1, "subparts"),))
+    ct.POINTER(mimepart),
+    ct.POINTER(mime))(
+    ("curl_mime_subparts", dll), (
+    (1, "part"),
+    (1, "subparts"),))
 
 # NAME curl_mime_headers()
 #
 # DESCRIPTION
 #
 # Set mime part headers.
-
+#
 mime_headers = CFUNC(CURLcode,
-                     ct.POINTER(mimepart),
-                     ct.POINTER(slist),
-                     ct.c_int)(
-                     ("curl_mime_headers", dll), (
-                     (1, "part"),
-                     (1, "headers"),
-                     (1, "take_ownership"),))
+    ct.POINTER(mimepart),
+    ct.POINTER(slist),
+    ct.c_int)(
+    ("curl_mime_headers", dll), (
+    (1, "part"),
+    (1, "headers"),
+    (1, "take_ownership"),))
 
 CURLformoption = ct.c_int
 (
-    CURLFORM_NOTHING,  # ******* the first one is unused ********** #
-    CURLFORM_COPYNAME,
-    CURLFORM_PTRNAME,
-    CURLFORM_NAMELENGTH,
-    CURLFORM_COPYCONTENTS,
-    CURLFORM_PTRCONTENTS,
-    CURLFORM_CONTENTSLENGTH,
-    CURLFORM_FILECONTENT,
-    CURLFORM_ARRAY,
+    # ******** the first one is unused *********** #
+    CURLFORM_NOTHING,         # deprecated from 7.56.0
+    CURLFORM_COPYNAME,        # deprecated from 7.56.0, Use curl_mime_name()
+    CURLFORM_PTRNAME,         # deprecated from 7.56.0, Use curl_mime_name()
+    CURLFORM_NAMELENGTH,      # deprecated from 7.56.0
+    CURLFORM_COPYCONTENTS,    # deprecated from 7.56.0, Use curl_mime_data()
+    CURLFORM_PTRCONTENTS,     # deprecated from 7.56.0, Use curl_mime_data()
+    CURLFORM_CONTENTSLENGTH,  # deprecated from 7.56.0, Use curl_mime_data()
+    CURLFORM_FILECONTENT,     # deprecated from 7.56.0, Use curl_mime_data_cb()
+    CURLFORM_ARRAY,           # deprecated from 7.56.0
     CURLFORM_OBSOLETE,
-    CURLFORM_FILE,
+    CURLFORM_FILE,            # deprecated from 7.56.0, Use curl_mime_filedata()
 
-    CURLFORM_BUFFER,
-    CURLFORM_BUFFERPTR,
-    CURLFORM_BUFFERLENGTH,
+    CURLFORM_BUFFER,          # deprecated from 7.56.0, Use curl_mime_filename()
+    CURLFORM_BUFFERPTR,       # deprecated from 7.56.0, Use curl_mime_data()
+    CURLFORM_BUFFERLENGTH,    # deprecated from 7.56.0, Use curl_mime_data()
 
-    CURLFORM_CONTENTTYPE,
-    CURLFORM_CONTENTHEADER,
-    CURLFORM_FILENAME,
+    CURLFORM_CONTENTTYPE,     # deprecated from 7.56.0, Use curl_mime_type()
+    CURLFORM_CONTENTHEADER,   # deprecated from 7.56.0, Use curl_mime_headers()
+    CURLFORM_FILENAME,        # deprecated from 7.56.0, Use curl_mime_filename()
     CURLFORM_END,
     CURLFORM_OBSOLETE2,
 
-    CURLFORM_STREAM,
-    CURLFORM_CONTENTLEN,  # added in 7.46.0, provide a curl_off_t length
+    CURLFORM_STREAM,          # deprecated from 7.56.0, Use curl_mime_data_cb()
+    CURLFORM_CONTENTLEN,      # added in 7.46.0, provide a curl_off_t length
+                              # deprecated from 7.56.0, Use curl_mime_data()
 
-    CURLFORM_LASTENTRY  # the last unused
+    CURLFORM_LASTENTRY        # the last unused
+
 ) = range(22)
 
 # structure to be used as parameter for CURLFORM_ARRAY
 class forms(ct.Structure):
     class _Value(ct.Union):
-        _fields_ = (
+        _fields_ = [
             ("valptr", ct.c_void_p),
-            ("value",  ct.c_char_p))
+            ("value",  ct.c_char_p),
+    ]
     _anonymous_ = ("_value",)
     _fields_ = [
     ("option", CURLformoption),
@@ -2579,17 +2595,19 @@ class forms(ct.Structure):
 
 CURLFORMcode = ct.c_int
 (
-    CURL_FORMADD_OK,  # first, no error
+    CURL_FORMADD_OK,              # deprecated from 7.56.0, # 1st, no error
 
-    CURL_FORMADD_MEMORY,
-    CURL_FORMADD_OPTION_TWICE,
-    CURL_FORMADD_NULL,
-    CURL_FORMADD_UNKNOWN_OPTION,
-    CURL_FORMADD_INCOMPLETE,
-    CURL_FORMADD_ILLEGAL_ARRAY,
-    CURL_FORMADD_DISABLED,  # libcurl was built with this disabled
+    CURL_FORMADD_MEMORY,          # deprecated from 7.56.0
+    CURL_FORMADD_OPTION_TWICE,    # deprecated from 7.56.0
+    CURL_FORMADD_NULL,            # deprecated from 7.56.0
+    CURL_FORMADD_UNKNOWN_OPTION,  # deprecated from 7.56.0
+    CURL_FORMADD_INCOMPLETE,      # deprecated from 7.56.0
+    CURL_FORMADD_ILLEGAL_ARRAY,   # deprecated from 7.56.0
+    # libcurl was built with form api disabled
+    CURL_FORMADD_DISABLED,        # deprecated from 7.56.0
 
-    CURL_FORMADD_LAST  # last
+    CURL_FORMADD_LAST             # last
+
 ) = range(9)
 
 # NAME curl_formadd()
@@ -2601,19 +2619,19 @@ CURLFORMcode = ct.c_int
 # Pretty advanced function for building multi-part formposts. Each invoke
 # adds one part that together construct a full post. Then use
 # CURLOPT_HTTPPOST to send it off to libcurl.
-
-_formadd = CFUNC(CURLFORMcode,
-                 ct.POINTER(ct.POINTER(httppost)),
-                 ct.POINTER(ct.POINTER(httppost)),
-                 CURLformoption,
-                 ct.c_void_p,
-                 CURLformoption)(
-                ("curl_formadd", dll), (
-                (1, "post"),
-                (1, "last_post"),
-                (1, "option"),
-                (1, "value"),
-                (1, "_"),))
+#
+_formadd = CFUNC(CURLFORMcode,  # deprecated from 7.56.0, Use curl_mime_init()
+    ct.POINTER(ct.POINTER(httppost)),
+    ct.POINTER(ct.POINTER(httppost)),
+    CURLformoption,
+    ct.c_void_p,
+    CURLformoption)(
+    ("curl_formadd", dll), (
+    (1, "post"),
+    (1, "last_post"),
+    (1, "option"),
+    (1, "value"),
+    (1, "_"),))
 
 @CFUNC(CURLFORMcode, ct.POINTER(ct.POINTER(httppost)),
                      ct.POINTER(ct.POINTER(httppost)),
@@ -2629,13 +2647,10 @@ def formadd(post, last_post, forms):
 # Should return the buffer length passed to it as the argument "len" on
 #   success.
 #
-# typedef size_t (*curl_formget_callback)(void *arg,
-#                                         const char *buf,
-#                                         size_t len);
 formget_callback = CFUNC(ct.c_size_t,
-                         ct.c_void_p,             # arg
-                         ct.POINTER(ct.c_ubyte),  # buf
-                         ct.c_size_t)             # len
+    ct.c_void_p,             # arg
+    ct.POINTER(ct.c_ubyte),  # buf
+    ct.c_size_t)             # len
 
 # NAME curl_formget()
 #
@@ -2645,26 +2660,26 @@ formget_callback = CFUNC(ct.c_size_t,
 # Accepts a void pointer as second argument which will be passed to
 # the curl_formget_callback function.
 # Returns 0 on success.
-
-formget = CFUNC(ct.c_int,
-                ct.POINTER(httppost),
-                ct.c_void_p,
-                formget_callback)(
-                ("curl_formget", dll), (
-                (1, "form"),
-                (1, "arg"),
-                (1, "append"),))
+#
+formget = CFUNC(ct.c_int,  # deprecated from 7.56.0
+    ct.POINTER(httppost),
+    ct.c_void_p,
+    formget_callback)(
+    ("curl_formget", dll), (
+    (1, "form"),
+    (1, "arg"),
+    (1, "append"),))
 
 # NAME curl_formfree()
 #
 # DESCRIPTION
 #
 # Free a multipart formpost previously built with curl_formadd().
-
-formfree = CFUNC(None,
-                 ct.POINTER(httppost))(
-                 ("curl_formfree", dll), (
-                 (1, "form"),))
+#
+formfree = CFUNC(None,  # deprecated from 7.56.0, Use curl_mime_free()
+    ct.POINTER(httppost))(
+    ("curl_formfree", dll), (
+    (1, "form"),))
 
 # NAME curl_getenv()
 #
@@ -2672,22 +2687,28 @@ formfree = CFUNC(None,
 #
 # Returns a malloc()'ed string that MUST be curl_free()ed after usage is
 # complete. DEPRECATED - see lib/README.curlx
+#
+__getenv = CFUNC(ct.POINTER(ct.c_char),
+    ct.c_char_p)(
+    ("curl_getenv", dll), (
+    (1, "variable"),))
 
-if 0:  # deprecated
-    getenv = CFUNC(ct.c_char_p,
-                   ct.c_char_p)(
-                   ("curl_getenv", dll), (
-                   (1, "variable"),))
+@CFUNC(ct.py_object, ct.c_char_p)
+def getenv(variable):
+    resptr = __getenv(variable)
+    if not resptr: return None
+    result = ct.cast(resptr, ct.c_char_p).value
+    free(resptr)
+    return result
 
 # NAME curl_version()
 #
 # DESCRIPTION
 #
-# Returns a static ascii string of the libcurl version.
-
+# Returns a static ASCII string of the libcurl version.
+#
 version = CFUNC(ct.c_char_p)(
-                ("curl_version", dll), (
-                ))
+    ("curl_version", dll),)
 
 # NAME curl_easy_escape()
 #
@@ -2696,24 +2717,40 @@ version = CFUNC(ct.c_char_p)(
 # Escapes URL strings (converts all letters consider illegal in URLs to their
 # %XX versions). This function returns a new allocated string or NULL if an
 # error occurred.
+#
+__easy_escape = CFUNC(ct.POINTER(ct.c_char),
+    ct.POINTER(CURL),
+    ct.c_char_p,
+    ct.c_int)(
+    ("curl_easy_escape", dll), (
+    (1, "handle"),
+    (1, "string"),
+    (1, "length"),))
 
-easy_escape = CFUNC(ct.c_char_p,
-                    ct.POINTER(CURL) ,
-                    ct.c_char_p,
-                    ct.c_int)(
-                    ("curl_easy_escape", dll), (
-                    (1, "handle"),
-                    (1, "string"),
-                    (1, "length"),))
+@CFUNC(ct.py_object, ct.POINTER(CURL), ct.c_char_p, ct.c_int)
+def easy_escape(handle, string, length):
+    resptr = __easy_escape(handle, string, length)
+    if not resptr: return None
+    result = ct.cast(resptr, ct.c_char_p).value
+    free(resptr)
+    return result
 
-if 0:  # deprecated
-    # the previous version:
-    escape = CFUNC(ct.c_char_p,
-                   ct.c_char_p,
-                   ct.c_int)(
-                   ("curl_escape", dll), (
-                   (1, "string"),
-                   (1, "length"),))
+# the previous version - deprecated
+#
+__escape = CFUNC(ct.POINTER(ct.c_char),
+    ct.c_char_p,
+    ct.c_int)(
+    ("curl_escape", dll), (
+    (1, "string"),
+    (1, "length"),))
+
+@CFUNC(ct.py_object, ct.c_char_p, ct.c_int)
+def escape(string, length):
+    resptr = __escape(string, length)
+    if not resptr: return None
+    result = ct.cast(resptr, ct.c_char_p).value
+    free(resptr)
+    return result
 
 # NAME curl_easy_unescape()
 #
@@ -2724,26 +2761,42 @@ if 0:  # deprecated
 # occurred.
 # Conversion Note: On non-ASCII platforms the ASCII %XX codes are
 # converted into the host encoding.
+#
+__easy_unescape = CFUNC(ct.POINTER(ct.c_char),
+    ct.POINTER(CURL),
+    ct.c_char_p,
+    ct.c_int,
+    ct.POINTER(ct.c_int))(
+    ("curl_easy_unescape", dll), (
+    (1, "handle"),
+    (1, "string"),
+    (1, "length"),
+    (1, "outlength"),))
 
-easy_unescape = CFUNC(ct.c_char_p,
-                      ct.POINTER(CURL),
-                      ct.c_char_p,
-                      ct.c_int,
-                      ct.POINTER(ct.c_int))(
-                      ("curl_easy_unescape", dll), (
-                      (1, "handle"),
-                      (1, "string"),
-                      (1, "length"),
-                      (1, "outlength"),))
+@CFUNC(ct.py_object, ct.POINTER(CURL), ct.c_char_p, ct.c_int, ct.POINTER(ct.c_int))
+def easy_unescape(handle, string, length, outlength):
+    resptr = __easy_unescape(handle, string, length, outlength)
+    if not resptr: return None
+    result = ct.cast(resptr, ct.c_char_p).value
+    free(resptr)
+    return result
 
-if 0:  # deprecated
-    # the previous version
-    unescape = CFUNC(ct.c_char_p,
-                     ct.c_char_p,
-                     ct.c_int)(
-                     ("curl_unescape", dll), (
-                     (1, "string"),
-                     (1, "length"),))
+# the previous version - deprecated
+#
+__unescape = CFUNC(ct.POINTER(ct.c_char),
+    ct.c_char_p,
+    ct.c_int)(
+    ("curl_unescape", dll), (
+    (1, "string"),
+    (1, "length"),))
+
+@CFUNC(ct.py_object, ct.c_char_p, ct.c_int)
+def unescape(string, length):
+    resptr = __unescape(string, length)
+    if not resptr: return None
+    result = ct.cast(resptr, ct.c_char_p).value
+    free(resptr)
+    return result
 
 # NAME curl_free()
 #
@@ -2751,11 +2804,11 @@ if 0:  # deprecated
 #
 # Provided for de-allocation in the same translation unit that did the
 # allocation. Added in libcurl 7.10
-
+#
 free = CFUNC(None,
-             ct.c_void_p)(
-             ("curl_free", dll), (
-             (1, "p"),))
+    ct.c_void_p)(
+    ("curl_free", dll), (
+    (1, "p"),))
 
 # NAME curl_global_init()
 #
@@ -2766,38 +2819,38 @@ free = CFUNC(None,
 #
 # This function is thread-safe if CURL_VERSION_THREADSAFE is set in the
 # curl_version_info_data.features flag (fetch by curl_version_info()).
-
+#
 global_init = CFUNC(CURLcode,
-                    ct.c_long)(
-                    ("curl_global_init", dll), (
-                    (1, "flags"),))
+    ct.c_long)(
+    ("curl_global_init", dll), (
+    (1, "flags"),))
 
 # NAME curl_global_init_mem()
 #
 # DESCRIPTION
 #
 # curl_global_init() or curl_global_init_mem() should be invoked exactly once
-# for each application that uses libcurl.  This function can be used to
+# for each application that uses libcurl. This function can be used to
 # initialize libcurl and set user defined memory management callback
-# functions.  Users can implement memory management routines to check for
-# memory leaks, check for mis-use of the curl library etc.  User registered
+# functions. Users can implement memory management routines to check for
+# memory leaks, check for mis-use of the curl library etc. User registered
 # callback routines will be invoked by this library instead of the system
 # memory management routines like malloc, free etc.
-
+#
 global_init_mem = CFUNC(CURLcode,
-                        ct.c_long,
-                        malloc_callback,
-                        free_callback,
-                        realloc_callback,
-                        strdup_callback,
-                        calloc_callback)(
-                        ("curl_global_init_mem", dll), (
-                        (1, "flags"),
-                        (1, "malloc_callback"),
-                        (1, "free_callback"),
-                        (1, "realloc_callback"),
-                        (1, "strdup_callback"),
-                        (1, "calloc_callback"),))
+    ct.c_long,
+    malloc_callback,
+    free_callback,
+    realloc_callback,
+    strdup_callback,
+    calloc_callback)(
+    ("curl_global_init_mem", dll), (
+    (1, "flags"),
+    (1, "malloc_callback"),
+    (1, "free_callback"),
+    (1, "realloc_callback"),
+    (1, "strdup_callback"),
+    (1, "calloc_callback"),))
 
 # NAME curl_global_cleanup()
 #
@@ -2805,10 +2858,26 @@ global_init_mem = CFUNC(CURLcode,
 #
 # curl_global_cleanup() should be invoked exactly once for each application
 # that uses libcurl
-
+#
 global_cleanup = CFUNC(None)(
-                       ("curl_global_cleanup", dll), (
-                       ))
+    ("curl_global_cleanup", dll),)
+
+# NAME curl_global_trace()
+#
+# DESCRIPTION
+#
+# curl_global_trace() can be invoked at application start to
+# configure which components in curl should participate in tracing.
+#
+# This function is thread-safe if CURL_VERSION_THREADSAFE is set in the
+# curl_version_info_data.features flag (fetch by curl_version_info()).
+#
+try:  # libcurl >= ?.?.?
+    global_trace = CFUNC(CURLcode,
+        ct.c_char_p)(
+        ("curl_global_trace", dll), (
+        (1, "config"),))
+except: pass  # noqa: E722
 
 # NAME curl_global_sslset()
 #
@@ -2833,7 +2902,7 @@ global_cleanup = CFUNC(None)(
 #
 # The SSL backend can be set only once. If it has already been set, a
 # subsequent attempt to change it will result in a CURLSSLSET_TOO_LATE.
-
+#
 class ssl_backend(ct.Structure):
     _fields_ = [
     ("id",   sslbackend),
@@ -2847,16 +2916,17 @@ CURLsslset = ct.c_int
     CURLSSLSET_UNKNOWN_BACKEND,
     CURLSSLSET_TOO_LATE,
     CURLSSLSET_NO_BACKENDS  # libcurl was built without any SSL support
+
 ) = range(0, 4)
 
 global_sslset = CFUNC(CURLsslset,
-                      sslbackend,
-                      ct.c_char_p,
-                      ct.POINTER(ct.POINTER(ct.POINTER(ssl_backend))))(
-                      ("curl_global_sslset", dll), (
-                      (1, "id"),
-                      (1, "name"),
-                      (1, "avail"),))
+    sslbackend,
+    ct.c_char_p,
+    ct.POINTER(ct.POINTER(ct.POINTER(ssl_backend))))(
+    ("curl_global_sslset", dll), (
+    (1, "id"),
+    (1, "name"),
+    (1, "avail"),))
 
 # NAME curl_slist_append()
 #
@@ -2864,24 +2934,24 @@ global_sslset = CFUNC(CURLsslset,
 #
 # Appends a string to a linked list. If no list exists, it will be created
 # first. Returns the new list, after appending.
-
+#
 slist_append = CFUNC(ct.POINTER(slist),
-                     ct.POINTER(slist),
-                     ct.c_char_p)(
-                     ("curl_slist_append", dll), (
-                     (1, "slist"),
-                     (1, "string"),))
+    ct.POINTER(slist),
+    ct.c_char_p)(
+    ("curl_slist_append", dll), (
+    (1, "slist"),
+    (1, "data"),))
 
 # NAME curl_slist_free_all()
 #
 # DESCRIPTION
 #
 # free a previously built curl_slist.
-
+#
 slist_free_all = CFUNC(None,
-                       ct.POINTER(slist))(
-                       ("curl_slist_free_all", dll), (
-                       (1, "slist"),))
+    ct.POINTER(slist))(
+    ("curl_slist_free_all", dll), (
+    (1, "slist"),))
 
 # NAME curl_getdate()
 #
@@ -2890,27 +2960,30 @@ slist_free_all = CFUNC(None,
 # Returns the time, in seconds since 1 Jan 1970 of the time string given in
 # the first argument. The time argument in the second parameter is unused
 # and should be set to NULL.
-
+#
 getdate = CFUNC(time_t,
-                ct.c_char_p,
-                ct.POINTER(time_t))(
-                ("curl_getdate", dll), (
-                (1, "p"),
-                (1, "unused"),))
+    ct.c_char_p,
+    ct.POINTER(time_t))(
+    ("curl_getdate", dll), (
+    (1, "p"),
+    (1, "unused"),))
 
-# info about the certificate chain, only for OpenSSL, GnuTLS, Schannel, NSS
-# and GSKit builds. Asked for with CURLOPT_CERTINFO / CURLINFO_CERTINFO
+# info about the certificate chain, for SSL backends that support it. Asked
+# for with CURLOPT_CERTINFO / CURLINFO_CERTINFO
+#
 class certinfo(ct.Structure):
     _fields_ = [
     ("num_of_certs", ct.c_int),                       # number of certificates with information
-    ("certinfo",     ct.POINTER(ct.POINTER(slist))),  # for each index in this array, there's a
-                                                      # linked list with textual information in the
-                                                      # format "name: value"
+    ("certinfo",     ct.POINTER(ct.POINTER(slist))),  # for each index in this array, there is a
+                                                      # linked list with textual information for a
+                                                      # certificate in the format "name:content".
+                                                      # eg "Subject:foo", "Issuer:bar", etc.
 ]
 
 # Information about the SSL library used and the respective internal SSL
 # handle, which can be used to obtain further information regarding the
 # connection. Asked for with CURLINFO_TLS_SSL_PTR or CURLINFO_TLS_SESSION.
+#
 class tlssessioninfo(ct.Structure):
     _fields_ = [
     ("backend",   sslbackend),
@@ -2936,12 +3009,16 @@ if 1:  # enum
     CURLINFO_NAMELOOKUP_TIME           = CURLINFO_DOUBLE + 4
     CURLINFO_CONNECT_TIME              = CURLINFO_DOUBLE + 5
     CURLINFO_PRETRANSFER_TIME          = CURLINFO_DOUBLE + 6
+    # Deprecated from 7.55.0, Use CURLINFO_SIZE_UPLOAD_T
     CURLINFO_SIZE_UPLOAD               = CURLINFO_DOUBLE + 7
     CURLINFO_SIZE_UPLOAD_T             = CURLINFO_OFF_T  + 7
+    # Deprecated from 7.55.0, Use CURLINFO_SIZE_DOWNLOAD_T
     CURLINFO_SIZE_DOWNLOAD             = CURLINFO_DOUBLE + 8
     CURLINFO_SIZE_DOWNLOAD_T           = CURLINFO_OFF_T  + 8
+    # Deprecated from 7.55.0, Use CURLINFO_SPEED_DOWNLOAD_T
     CURLINFO_SPEED_DOWNLOAD            = CURLINFO_DOUBLE + 9
     CURLINFO_SPEED_DOWNLOAD_T          = CURLINFO_OFF_T  + 9
+    # Deprecated from 7.55.0, Use CURLINFO_SPEED_UPLOAD_T
     CURLINFO_SPEED_UPLOAD              = CURLINFO_DOUBLE + 10
     CURLINFO_SPEED_UPLOAD_T            = CURLINFO_OFF_T  + 10
     CURLINFO_HEADER_SIZE               = CURLINFO_LONG   + 11
@@ -2949,8 +3026,10 @@ if 1:  # enum
     CURLINFO_SSL_VERIFYRESULT          = CURLINFO_LONG   + 13
     CURLINFO_FILETIME                  = CURLINFO_LONG   + 14
     CURLINFO_FILETIME_T                = CURLINFO_OFF_T  + 14
+    # Deprecated from 7.55.0, Use CURLINFO_CONTENT_LENGTH_DOWNLOAD_T
     CURLINFO_CONTENT_LENGTH_DOWNLOAD   = CURLINFO_DOUBLE + 15
     CURLINFO_CONTENT_LENGTH_DOWNLOAD_T = CURLINFO_OFF_T  + 15
+    # Deprecated from 7.55.0, Use CURLINFO_CONTENT_LENGTH_UPLOAD_T
     CURLINFO_CONTENT_LENGTH_UPLOAD     = CURLINFO_DOUBLE + 16
     CURLINFO_CONTENT_LENGTH_UPLOAD_T   = CURLINFO_OFF_T  + 16
     CURLINFO_STARTTRANSFER_TIME        = CURLINFO_DOUBLE + 17
@@ -2965,6 +3044,7 @@ if 1:  # enum
     CURLINFO_NUM_CONNECTS              = CURLINFO_LONG   + 26
     CURLINFO_SSL_ENGINES               = CURLINFO_SLIST  + 27
     CURLINFO_COOKIELIST                = CURLINFO_SLIST  + 28
+    # Deprecated from 7.45.0, Use CURLINFO_ACTIVESOCKET
     CURLINFO_LASTSOCKET                = CURLINFO_LONG   + 29
     CURLINFO_FTP_ENTRY_PATH            = CURLINFO_STRING + 30
     CURLINFO_REDIRECT_URL              = CURLINFO_STRING + 31
@@ -2979,11 +3059,13 @@ if 1:  # enum
     CURLINFO_PRIMARY_PORT              = CURLINFO_LONG   + 40
     CURLINFO_LOCAL_IP                  = CURLINFO_STRING + 41
     CURLINFO_LOCAL_PORT                = CURLINFO_LONG   + 42
+    # Deprecated from 7.48.0, Use CURLINFO_TLS_SSL_PTR
     CURLINFO_TLS_SESSION               = CURLINFO_PTR    + 43
     CURLINFO_ACTIVESOCKET              = CURLINFO_SOCKET + 44
     CURLINFO_TLS_SSL_PTR               = CURLINFO_PTR    + 45
     CURLINFO_HTTP_VERSION              = CURLINFO_LONG   + 46
     CURLINFO_PROXY_SSL_VERIFYRESULT    = CURLINFO_LONG   + 47
+    # Deprecated from 7.85.0, Use CURLINFO_SCHEME
     CURLINFO_PROTOCOL                  = CURLINFO_LONG   + 48
     CURLINFO_SCHEME                    = CURLINFO_STRING + 49
     CURLINFO_TOTAL_TIME_T              = CURLINFO_OFF_T  + 50
@@ -2999,7 +3081,15 @@ if 1:  # enum
     CURLINFO_REFERER                   = CURLINFO_STRING + 60
     CURLINFO_CAINFO                    = CURLINFO_STRING + 61
     CURLINFO_CAPATH                    = CURLINFO_STRING + 62
-    CURLINFO_LASTONE                   = 62
+    CURLINFO_XFER_ID                   = CURLINFO_OFF_T  + 63
+    CURLINFO_CONN_ID                   = CURLINFO_OFF_T  + 64
+    CURLINFO_QUEUE_TIME_T              = CURLINFO_OFF_T  + 65
+    CURLINFO_USED_PROXY                = CURLINFO_LONG   + 66
+    CURLINFO_POSTTRANSFER_TIME_T       = CURLINFO_OFF_T  + 67
+    CURLINFO_EARLYDATA_SENT_T          = CURLINFO_OFF_T  + 68
+    CURLINFO_HTTPAUTH_USED             = CURLINFO_LONG   + 69
+    CURLINFO_PROXYAUTH_USED            = CURLINFO_LONG   + 70
+    CURLINFO_LASTONE                   = 70
 # end enum CURLINFO
 
 # CURLINFO_RESPONSE_CODE is the new name for the option previously known as
@@ -3017,6 +3107,7 @@ closepolicy = ct.c_int
     CURLCLOSEPOLICY_CALLBACK,
 
     CURLCLOSEPOLICY_LAST  # last, never use this
+
 ) = range(7)
 
 CURL_GLOBAL_SSL       = (1 << 0)  # no purpose since 7.57.0
@@ -3030,8 +3121,8 @@ CURL_GLOBAL_ACK_EINTR = (1 << 2)
 # **************************************************************************
 # Setup defines, protos etc for the sharing stuff.
 
-
 # Different data locks for a single share
+#
 lock_data = ct.c_int
 (
     CURL_LOCK_DATA_NONE,
@@ -3044,35 +3135,32 @@ lock_data = ct.c_int
     CURL_LOCK_DATA_SSL_SESSION,
     CURL_LOCK_DATA_CONNECT,
     CURL_LOCK_DATA_PSL,
+    CURL_LOCK_DATA_HSTS,
     CURL_LOCK_DATA_LAST
-) = range(0, 8)
+
+) = range(0, 9)
 
 # Different lock access types
+#
 lock_access = ct.c_int
 (
     CURL_LOCK_ACCESS_NONE,    # unspecified action
     CURL_LOCK_ACCESS_SHARED,  # for read perhaps
     CURL_LOCK_ACCESS_SINGLE,  # for write perhaps
     CURL_LOCK_ACCESS_LAST     # never use
+
 ) = (0, 1, 2, 2+1)
 
-# typedef void (*curl_lock_function)(CURL *handle,
-#                                    curl_lock_data data,
-#                                    curl_lock_access locktype,
-#                                    void *userptr);
 lock_function = CFUNC(None,
-                      ct.POINTER(CURL),  # handle
-                      lock_data,         # data
-                      lock_access,       # locktype
-                      ct.c_void_p)       # userptr
+    ct.POINTER(CURL),  # handle
+    lock_data,         # data
+    lock_access,       # locktype
+    ct.c_void_p)       # userptr
 
-# typedef void (*curl_unlock_function)(CURL *handle,
-#                                      curl_lock_data data,
-#                                      void *userptr);
 unlock_function = CFUNC(None,
-                        ct.POINTER(CURL),  # handle
-                        lock_data,         # data
-                        ct.c_void_p)       # userptr
+    ct.POINTER(CURL),  # handle
+    lock_data,         # data
+    ct.c_void_p)       # userptr
 
 CURLSHcode = ct.c_int
 (
@@ -3082,63 +3170,67 @@ CURLSHcode = ct.c_int
     CURLSHE_INVALID,       # 3
     CURLSHE_NOMEM,         # 4 out of memory
     CURLSHE_NOT_BUILT_IN,  # 5 feature not present in lib
-    CURLSHE_LAST  # never use
+    CURLSHE_LAST           # never use
+
 ) = range(7)
 
 CURLSHoption = ct.c_int
 (
-    CURLSHOPT_NONE,        # don't use
+    CURLSHOPT_NONE,        # do not use
     CURLSHOPT_SHARE,       # specify a data type to share
     CURLSHOPT_UNSHARE,     # specify which data type to stop sharing
     CURLSHOPT_LOCKFUNC,    # pass in a 'curl_lock_function' pointer
     CURLSHOPT_UNLOCKFUNC,  # pass in a 'curl_unlock_function' pointer
     CURLSHOPT_USERDATA,    # pass in a user data pointer used in the lock/unlock
                            # callback functions
-    CURLSHOPT_LAST  # never use
+    CURLSHOPT_LAST         # never use
+
 ) = range(7)
 
 share_init = CFUNC(ct.POINTER(CURLSH))(
-                   ("curl_share_init", dll), (
-                   ))
+    ("curl_share_init", dll),)
 
 share_setopt = CFUNC(CURLSHcode,
-                     ct.POINTER(CURLSH),
-                     CURLSHoption,
-                     ct.c_void_p)(
-                     ("curl_share_setopt", dll), (
-                     (1, "share_handle"),
-                     (1, "option"),
-                     (1, "value"),))
+    ct.POINTER(CURLSH),
+    CURLSHoption,
+    ct.c_void_p)(
+    ("curl_share_setopt", dll), (
+    (1, "share"),
+    (1, "option"),
+    (1, "value"),))
 
 share_cleanup = CFUNC(CURLSHcode,
-                      ct.POINTER(CURLSH))(
-                      ("curl_share_cleanup", dll), (
-                      (1, "share_handle"),))
+    ct.POINTER(CURLSH))(
+    ("curl_share_cleanup", dll), (
+    (1, "share"),))
 
 # **************************************************************************
 # Structures for querying information about the curl library at runtime.
-
+#
 CURLversion = ct.c_int
 (
-    CURLVERSION_FIRST,
-    CURLVERSION_SECOND,
-    CURLVERSION_THIRD,
-    CURLVERSION_FOURTH,
-    CURLVERSION_FIFTH,
-    CURLVERSION_SIXTH,
-    CURLVERSION_SEVENTH,
-    CURLVERSION_EIGHTH,
-    CURLVERSION_NINTH,
-    CURLVERSION_TENTH,
-    CURLVERSION_LAST  # never actually use this
-) = range(11)
+    CURLVERSION_FIRST,     # 7.10
+    CURLVERSION_SECOND,    # 7.11.1
+    CURLVERSION_THIRD,     # 7.12.0
+    CURLVERSION_FOURTH,    # 7.16.1
+    CURLVERSION_FIFTH,     # 7.57.0
+    CURLVERSION_SIXTH,     # 7.66.0
+    CURLVERSION_SEVENTH,   # 7.70.0
+    CURLVERSION_EIGHTH,    # 7.72.0
+    CURLVERSION_NINTH,     # 7.75.0
+    CURLVERSION_TENTH,     # 7.77.0
+    CURLVERSION_ELEVENTH,  # 7.87.0
+    CURLVERSION_TWELFTH,   # 8.8.0
+    CURLVERSION_LAST       # never actually use this
+
+) = range(13)
 
 # The 'CURLVERSION_NOW' is the symbolic name meant to be used by
 # basically all programs ever that want to get version information. It is
 # meant to be a built-in version number for what kind of struct the caller
 # expects. If the struct ever changes, we redefine the NOW to another enum
 # from above.
-CURLVERSION_NOW = CURLVERSION_TENTH
+CURLVERSION_NOW = CURLVERSION_TWELFTH
 
 class version_info_data(ct.Structure):
     _fields_ = [
@@ -3195,6 +3287,13 @@ class version_info_data(ct.Structure):
 
     # These fields were added in CURLVERSION_TENTH
     ("gsasl_version",   ct.c_char_p),  # human readable string.
+
+    # These fields were added in CURLVERSION_ELEVENTH
+    # feature_names is terminated by an entry with a NULL feature name
+    ("feature_names",   ct.POINTER(ct.c_char_p)),
+
+    # These fields were added in CURLVERSION_TWELFTH
+    ("rtmp_version",   ct.c_char_p),  # human readable string.
 ]
 # typedef struct curl_version_info_data curl_version_info_data;
 
@@ -3237,37 +3336,37 @@ CURL_VERSION_THREADSAFE   = (1 << 30)  # libcurl API is thread-safe
 #
 # This function returns a pointer to a static copy of the version info
 # struct. See above.
-
+#
 version_info = CFUNC(ct.POINTER(version_info_data),
-                     CURLversion)(
-                     ("curl_version_info", dll), (
-                     (1, "version"),))
+    CURLversion)(
+    ("curl_version_info", dll), (
+    (1, "version"),))
 
 # NAME curl_easy_strerror()
 #
 # DESCRIPTION
 #
 # The curl_easy_strerror function may be used to turn a CURLcode value
-# into the equivalent human readable error string.  This is useful
+# into the equivalent human readable error string. This is useful
 # for printing meaningful error messages.
-
+#
 easy_strerror = CFUNC(ct.c_char_p,
-                      CURLcode)(
-                      ("curl_easy_strerror", dll), (
-                      (1, "code"),))
+    CURLcode)(
+    ("curl_easy_strerror", dll), (
+    (1, "code"),))
 
 # NAME curl_share_strerror()
 #
 # DESCRIPTION
 #
 # The curl_share_strerror function may be used to turn a CURLSHcode value
-# into the equivalent human readable error string.  This is useful
+# into the equivalent human readable error string. This is useful
 # for printing meaningful error messages.
-
+#
 share_strerror = CFUNC(ct.c_char_p,
-                       CURLSHcode)(
-                       ("curl_share_strerror", dll), (
-                       (1, "code"),))
+    CURLSHcode)(
+    ("curl_share_strerror", dll), (
+    (1, "code"),))
 
 # NAME curl_easy_pause()
 #
@@ -3275,13 +3374,13 @@ share_strerror = CFUNC(ct.c_char_p,
 #
 # The curl_easy_pause function pauses or unpauses transfers. Select the new
 # state by setting the bitmask, use the convenience defines below.
-
+#
 easy_pause = CFUNC(CURLcode,
-                   ct.POINTER(CURL),
-                   ct.c_int)(
-                   ("curl_easy_pause", dll), (
-                   (1, "handle"),
-                   (1, "bitmask"),))
+    ct.POINTER(CURL),
+    ct.c_int)(
+    ("curl_easy_pause", dll), (
+    (1, "handle"),
+    (1, "bitmask"),))
 
 CURLPAUSE_RECV      = (1 << 0)
 CURLPAUSE_RECV_CONT = (0)
@@ -3292,14 +3391,131 @@ CURLPAUSE_SEND_CONT = (0)
 CURLPAUSE_ALL       = (CURLPAUSE_RECV | CURLPAUSE_SEND)
 CURLPAUSE_CONT      = (CURLPAUSE_RECV_CONT | CURLPAUSE_SEND_CONT)
 
+# NAME curl_easy_ssls_import()
+#
+# DESCRIPTION
+#
+# The curl_easy_ssls_import function adds a previously exported SSL session
+# to the SSL session cache of the easy handle (or the underlying share).
+#
+try:  # libcurl >= 8.12.1
+    easy_ssls_import = CFUNC(CURLcode,
+        ct.POINTER(CURL),
+        ct.c_char_p,
+        ct.POINTER(ct.c_ubyte),
+        ct.c_size_t,
+        ct.POINTER(ct.c_ubyte),
+        ct.c_size_t)(
+        ("curl_easy_ssls_import", dll), (
+        (1, "handle"),
+        (1, "session_key"),
+        (1, "shmac"),
+        (1, "shmac_len"),
+        (1, "sdata"),
+        (1, "sdata_len"),))
+except: pass  # noqa: E722
+
+# This is the curl_ssls_export_cb callback prototype. It
+# is passed to curl_easy_ssls_export() to extract SSL sessions/tickets.
+ssls_export_cb = CFUNC(CURLcode,
+    ct.POINTER(CURL),        # handle
+    ct.c_void_p,             # userptr
+    ct.c_char_p,             # session_key
+    ct.POINTER(ct.c_ubyte),  # shmac
+    ct.c_size_t,             # shmac_len
+    ct.POINTER(ct.c_ubyte),  # sdata
+    ct.c_size_t,             # sdata_len
+    off_t,                   # valid_until
+    ct.c_int,                # ietf_tls_id
+    ct.c_char_p,             # alpn
+    ct.c_size_t)             # earlydata_max
+
+# NAME curl_easy_ssls_export()
+#
+# DESCRIPTION
+#
+# The curl_easy_ssls_export function iterates over all SSL sessions stored
+# in the easy handle (or underlying share) and invokes the passed
+# callback.
+#
+try:  # libcurl >= 8.12.1
+    easy_ssls_export = CFUNC(CURLcode,
+        ct.POINTER(CURL),
+        ct.POINTER(ssls_export_cb),
+        ct.c_void_p)(
+        ("curl_easy_ssls_export", dll), (
+        (1, "handle"),
+        (1, "export_fn"),
+        (1, "userptr"),))
+except: pass  # noqa: E722
+
+# Addons & utils
+
+@write_callback
+def write_skipped(buffer, size, nitems, stream):
+    # we are not interested in the downloaded data itself,
+    # so we only return the size we would have saved ...
+    return nitems * size
+
+@write_callback
+def write_to_file(buffer, size, nitems, stream):
+    file = from_oid(stream)
+    buffer_size = nitems * size
+    if buffer_size == 0: return 0
+    bwritten = bytes(buffer[:buffer_size])
+    nwritten = file.write(bwritten)
+    return nwritten
+
+@read_callback
+def read_from_file(buffer, size, nitems, stream):
+    file = from_oid(stream)
+    buffer_size = nitems * size
+    bread = file.read(buffer_size)
+    if not bread: return 0
+    nread = len(bread)
+    ct.memmove(buffer, bread, nread)
+    return nread
+
+@write_callback
+def write_to_fd(buffer, size, nitems, stream):
+    fd = int(stream)
+    buffer_size = nitems * size
+    if buffer_size == 0: return 0
+    bwritten = bytes(buffer[:buffer_size])
+    nwritten = io.write(fd, bwritten)
+    return nwritten
+
+@read_callback
+def read_from_fd(buffer, size, nitems, stream):
+    fd = int(stream)
+    buffer_size = nitems * size
+    bread = os.read(fd, buffer_size)
+    if not bread: return 0
+    nread = len(bread)
+    ct.memmove(buffer, bread, nread)
+    return nread
+
+@write_callback
+def write_to_socket(buffer, size, nitems, stream):
+    sock = from_oid(stream)
+    buffer_size = nitems * size
+    if buffer_size == 0: return 0
+    bwritten = bytes(buffer[:buffer_size])
+    nwritten = len(bwritten)
+    sock.sendall(bwritten)
+    return nwritten
+
 # unfortunately, the easy.h and multi.h include files need options and info
 # stuff before they can be included!
-from ._curlver import *  # noqa # libcurl version defines
-from ._easy    import *  # noqa # nothing in curl is fun without the easy stuff
-from ._multi   import *  # noqa
-from ._urlapi  import *  # noqa
-from ._options import *  # noqa
-from ._header  import *  # noqa
-from ._system  import *  # noqa
+from ._curlver    import *  # noqa # libcurl version defines
+from ._easy       import *  # noqa # nothing in curl is fun without the easy stuff
+from ._multi      import *  # noqa
+from ._urlapi     import *  # noqa
+from ._options    import *  # noqa
+from ._header     import *  # noqa
+from ._websockets import *  # noqa
+from ._system     import *  # noqa
+from ._typecheck  import *  # noqa
+#from ._mprintf   import *  # noqa
 
 # eof

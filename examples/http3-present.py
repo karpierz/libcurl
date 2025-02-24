@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Checks if HTTP/3 support is present in libcurl.
@@ -30,14 +30,14 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 def main(argv=sys.argv[1:]):
 
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
 
-    with curl_guard(True):
+    with curl_guard(True) as guard:
         # lcurl.version_info_data* ver
         ver = lcurl.version_info(lcurl.CURLVERSION_NOW).contents
 

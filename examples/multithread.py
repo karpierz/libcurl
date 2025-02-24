@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,19 +20,18 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-A multi-threaded example that uses pthreads to fetch several files at once
+A multi-threaded program using pthreads to fetch several files at once
 """
 
 import sys
-import threading
 import ctypes as ct
+import threading
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
+from curl_utils import *  # noqa
 
 # List of URLs to fetch.
 #
@@ -53,18 +52,17 @@ def pull_one_url(url: str):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
 
         # Perform the custom request
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
 
 def main(argv=sys.argv[1:]):
@@ -72,7 +70,7 @@ def main(argv=sys.argv[1:]):
     # Must initialize libcurl before any threads are started
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
 
-    with curl_guard(True):
+    with curl_guard(True) as guard:
 
         threads = []
         for i, url in enumerate(urls):

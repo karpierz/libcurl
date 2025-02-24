@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Download many files in parallel, in the same thread.
@@ -30,8 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
+from curl_utils import *  # noqa
 
 MAX_PARALLEL = 10  # number of simultaneous transfers
 
@@ -86,21 +85,16 @@ urls = [
 ]
 
 
-@lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    # we are not interested in the downloaded data itself,
-    # so we only return the size we would have saved ...
-    return size * nitems
-
-
-def add_transfer(mcurl: ct.POINTER(lcurl.CURLM), url: bytes):
+def add_transfer(mcurl: ct.POINTER(lcurl.CURLM), url: bytes, left: int):
     curl: ct.POINTER(CURL) = lcurl.easy_init()
-    lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
+    # we are not interested in the downloaded data itself
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, lcurl.write_skipped)
     lcurl.easy_setopt(curl, lcurl.CURLOPT_URL,     url)
     lcurl.easy_setopt(curl, lcurl.CURLOPT_PRIVATE, url)
-    if defined("SKIP_PEER_VERIFICATION"):
+    if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
     lcurl.multi_add_handle(mcurl, curl)
+    return left + 1
 
 
 def main(argv=sys.argv[1:]):
@@ -110,26 +104,27 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     mcurl: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
 
-    with curl_guard(True, None, mcurl):
+    with curl_guard(True, None, mcurl) as guard:
         if not mcurl: return 2
 
         # Limit the amount of simultaneous connections curl should allow:
         lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_MAXCONNECTS, MAX_PARALLEL)
 
-        for transfers in range(MAX_PARALLEL):
-            add_transfer(mcurl, urls[transfers])
-        transfers = MAX_PARALLEL
+        left: int = 0
+        for transfers in range(min(MAX_PARALLEL, len(urls))):
+            left = add_transfer(mcurl, urls[transfers], left)
+        transfers = min(MAX_PARALLEL, len(urls))
 
-        still_alive = ct.c_int(1)
-        while still_alive.value:
-            lcurl.multi_perform(mcurl, ct.byref(still_alive))
+        while True:
+            still_running = ct.c_int(1)
+            lcurl.multi_perform(mcurl, ct.byref(still_running))
 
             while True:
                 msgs_left = ct.c_int(-1)
-                msg: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
-                                                                       ct.byref(msgs_left))
-                if not msg: break
-                msg = msg.contents
+                msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
+                                                                        ct.byref(msgs_left))
+                if not msgp: break
+                msg = msgp.contents
 
                 if msg.msg == lcurl.CURLMSG_DONE:
                     curl: ct.POINTER(lcurl.CURL) = msg.easy_handle
@@ -142,18 +137,18 @@ def main(argv=sys.argv[1:]):
                           file=sys.stderr)
                     lcurl.multi_remove_handle(mcurl, curl)
                     lcurl.easy_cleanup(curl)
+                    left -= 1
                 else:
                     print("E: CURLMsg (%d)" % msg.msg, file=sys.stderr)
 
                 if transfers < len(urls):
-                    add_transfer(mcurl, urls[transfers])
+                    left = add_transfer(mcurl, urls[transfers], left)
                     transfers += 1
 
-            if still_alive.value:
-                lcurl.multi_wait(mcurl, None, 0, 1000, None)
-
-            if transfers >= len(urls):
+            if left == 0:
                 break
+
+            lcurl.multi_wait(mcurl, None, 0, 1000, None)
 
     return 0
 

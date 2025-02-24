@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2016 Adam Karpierz
+# SPDX-License-Identifier: Zlib
 
 __all__ = ('make_config',)
 

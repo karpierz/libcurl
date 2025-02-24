@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 # **************************************************************************
 #                                  _   _ ____  _
@@ -9,7 +8,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -26,7 +25,7 @@
 #
 # **************************************************************************
 
-#  This is an "external" header file. Don't give away any internals here!
+#  This is an "external" header file. Do not give away any internals here!
 #
 #  GOALS
 #
@@ -50,25 +49,20 @@
 # include "curl.h"
 
 import ctypes as ct
+import time   as _time
+import select as _select
 
-from ._platform import CFUNC, defined
+from ._platform import CFUNC, defined, is_windows
+from ._platform import FD_ISSET as _FD_ISSET
 from ._dll      import dll
-from ._curl     import CURL, CURLcode, socket_t, CURL_SOCKET_BAD, fd_set
+from ._curl     import timeval
+from ._curl     import CURL, CURLcode, socket_t, fd_set, CURL_SOCKET_BAD
 from ._curl     import (CURLOPTTYPE_LONG,
                         CURLOPTTYPE_OBJECTPOINT, CURLOPTTYPE_FUNCTIONPOINT,
                         CURLOPTTYPE_OFF_T, CURLOPTTYPE_BLOB)
-try:
-    from ._curl import CURL_STRICTER
-except ImportError: pass
 
-if defined("CURL_STRICTER"):
-    # typedef struct Curl_multi CURLM;
-    class Curl_multi(ct.Structure): pass
-    CURLM = Curl_multi
-else:
-    # typedef void CURLM;
-    CURLM = ct.c_ubyte  # void
-# endif
+# typedef void CURLM;
+CURLM = None  # void
 
 CURLMcode = ct.c_int
 (
@@ -77,7 +71,7 @@ CURLMcode = ct.c_int
     CURLM_OK,
     CURLM_BAD_HANDLE,             # the passed-in handle is not a valid CURLM handle
     CURLM_BAD_EASY_HANDLE,        # an easy handle was not good/valid
-    CURLM_OUT_OF_MEMORY,          # if you ever get this, you're in deep sh*t
+    CURLM_OUT_OF_MEMORY,          # if you ever get this, you are in deep sh*t
     CURLM_INTERNAL_ERROR,         # this is a libcurl bug
     CURLM_BAD_SOCKET,             # the passed in socket argument did not match
     CURLM_UNKNOWN_OPTION,         # curl_multi_setopt() with unsupported option
@@ -90,6 +84,7 @@ CURLMcode = ct.c_int
     CURLM_ABORTED_BY_CALLBACK,
     CURLM_UNRECOVERABLE_POLL,
     CURLM_LAST
+
 ) = range(-1, 14)
 
 # just to make code nicer when using curl_multi_socket() you can now check
@@ -108,6 +103,7 @@ CURLMSG = ct.c_int
     CURLMSG_DONE,  # This easy handle has completed. 'result' contains
                    # the CURLcode of the transfer
     CURLMSG_LAST   # last, not used
+
 ) = range(3)
 
 class _CURLMsgData(ct.Union):
@@ -125,7 +121,7 @@ class CURLMsg(ct.Structure):
 # typedef struct CURLMsg CURLMsg;
 
 # Based on poll(2) structure and values.
-# We don't use pollfd and POLL* constants explicitly
+# We do not use pollfd and POLL* constants explicitly
 # to cover platforms without poll().
 CURL_WAIT_POLLIN  = 0x0001
 CURL_WAIT_POLLPRI = 0x0002
@@ -135,44 +131,43 @@ class waitfd(ct.Structure):
     _fields_ = [
     ("fd",      socket_t),
     ("events",  ct.c_short),
-    ("revents", ct.c_short),  # not supported yet
+    ("revents", ct.c_short),
 ]
 
 # Name:    curl_multi_init()
 #
-# Desc:    inititalize multi-style curl usage
+# Desc:    initialize multi-style curl usage
 #
 # Returns: a new CURLM handle to use in all 'curl_multi' functions.
-
+#
 multi_init = CFUNC(ct.POINTER(CURLM))(
-                   ("curl_multi_init", dll), (
-                   ))
+    ("curl_multi_init", dll),)
 
 # Name:    curl_multi_add_handle()
 #
 # Desc:    add a standard curl handle to the multi stack
 #
 # Returns: CURLMcode type, general multi error code.
-
+#
 multi_add_handle = CFUNC(CURLMcode,
-                         ct.POINTER(CURLM),
-                         ct.POINTER(CURL))(
-                         ("curl_multi_add_handle", dll), (
-                         (1, "multi_handle"),
-                         (1, "curl_handle"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(CURL))(
+    ("curl_multi_add_handle", dll), (
+    (1, "multi_handle"),
+    (1, "curl_handle"),))
 
 # Name:    curl_multi_remove_handle()
 #
 # Desc:    removes a curl handle from the multi stack again
 #
 # Returns: CURLMcode type, general multi error code.
-
+#
 multi_remove_handle = CFUNC(CURLMcode,
-                            ct.POINTER(CURLM),
-                            ct.POINTER(CURL))(
-                            ("curl_multi_remove_handle", dll), (
-                            (1, "multi_handle"),
-                            (1, "curl_handle"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(CURL))(
+    ("curl_multi_remove_handle", dll), (
+    (1, "multi_handle"),
+    (1, "curl_handle"),))
 
 # Name:    curl_multi_fdset()
 #
@@ -181,19 +176,19 @@ multi_remove_handle = CFUNC(CURLMcode,
 #          them are ready.
 #
 # Returns: CURLMcode type, general multi error code.
-
+#
 multi_fdset = CFUNC(CURLMcode,
-                    ct.POINTER(CURLM),
-                    ct.POINTER(fd_set),
-                    ct.POINTER(fd_set),
-                    ct.POINTER(fd_set),
-                    ct.POINTER(ct.c_int))(
-                    ("curl_multi_fdset", dll), (
-                    (1, "multi_handle"),
-                    (1, "read_fd_set"),
-                    (1, "write_fd_set"),
-                    (1, "exc_fd_set"),
-                    (1, "max_fd"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(fd_set),
+    ct.POINTER(fd_set),
+    ct.POINTER(fd_set),
+    ct.POINTER(ct.c_int))(
+    ("curl_multi_fdset", dll), (
+    (1, "multi_handle"),
+    (1, "read_fd_set"),
+    (1, "write_fd_set"),
+    (1, "exc_fd_set"),
+    (1, "max_fd"),))
 
 # Name:     curl_multi_wait()
 #
@@ -201,19 +196,19 @@ multi_fdset = CFUNC(CURLMcode,
 #           additional fds passed to the function.
 #
 # Returns:  CURLMcode type, general multi error code.
-
+#
 multi_wait = CFUNC(CURLMcode,
-                   ct.POINTER(CURLM) ,
-                   ct.POINTER(waitfd),
-                   ct.c_uint ,
-                   ct.c_int ,
-                   ct.POINTER(ct.c_int))(
-                   ("curl_multi_wait", dll), (
-                   (1, "multi_handle"),
-                   (1, "extra_fds"),
-                   (1, "extra_nfds"),
-                   (1, "timeout_ms"),
-                   (1, "ret"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(waitfd),
+    ct.c_uint,
+    ct.c_int,
+    ct.POINTER(ct.c_int))(
+    ("curl_multi_wait", dll), (
+    (1, "multi_handle"),
+    (1, "extra_fds"),
+    (1, "extra_nfds"),
+    (1, "timeout_ms"),
+    (1, "ret"),))
 
 # Name:     curl_multi_poll()
 #
@@ -221,34 +216,34 @@ multi_wait = CFUNC(CURLMcode,
 #           additional fds passed to the function.
 #
 # Returns:  CURLMcode type, general multi error code.
-
+#
 multi_poll = CFUNC(CURLMcode,
-                   ct.POINTER(CURLM) ,
-                   ct.POINTER(waitfd),
-                   ct.c_uint ,
-                   ct.c_int ,
-                   ct.POINTER(ct.c_int))(
-                   ("curl_multi_poll", dll), (
-                   (1, "multi_handle"),
-                   (1, "extra_fds"),
-                   (1, "extra_nfds"),
-                   (1, "timeout_ms"),
-                   (1, "ret"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(waitfd),
+    ct.c_uint,
+    ct.c_int,
+    ct.POINTER(ct.c_int))(
+    ("curl_multi_poll", dll), (
+    (1, "multi_handle"),
+    (1, "extra_fds"),
+    (1, "extra_nfds"),
+    (1, "timeout_ms"),
+    (1, "ret"),))
 
 # Name:     curl_multi_wakeup()
 #
 # Desc:     wakes up a sleeping curl_multi_poll call.
 #
 # Returns:  CURLMcode type, general multi error code.
-
+#
 multi_wakeup = CFUNC(CURLMcode,
-                     ct.POINTER(CURLM))(
-                     ("curl_multi_wakeup", dll), (
-                     (1, "multi_handle"),))
+    ct.POINTER(CURLM))(
+    ("curl_multi_wakeup", dll), (
+    (1, "multi_handle"),))
 
 # Name:    curl_multi_perform()
 #
-# Desc:    When the app thinks there's data available for curl it calls this
+# Desc:    When the app thinks there is data available for curl it calls this
 #          function to read/write whatever there is right now. This returns
 #          as soon as the reads and writes are done. This function does not
 #          require that there actually is data available for reading or that
@@ -260,13 +255,13 @@ multi_wakeup = CFUNC(CURLMcode,
 #          returns errors etc regarding the whole multi stack. There might
 #          still have occurred problems on individual transfers even when
 #          this returns OK.
-
+#
 multi_perform = CFUNC(CURLMcode,
-                      ct.POINTER(CURLM),
-                      ct.POINTER(ct.c_int))(
-                      ("curl_multi_perform", dll), (
-                      (1, "multi_handle"),
-                      (1, "running_handles"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(ct.c_int))(
+    ("curl_multi_perform", dll), (
+    (1, "multi_handle"),
+    (1, "running_handles"),))
 
 # Name:    curl_multi_cleanup()
 #
@@ -276,15 +271,15 @@ multi_perform = CFUNC(CURLMcode,
 #          in the middle of a transfer.
 #
 # Returns: CURLMcode type, general multi error code.
-
+#
 multi_cleanup = CFUNC(CURLMcode,
-                      ct.POINTER(CURLM))(
-                      ("curl_multi_cleanup", dll), (
-                      (1, "multi_handle"),))
+    ct.POINTER(CURLM))(
+    ("curl_multi_cleanup", dll), (
+    (1, "multi_handle"),))
 
 # Name:    curl_multi_info_read()
 #
-# Desc:    Ask the multi handle if there's any messages/informationals from
+# Desc:    Ask the multi handle if there is any messages/informationals from
 #          the individual transfers. Messages include informationals such as
 #          error code from the transfer or just the fact that a transfer is
 #          completed. More details on these should be written down as well.
@@ -296,38 +291,38 @@ multi_cleanup = CFUNC(CURLMcode,
 #          The data the returned pointer points to will not survive calling
 #          curl_multi_cleanup().
 #
-#          The 'CURLMsg' struct is meant to be very simple and only contain
-#          very basic information. If more involved information is wanted,
-#          we will provide the particular "transfer handle" in that struct
-#          and that should/could/would be used in subsequent
-#          curl_easy_getinfo() calls (or similar). The point being that we
-#          must never expose complex structs to applications, as then we'll
-#          undoubtably get backwards compatibility problems in the future.
+#          The 'CURLMsg' struct is meant to be simple and only contain basic
+#          information. If more involved information is wanted, we will
+#          provide the particular "transfer handle" in that struct and that
+#          should/could/would be used in subsequent curl_easy_getinfo() calls
+#          (or similar). The point being that we must never expose complex
+#          structs to applications, as then we will undoubtably get backwards
+#          compatibility problems in the future.
 #
 # Returns: A pointer to a filled-in struct, or NULL if it failed or ran out
 #          of structs. It also writes the number of messages left in the
 #          queue (after this read) in the integer the second argument points
 #          to.
-
+#
 multi_info_read = CFUNC(ct.POINTER(CURLMsg),
-                        ct.POINTER(CURLM),
-                        ct.POINTER(ct.c_int))(
-                        ("curl_multi_info_read", dll), (
-                        (1, "multi_handle"),
-                        (1, "msgs_in_queue"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(ct.c_int))(
+    ("curl_multi_info_read", dll), (
+    (1, "multi_handle"),
+    (1, "msgs_in_queue"),))
 
 # Name:    curl_multi_strerror()
 #
 # Desc:    The curl_multi_strerror function may be used to turn a CURLMcode
-#          value into the equivalent human readable error string.  This is
+#          value into the equivalent human readable error string. This is
 #          useful for printing meaningful error messages.
 #
 # Returns: A pointer to a null-terminated error message.
-
+#
 multi_strerror = CFUNC(ct.c_char_p,
-                       CURLMcode)(
-                       ("curl_multi_strerror", dll), (
-                       (1, "code"),))
+    CURLMcode)(
+    ("curl_multi_strerror", dll), (
+    (1, "code"),))
 
 # Name:    curl_multi_socket() and
 #          curl_multi_socket_all()
@@ -335,7 +330,7 @@ multi_strerror = CFUNC(ct.c_char_p,
 # Desc:    An alternative version of curl_multi_perform() that allows the
 #          application to pass in one of the file descriptors that have been
 #          detected to have "action" on them and let libcurl perform.
-#          See man page for details.
+#          See manpage for details.
 
 CURL_POLL_NONE   = 0
 CURL_POLL_IN     = 1
@@ -349,19 +344,12 @@ CURL_CSELECT_IN  = 0x01
 CURL_CSELECT_OUT = 0x02
 CURL_CSELECT_ERR = 0x04
 
-# typedef int (*curl_socket_callback)(CURL *easy,      /* easy handle */
-#                                     curl_socket_t s, /* socket */
-#                                     int what,        /* see above */
-#                                     void *userp,     /* private callback
-#                                                         pointer */
-#                                     void *socketp);  /* private socket
-#                                                         pointer */
 socket_callback = CFUNC(ct.c_int,
-                        ct.POINTER(CURL),  # easy handle
-                        socket_t,          # socket
-                        ct.c_int,          # what # see above
-                        ct.c_void_p,       # userp # private callback pointer
-                        ct.c_void_p)       # socketp # private socket pointer
+    ct.POINTER(CURL),  # easy    # easy handle
+    socket_t,          # s       # socket
+    ct.c_int,          # what    # what # see above
+    ct.c_void_p,       # userp   # private callback pointer
+    ct.c_void_p)       # socketp # private socket pointer
 
 # Name:    curl_multi_timer_callback
 #
@@ -371,43 +359,39 @@ socket_callback = CFUNC(ct.c_int,
 #          (to allow libcurl's timed events to take place).
 #
 # Returns: The callback should return zero.
-
-# typedef int (*curl_multi_timer_callback)(CURLM *multi,    /* multi handle */
-#                                          long timeout_ms, /* see above */
-#                                          void *userp);    /* private callback
-#                                                              pointer */
+#
 multi_timer_callback = CFUNC(ct.c_int,
-                             ct.POINTER(CURLM),  # multi handle
-                             ct.c_long,          # timeout_ms # see above
-                             ct.c_void_p)        # userp # private callback pointer
+    ct.POINTER(CURLM),  # multi      # multi handle
+    ct.c_long,          # timeout_ms # timeout_ms # see above
+    ct.c_void_p)        # userp      # private callback pointer
 
-if 0:  # deprecated
+if 0:  # deprecated from 7.19.5, Use curl_multi_socket_action()
     multi_socket = CFUNC(CURLMcode,
-                         ct.POINTER(CURLM),
-                         socket_t,
-                         ct.POINTER(ct.c_int))(
-                         ("curl_multi_socket", dll), (
-                         (1, "multi_handle"),
-                         (1, "s"),
-                         (1, "running_handles"),))
+        ct.POINTER(CURLM),
+        socket_t,
+        ct.POINTER(ct.c_int))(
+        ("curl_multi_socket", dll), (
+        (1, "multi_handle"),
+        (1, "s"),
+        (1, "running_handles"),))
 
     multi_socket_all = CFUNC(CURLMcode,
-                             ct.POINTER(CURLM),
-                             ct.POINTER(ct.c_int))(
-                             ("curl_multi_socket_all", dll), (
-                             (1, "multi_handle"),
-                             (1, "running_handles"),))
+        ct.POINTER(CURLM),
+        ct.POINTER(ct.c_int))(
+        ("curl_multi_socket_all", dll), (
+        (1, "multi_handle"),
+        (1, "running_handles"),))
 
 multi_socket_action = CFUNC(CURLMcode,
-                            ct.POINTER(CURLM),
-                            socket_t,
-                            ct.c_int,
-                            ct.POINTER(ct.c_int))(
-                            ("curl_multi_socket_action", dll), (
-                            (1, "multi_handle"),
-                            (1, "s"),
-                            (1, "ev_bitmask"),
-                            (1, "running_handles"),))
+    ct.POINTER(CURLM),
+    socket_t,
+    ct.c_int,
+    ct.POINTER(ct.c_int))(
+    ("curl_multi_socket_action", dll), (
+    (1, "multi_handle"),
+    (1, "s"),
+    (1, "ev_bitmask"),
+    (1, "running_handles"),))
 
 # ifndef CURL_ALLOW_OLD_MULTI_SOCKET
 # This macro below was added in 7.16.3 to push users who recompile to use
@@ -424,13 +408,13 @@ multi_socket_action = CFUNC(CURLMcode,
 #          called (to allow libcurl's timed events to take place).
 #
 # Returns: CURLM error code.
-
+#
 multi_timeout = CFUNC(CURLMcode,
-                      ct.POINTER(CURLM),
-                      ct.POINTER(ct.c_long))(
-                      ("curl_multi_timeout", dll), (
-                      (1, "multi_handle"),
-                      (1, "milliseconds"),))
+    ct.POINTER(CURLM),
+    ct.POINTER(ct.c_long))(
+    ("curl_multi_timeout", dll), (
+    (1, "multi_handle"),
+    (1, "milliseconds"),))
 
 CURLMoption = ct.c_int
 if 1:  # enum
@@ -492,15 +476,15 @@ if 1:  # enum
 # Desc:    Sets options for the multi handle.
 #
 # Returns: CURLM error code.
-
+#
 multi_setopt = CFUNC(CURLMcode,
-                     ct.POINTER(CURLM),
-                     CURLMoption,
-                     ct.c_void_p)(
-                     ("curl_multi_setopt", dll), (
-                     (1, "multi_handle"),
-                     (1, "option"),
-                     (1, "value"),))
+    ct.POINTER(CURLM),
+    CURLMoption,
+    ct.c_void_p)(
+    ("curl_multi_setopt", dll), (
+    (1, "multi_handle"),
+    (1, "option"),
+    (1, "value"),))
 
 # Name:    curl_multi_assign()
 #
@@ -509,15 +493,31 @@ multi_setopt = CFUNC(CURLMcode,
 #          (only) useful for curl_multi_socket uses.
 #
 # Returns: CURLM error code.
-
+#
 multi_assign = CFUNC(CURLMcode,
-                     ct.POINTER(CURLM),
-                     socket_t,
-                     ct.c_void_p)(
-                     ("curl_multi_assign", dll), (
-                     (1, "multi_handle"),
-                     (1, "sockfd"),
-                     (1, "sockp"),))
+    ct.POINTER(CURLM),
+    socket_t,
+    ct.c_void_p)(
+    ("curl_multi_assign", dll), (
+    (1, "multi_handle"),
+    (1, "sockfd"),
+    (1, "sockp"),))
+
+# Name:    curl_multi_get_handles()
+#
+# Desc:    Returns an allocated array holding all handles currently added to
+#          the multi handle. Marks the final entry with a NULL pointer. If
+#          there is no easy handle added to the multi handle, this function
+#          returns an array with the first entry as a NULL pointer.
+#
+# Returns: NULL on failure, otherwise a CURL **array pointer
+#
+try:  # libcurl >= ?.?.?
+    multi_get_handles = CFUNC(ct.POINTER(ct.POINTER(CURL)),
+        ct.POINTER(CURLM))(
+        ("curl_multi_get_handles", dll), (
+        (1, "multi_handle"),))
+except: pass  # noqa: E722
 
 # Name: curl_push_callback
 #
@@ -534,30 +534,108 @@ CURL_PUSH_ERROROUT = 2  # added in 7.72.0
 # forward declaration only
 class pushheaders(ct.Structure): pass
 
-pushheader_bynum  = CFUNC(ct.c_char_p,
-                          ct.POINTER(pushheaders),
-                          ct.c_size_t)(
-                          ("curl_pushheader_bynum", dll), (
-                          (1, "h"),
-                          (1, "num"),))
+pushheader_bynum = CFUNC(ct.c_char_p,
+    ct.POINTER(pushheaders),
+    ct.c_size_t)(
+    ("curl_pushheader_bynum", dll), (
+    (1, "h"),
+    (1, "num"),))
 
 pushheader_byname = CFUNC(ct.c_char_p,
-                          ct.POINTER(pushheaders),
-                          ct.c_char_p)(
-                          ("curl_pushheader_byname", dll), (
-                          (1, "h"),
-                          (1, "name"),))
+    ct.POINTER(pushheaders),
+    ct.c_char_p)(
+    ("curl_pushheader_byname", dll), (
+    (1, "h"),
+    (1, "name"),))
 
-# typedef int (*curl_push_callback)(CURL *parent,
-#                                   CURL *easy,
-#                                   size_t num_headers,
-#                                   ct.POINTER(curl_pushheaders) headers,
-#                                   void *userp);
 push_callback = CFUNC(ct.c_int,
-                      ct.POINTER(CURL),         # parent
-                      ct.POINTER(CURL),         # easy
-                      ct.c_size_t,              # num_headers
-                      ct.POINTER(pushheaders),  # headers
-                      ct.c_void_p)              # userp
+    ct.POINTER(CURL),         # parent
+    ct.POINTER(CURL),         # easy
+    ct.c_size_t,              # num_headers
+    ct.POINTER(pushheaders),  # headers
+    ct.c_void_p)              # userp
+
+# Name:    curl_multi_waitfds()
+#
+# Desc:    Ask curl for fds for polling. The app can use these to poll on.
+#          We want curl_multi_perform() called as soon as one of them are
+#          ready. Passing zero size allows to get just a number of fds.
+#
+# Returns: CURLMcode type, general multi error code.
+#
+try:  # libcurl >= ?.?.?
+    multi_waitfds = CFUNC(CURLMcode,
+        ct.POINTER(CURLM),
+        ct.POINTER(waitfd),
+        ct.c_uint,
+        ct.POINTER(ct.c_uint))(
+        ("curl_multi_waitfds", dll), (
+        (1, "multi"),
+        (1, "ufds"),
+        (1, "size"),
+        (1, "fd_count"),))
+except: pass  # noqa: E722
+
+# Name:    select()
+#
+# Desc:    Allows a program to monitor multiple file descriptors,
+#          waiting until one or more of the file descriptors become "ready"
+#          for some class of I/O operation (e.g., input possible).  A file
+#          descriptor is considered ready if it is possible to perform a
+#          corresponding I/O operation (e.g., read(2), or a sufficiently
+#          small write(2)) without blocking.
+#
+# Returns: On success, return the number of file descriptors contained in the
+#          three returned descriptor sets (that is, the total number of bits 
+#          that are set in readfds, writefds, exceptfds).  The return value
+#          may be zero if the timeout expired before any file descriptors
+#          became ready. On error, -1 is returned, and the file descriptor
+#          sets are unmodified.
+#
+@CFUNC(ct.c_int, ct.c_int,
+       ct.POINTER(fd_set), ct.POINTER(fd_set), ct.POINTER(fd_set),
+       ct.POINTER(timeval))
+def select(nfds, readfds, writefds, exceptfds, timeout):
+
+    if nfds < 0:
+        #SET_SOCKERRNO(EINVAL) # !!!
+        return -1
+
+    if not timeout:
+        timeout = None
+    else:
+        timeout = timeout.contents
+        timeout = timeout.tv_sec + timeout.tv_usec * 1000
+
+    if is_windows and (nfds == 0 or
+        ((not readfds   or readfds.contents.fd_count   == 0) and
+         (not writefds  or writefds.contents.fd_count  == 0) and
+         (not exceptfds or exceptfds.contents.fd_count == 0))):
+        # Winsock select() requires that at least one of the three fd_set
+        # pointers is not NULL and points to a non-empty fdset. IOW Winsock
+        # select() can not be used to sleep without a single fd_set.
+        _time.sleep(timeout or 0)
+        return 0
+
+    try:
+        infd, outfd, errfd = _select.select(_extract_sockets_from_fd_set(readfds),
+                                            _extract_sockets_from_fd_set(writefds),
+                                            _extract_sockets_from_fd_set(exceptfds),
+                                            timeout)
+    except OSError as exc:
+        return -1
+    return len(infd) + len(outfd) + len(errfd)
+
+if is_windows:
+    def _extract_sockets_from_fd_set(fdsetp):
+        if not fdsetp: return []
+        fdset = fdsetp.contents
+        return [fdset.fd_array[i] for i in range(fdset.fd_count)]
+else:
+    def _extract_sockets_from_fd_set(fdsetp):
+        if not fdsetp: return []
+        fdset = fdsetp.contents
+        max_fd = ct.sizeof(fdset.fds_bits) * 8
+        return [fd for fd in range(max_fd) if _FD_ISSET(fd, fdsetp)]
 
 # eof

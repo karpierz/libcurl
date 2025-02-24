@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,22 +20,23 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Multiplexed HTTP/2 uploads over a single connection
 """
 
+from typing import Optional
 import sys
 import ctypes as ct
 from pathlib import Path
+import time
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 from debug import dump
 
 here = Path(__file__).resolve().parent
-
 
 NUM_HANDLES = 1000
 OUT_DIR = here/"output"
@@ -52,9 +53,9 @@ class transfer_data(ct.Structure):
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    transfer = ct.cast(stream, ct.POINTER(transfer_data)).contents
-    buffer_size = size * nitems
+def write_function(buffer, size, nitems, userp):
+    transfer = ct.cast(userp, ct.POINTER(transfer_data)).contents
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     bwritten = bytes(buffer[:buffer_size])
     nwritten = transfer.outstream.write(bwritten)
@@ -62,9 +63,10 @@ def write_function(buffer, size, nitems, stream):
 
 
 @lcurl.read_callback
-def read_function(buffer, size, nitems, stream):
-    transfer = ct.cast(stream, ct.POINTER(transfer_data)).contents
-    bread = transfer.instream.read(size * nitems)
+def read_function(buffer, size, nitems, userp):
+    transfer = ct.cast(userp, ct.POINTER(transfer_data)).contents
+    buffer_size = nitems * size
+    bread = transfer.instream.read(buffer_size)
     if not bread: return 0
     nread = len(bread)
     ct.memmove(buffer, bread, nread)
@@ -72,32 +74,40 @@ def read_function(buffer, size, nitems, stream):
     return nread
 
 
-def debug_output(info_type, num: int, stream, data, size: int, no_hex: bool):
+@lcurl.debug_callback
+def debug_function(curl, info_type, data, size, userptr):
+    transfer = ct.cast(userptr, ct.POINTER(transfer_data)).contents
+    debug_output(info_type, transfer.num, data, size, True, sys.stderr)
+    return 0
+
+
+_known_offset = False
+_epoch_offset = 0
+
+def debug_output(info_type, num: Optional[int],
+                 data: ct.POINTER(ct.c_ubyte), size: int, no_hex: bool, stream):
+    global _known_offset, _epoch_offset
 
     if info_type == lcurl.CURLINFO_TEXT:
+        nanosecs = time.monotonic_ns()
+        tv = lcurl.timeval(tv_sec =(nanosecs // 1_000_000_000),
+                           tv_usec=(nanosecs %  1_000_000_000) // 1000)
+        if not _known_offset:
+            _epoch_offset = int(time.time()) - tv.tv_sec
+            _known_offset = True
+        secs: time_t = _epoch_offset + tv.tv_sec
+        now: time.struct_time = time.localtime(secs)
+        curr_time = "%02d:%02d:%02d.%06ld" % (
+                    now.tm_hour, now.tm_min, now.tm_sec, tv.tv_usec)
 
-        #static time_t epoch_offset = 0
-        #static bool   known_offset = False
-
-        #struct timeval tv;
-        #gettimeofday(&tv, NULL);
-        #if not known_offset:
-        #    epoch_offset = time(NULL) - tv.tv_sec
-        #    known_offset = True
-        #time_t secs = epoch_offset + tv.tv_sec
-        #struct tm *now = localtime(&secs);  # not thread safe but we do not care
-
-        curr_time = "%02d:%02d:%02d.%06d" % (
-                    #now.tm_hour, now.tm_min, now.tm_sec, (long)tv.tv_usec))
-                    0, 0, 0, 0)
         if num is None:
             print("%s Info: %s" %
-                  (curr_time, bytes(data[:size]).decode("utf-8")), end="",
-                  file=stream)
+                  (curr_time, bytes(data[:size]).decode("utf-8")),
+                  end="", file=stream)
         else:
             print("%s [%d] Info: %s" %
-                  (curr_time, num, bytes(data[:size]).decode("utf-8")), end="",
-                  file=stream)
+                  (curr_time, num, bytes(data[:size]).decode("utf-8")),
+                  end="", file=stream)
     else:
         if   info_type == lcurl.CURLINFO_HEADER_OUT:   text = "=> Send header"
         elif info_type == lcurl.CURLINFO_DATA_OUT:     text = "=> Send data"
@@ -106,19 +116,12 @@ def debug_output(info_type, num: int, stream, data, size: int, no_hex: bool):
         elif info_type == lcurl.CURLINFO_DATA_IN:      text = "<= Recv data"
         elif info_type == lcurl.CURLINFO_SSL_DATA_IN:  text = "<= Recv SSL data"
         else: return 0  # in case a new one is introduced to shock us
-        dump(text, num, stream, data, size, no_hex)
+        dump(num, text, data, size, no_hex, stream)
 
-
-@lcurl.debug_callback
-def debug_function(curl, info_type, data, size, userptr):
-    transfer = ct.cast(userptr, ct.POINTER(transfer_data)).contents
-    debug_output(info_type, transfer.num, sys.stderr, data, size, True)
     return 0
 
 
 def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> int:
-
-    global OUT_DIR
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
@@ -129,7 +132,7 @@ def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> in
         transfer.instream = upload_fpath.open("rb")
     except OSError as exc:
         print("error: could not open file %s for reading: %s" %
-              (upload_fpath, os.strerror(exc.errno)), file=sys.stderr)
+              (upload_fpath, exc.strerror), file=sys.stderr)
         return 1
 
     # get the file size of the local file
@@ -137,7 +140,7 @@ def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> in
         upload_size = file_size(transfer.instream)
     except OSError as exc:
         print("error: could not stat file %s: %s" %
-              (upload_fpath, os.strerror(exc.errno)), file=sys.stderr)
+              (upload_fpath, exc.strerror), file=sys.stderr)
         return 1
 
     file_path = OUT_DIR/("dl-%d" % num)
@@ -146,12 +149,12 @@ def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> in
         transfer.outstream = file_path.open("wb")
     except OSError as exc:
         print("error: could not open file %s for writing: %s" %
-              (file_path, os.strerror(exc.errno)), file=sys.stderr)
+              (file_path, exc.strerror), file=sys.stderr)
         return 1
 
     url += "/upload-%d" % num
 
-    # send all data to this function 
+    # send all data to this function
     lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
     # write to this file
     lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, ct.byref(transfer))
@@ -163,7 +166,7 @@ def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> in
     lcurl.easy_setopt(curl, lcurl.CURLOPT_INFILESIZE_LARGE, upload_size)
     # send in the URL to store the upload as
     lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-    if defined("SKIP_PEER_VERIFICATION"):
+    if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
     # upload please
     lcurl.easy_setopt(curl, lcurl.CURLOPT_UPLOAD, 1)
@@ -209,7 +212,7 @@ def main(argv=sys.argv[1:]):
     # init a multi stack
     mcurl: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
 
-    with curl_guard(False, None, mcurl):
+    with curl_guard(False, None, mcurl) as guard:
         if not mcurl: return 2
 
         transfers = []
@@ -229,10 +232,10 @@ def main(argv=sys.argv[1:]):
 
         still_running = ct.c_int(1)  # keep number of running handles
         while still_running.value:
+
             mc: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
-            if still_running.value:
-                # wait for activity, timeout or "nothing"
-                mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
+            # wait for activity, timeout or "nothing"
+            if still_running.value: mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
             if mc:
                 break
 

@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 # **************************************************************************
 #                                  _   _ ____  _
@@ -9,7 +8,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2018 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -59,32 +58,33 @@ CURLHcode = ct.c_int
     CURLHE_OUT_OF_MEMORY,  # out of memory while processing
     CURLHE_BAD_ARGUMENT,   # a function argument was not okay
     CURLHE_NOT_BUILT_IN    # if API was disabled in the build
+
 ) = range(8)
 
 easy_header = CFUNC(CURLHcode,
-                    ct.POINTER(CURL),
-                    ct.c_char_p,
-                    ct.c_size_t,
-                    ct.c_uint,
-                    ct.c_int,
-                    ct.POINTER(ct.POINTER(header)))(
-                    ("curl_easy_header", dll), (
-                    (1, "easy"),
-                    (1, "name"),
-                    (1, "index"),
-                    (1, "origin"),
-                    (1, "request"),
-                    (1, "hout"),))
+    ct.POINTER(CURL),
+    ct.c_char_p,
+    ct.c_size_t,
+    ct.c_uint,
+    ct.c_int,
+    ct.POINTER(ct.POINTER(header)))(
+    ("curl_easy_header", dll), (
+    (1, "easy"),
+    (1, "name"),
+    (1, "index"),
+    (1, "origin"),
+    (1, "request"),
+    (1, "hout"),))
 
 easy_nextheader = CFUNC(ct.POINTER(header),
-                        ct.POINTER(CURL),
-                        ct.c_uint,
-                        ct.c_int,
-                        ct.POINTER(header))(
-                        ("curl_easy_nextheader", dll), (
-                        (1, "easy"),
-                        (1, "origin"),
-                        (1, "request"),
-                        (1, "prev"),))
+    ct.POINTER(CURL),
+    ct.c_uint,
+    ct.c_int,
+    ct.POINTER(header))(
+    ("curl_easy_nextheader", dll), (
+    (1, "easy"),
+    (1, "origin"),
+    (1, "request"),
+    (1, "prev"),))
 
 # eof

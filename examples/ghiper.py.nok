@@ -1,0 +1,436 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+"""
+Multi socket API usage together with glib2
+"""
+
+"""
+/* Example application source code using the multi socket interface to
+ * download many files at once.
+ *
+ * Written by Jeff Pohlmeyer
+
+ Requires glib-2.x and a (POSIX?) system that has mkfifo().
+
+ This is an adaptation of libcurl's "hipev.c" and libevent's "event-test.c"
+ sample programs, adapted to use glib's g_io_channel in place of libevent.
+
+ When running, the program creates the named pipe "hiper.fifo"
+
+ Whenever there is input into the fifo, the program reads the input as a list
+ of URL's and creates some new easy handles to fetch each URL via the
+ curl_multi "hiper" API.
+
+
+ Thus, you can try a single URL:
+ % echo http://www.yahoo.com > hiper.fifo
+
+ Or a whole bunch of them:
+ % cat my-url-list > hiper.fifo
+
+ The fifo buffer is handled almost instantly, so you can even add more URL's
+ while the previous requests are still being downloaded.
+
+ This is purely a demo app, all retrieved data is simply discarded by the write
+ callback.
+
+*/
+"""
+
+import sys
+import ctypes as ct
+#include <glib.h>
+
+import libcurl as lcurl
+from curl_utils import *  # noqa
+
+MSG_OUT = g_print  # Change to "g_error" to write to stderr
+SHOW_VERBOSE  = 0  # Set to non-zero for libcurl messages
+SHOW_PROGRESS = 0  # Set to non-zero to enable progress callback
+
+
+class GlobalInfo(ct.Structure):
+    # Global information, common to all connections
+    _fields_ = [
+    ("multi",         ct.POINTER(lcurl.CURLM)),
+    ("timer_event",   guint),
+    ("still_running", ct.c_int),
+]
+
+
+class ConnInfo(ct.Structure):
+    # Information associated with a specific easy handle
+    _fields_ = [
+    ("easy", ct.POINTER(lcurl.CURL)),
+    char *url;
+    ("global", ct.POINTER(GlobalInfo)),
+    char error[CURL_ERROR_SIZE];
+]
+
+
+class SockInfo(ct.Structure):
+    # Information associated with a specific socket
+    _fields_ = [
+    ("sockfd",  lcurl.socket_t),
+    ("easy",    ct.POINTER(lcurl.CURL)),
+    ("action",  ct.c_int),
+    ("timeout", ct.c_long),
+    ("ch",      ct.POINTER(GIOChannel)),
+    ("ev",      guint),
+    ("global",  ct.POINTER(GlobalInfo)),
+]
+
+
+def mcode_or_die(where: str, mcode: lcurl.CURLMcode):
+    # Die if we get a bad CURLMcode somewhere
+
+    if mcode == lcurl.CURLM_OK:
+        return
+
+    if mcode == lcurl.CURLM_BAD_HANDLE:
+        s = "CURLM_BAD_HANDLE"
+    elif mcode == lcurl.CURLM_BAD_EASY_HANDLE:
+        s = "CURLM_BAD_EASY_HANDLE"
+    elif mcode == lcurl.CURLM_OUT_OF_MEMORY:
+        s = "CURLM_OUT_OF_MEMORY"
+    elif mcode == lcurl.CURLM_INTERNAL_ERROR:
+        s = "CURLM_INTERNAL_ERROR"
+    elif mcode == lcurl.CURLM_BAD_SOCKET:
+        s = "CURLM_BAD_SOCKET"
+    elif mcode == lcurl.CURLM_UNKNOWN_OPTION:
+        s = "CURLM_UNKNOWN_OPTION"
+    elif mcode == lcurl.CURLM_LAST:
+        s = "CURLM_LAST"
+    else:
+        s = "CURLM_unknown"
+    MSG_OUT("ERROR: %s returns %s" % (where, s))
+
+    sys.exit(mcode)
+
+
+def check_multi_info(g: GlobalInfo):
+    # Check for completed transfers, and remove their easy handles
+
+    MSG_OUT("REMAINING: %d" % g.still_running)
+
+    while True:
+        msgs_left = ct.c_int()
+        msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(g.multi,
+                                                                ct.byref(msgs_left))
+        if not msgp: break
+        msg = msgp.contents
+
+        if msg.msg != lcurl.CURLMSG_DONE: continue
+
+        easy: ct.POINTER(lcurl.CURL) = msg.easy_handle
+        res:  lcurl.CURLcode         = msg.data.result
+
+        conn = ct.POINTER(ConnInfo)()
+        eff_url = ct.c_char_p(None)
+        lcurl.easy_getinfo(easy, lcurl.CURLINFO_PRIVATE, ct.byref(conn))
+        lcurl.easy_getinfo(easy, lcurl.CURLINFO_EFFECTIVE_URL, ct.byref(eff_url))
+        MSG_OUT("DONE: %s => (%d) %s" % (eff_url, res, conn->error))
+
+        lcurl.multi_remove_handle(g.multi, easy)
+        libc.free(conn->url)
+        lcurl.easy_cleanup(easy)
+        libc.free(conn)
+
+
+static gboolean timer_cb(gpointer data)
+    # Called by glib when our timeout expires
+    g: GlobalInfo = ct.cast(data, ct.POINTER(GlobalInfo)).contents
+
+    rc: lcurl.CURLMcode = lcurl.multi_socket_action(g.multi, lcurl.CURL_SOCKET_TIMEOUT,
+                                                    0, ct.byref(g.still_running))
+    mcode_or_die("timer_cb: libcurl.multi_socket_action", rc)
+    check_multi_info(g)
+
+    return FALSE;
+
+
+@lcurl.multi_timer_callback
+def update_timeout_cb(multi, timeout_ms, userp):
+    # Update the event timer after curl_multi library calls
+    g: GlobalInfo = ct.cast(userp, ct.POINTER(GlobalInfo)).contents
+
+    timeout = lcurl.timeval(tv_sec =(timeout_ms // 1000)
+                            tv_usec=(timeout_ms %  1000) * 1000)
+
+    MSG_OUT("*** update_timeout_cb %ld => %ld:%ld ***" %
+            (timeout_ms, timeout.tv_sec, timeout.tv_usec))
+
+    # if timeout_ms is -1, just delete the timer
+    #
+    # For other values of timeout_ms, this should set or *update* the timer to
+    # the new value
+    #
+    if timeout_ms >= 0:
+        g.timer_event = g_timeout_add(timeout_ms, timer_cb, ct.byref(g))
+
+    return 0
+
+
+gboolean event_cb(GIOChannel *ch, GIOCondition condition, gpointer data)
+    # Called by glib when we get action on a multi socket
+    g: GlobalInfo = ct.cast(data, ct.POINTER(GlobalInfo)).contents
+
+    int fd = g_io_channel_unix_get_fd(ch);
+
+    action: int = ((lcurl.CURL_CSELECT_IN  if condition & G_IO_IN  else 0) |
+                   (lcurl.CURL_CSELECT_OUT if condition & G_IO_OUT else 0))
+
+    rc: lcurl.CURLMcode = lcurl.multi_socket_action(g.multi, fd, action,
+                                                    ct.byref(g.still_running))
+    mcode_or_die("event_cb: libcurl.multi_socket_action", rc)
+
+    check_multi_info(g)
+    if g.still_running:
+        return TRUE;
+    else:
+        MSG_OUT("last transfer done, kill timeout")
+        if g.timer_event:
+            g_source_remove(g.timer_event)
+        return FALSE;
+
+
+def remsock(SockInfo *f):
+    # Clean up the SockInfo structure
+
+    if(!f) { return }
+
+    if(f->ev) {
+        g_source_remove(f->ev);
+    }
+    g_free(f);
+
+
+def setsock(SockInfo *f, s: lcurl.socket_t, e: ct.POINTER(lcurl.CURL), int act, g: GlobalInfo):
+    # Assign information to a SockInfo structure
+
+    GIOCondition kind = ((G_IO_IN  if act & lcurl.CURL_POLL_IN  else 0) |
+                         (G_IO_OUT if act & lcurl.CURL_POLL_OUT else 0))
+    f->sockfd = s;
+    f->action = act;
+    f->easy = e;
+    if f->ev:
+        g_source_remove(f->ev);
+    f->ev = g_io_add_watch(f->ch, kind, event_cb, ct.byref(g))
+
+
+def addsock(lcurl.socket_t s, easy: ct.POINTER(lcurl.CURL), int action, g: GlobalInfo):
+    # Initialize a new SockInfo structure
+    SockInfo *fdp = g_malloc0(sizeof(SockInfo));
+    fdp->global = ct.pointer(g)
+    fdp->ch = g_io_channel_unix_new(s);
+    setsock(fdp, s, easy, action, g)
+    lcurl.multi_assign(g.multi, s, fdp)
+
+
+@lcurl.socket_callback
+int sock_cb(e: ct.POINTER(lcurl.CURL), s: lcurl.socket_t, int what, void *cbp, void *sockp):
+    # CURLMOPT_SOCKETFUNCTION
+    g: GlobalInfo = ct.cast(cbp, ct.POINTER(GlobalInfo)).contents
+    SockInfo *fdp = (SockInfo*) sockp;
+
+    whatstr = ["none", "IN", "OUT", "INOUT", "REMOVE"]
+
+    MSG_OUT("socket callback: s=%d e=%p what=%s " %
+            (s, e, whatstr[what]), end="")
+
+    if what == lcurl.CURL_POLL_REMOVE:
+        MSG_OUT()
+        remsock(fdp)
+    else:
+        if not fdp:
+            MSG_OUT("Adding data: %s%s" % (
+                    "READ"  if what & lcurl.CURL_POLL_IN  else "",
+                    "WRITE" if what & lcurl.CURL_POLL_OUT else ""))
+            addsock(s, e, what, g)
+        else:
+            MSG_OUT("Changing action from %d to %d" % (fdp->action, what))
+            setsock(fdp, s, e, what, g)
+
+    return 0
+
+
+@lcurl.write_callback
+def write_function(buffer, size, nitems, userp):
+    conn: ConnInfo = ct.cast(userp, ct.POINTER(ConnInfo)).contents
+    buffer_size = nitems * size
+    return buffer_size
+
+
+@lcurl.xferinfo_callback
+def xferinfo_cb(clientp, dltotal, dlnow, ultotal, ulnow):
+    conn: ConnInfo = ct.cast(clientp, ct.POINTER(ConnInfo)).contents
+    MSG_OUT("Progress: %s (%g/%g)" % (conn.url, dlnow, dltotal))
+    return 0
+
+
+def new_conn(char *url, GlobalInfo *g):
+    # Create a new easy handle, and add it to the global curl_multi
+
+    conn: ct.POINTER(ConnInfo) = g_malloc0(sizeof(ConnInfo))
+    conn->error[0] = '\0'
+    conn->easy = lcurl.easy_init()
+    if not conn->easy:
+        MSG_OUT("libcurl.easy_init() failed, exiting!")
+        exit(2);
+    conn->global = g;
+    conn->url    = g_strdup(url)
+
+    lcurl.easy_setopt(conn->easy, CURLOPT_URL, conn->url);
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_WRITEFUNCTION, write_function)
+    lcurl.easy_setopt(conn->easy, CURLOPT_WRITEDATA, ct.byref(conn))
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_VERBOSE, SHOW_VERBOSE)
+    lcurl.easy_setopt(conn->easy, CURLOPT_ERRORBUFFER, conn->error);
+    lcurl.easy_setopt(conn->easy, CURLOPT_PRIVATE, conn);
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_NOPROGRESS,
+                                  0 if SHOW_PROGRESS else 1)
+    lcurl.easy_setopt(conn->easy, CURLOPT_XFERINFOFUNCTION, xferinfo_cb)
+    lcurl.easy_setopt(conn->easy, CURLOPT_PROGRESSDATA, conn);
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_FOLLOWLOCATION, 1)
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_CONNECTTIMEOUT, 30)
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_LOW_SPEED_LIMIT, 1)
+    lcurl.easy_setopt(conn->easy, lcurl.CURLOPT_LOW_SPEED_TIME, 30)
+
+    MSG_OUT("Adding easy %p to multi %p (%s)" % (conn->easy, g->multi, url))
+    rc: lcurl.CURLMcode = lcurl.multi_add_handle(g->multi, conn->easy)
+    mcode_or_die("new_conn: libcurl.multi_add_handle", rc)
+
+    # note that add_handle() sets a timeout to trigger soon so that the
+    # necessary socket_action() gets called
+
+
+static gboolean fifo_cb(GIOChannel *ch, GIOCondition condition, gpointer data):
+    # This gets called by glib whenever data is received from the fifo
+
+    BUF_SIZE = 1024
+
+    gsize len, tp;
+    gchar *buf, *tmp, *all = NULL;
+    GIOStatus rv;
+
+    do {
+        GError *err = NULL;
+        rv = g_io_channel_read_line(ch, &buf, &len, &tp, &err);
+        if buf:
+            if tp:
+                buf[tp]='\0';
+            new_conn(buf, (GlobalInfo*)data);
+            g_free(buf);
+        else:
+            buf = g_malloc(BUF_SIZE + 1);
+      
+            while True:
+                buf[BUF_SIZE] = '\0'
+                g_io_channel_read_chars(ch, buf, BUF_SIZE, &len, &err);
+                if len == 0:
+                    break
+                buf[len] = '\0'
+                if all:
+                    tmp = all;
+                    all = "%s%s" % (tmp, buf)
+                    g_free(tmp);
+                else:
+                    all = g_strdup(buf);
+      
+            if all:
+                new_conn(all, (GlobalInfo*)data);
+                g_free(all);
+      
+            g_free(buf);
+      
+        if err:
+            g_error("fifo_cb: %s", err->message);
+            g_free(err);
+            break;
+      
+    } while (len and rv == G_IO_STATUS_NORMAL);
+
+    return TRUE;
+
+
+def init_fifo() -> int:
+
+    struct stat st;
+    const char *fifo = "hiper.fifo";
+    int socket;
+
+    if lstat(fifo, &st) == 0:
+        if (st.st_mode & S_IFMT) == S_IFREG:
+            errno = EEXIST;
+            perror("lstat")
+            sys.exit(1)
+
+    unlink(fifo);
+    if mkfifo(fifo, 0o600) == -1:
+        perror("mkfifo")
+        sys.exit(1)
+
+    socket = open(fifo, O_RDWR | O_NONBLOCK, 0);
+
+    if socket == -1:
+        perror("open")
+        sys.exit(1)
+
+    MSG_OUT("Now, pipe some URL's into > %s" % fifo)
+
+    return socket;
+
+
+def main(argv=sys.argv[1:]):
+
+    GMainLoop*gmain;
+    int fd;
+    GIOChannel* ch;
+
+    GlobalInfo * g = g_malloc0(sizeof(GlobalInfo))
+
+    fd = init_fifo();
+
+    ch = g_io_channel_unix_new(fd);
+    g_io_add_watch(ch, G_IO_IN, fifo_cb, g);
+    gmain = g_main_loop_new(NULL, FALSE);
+
+    g->multi = lcurl.multi_init()
+
+    with curl_guard(False, None, g->multi) as guard:
+
+        lcurl.multi_setopt(g->multi, lcurl.CURLMOPT_SOCKETFUNCTION, sock_cb)
+        lcurl.multi_setopt(g->multi, CURLMOPT_SOCKETDATA, g);
+        lcurl.multi_setopt(g->multi, lcurl.CURLMOPT_TIMERFUNCTION, update_timeout_cb)
+        lcurl.multi_setopt(g->multi, CURLMOPT_TIMERDATA, g);
+
+        # we do not call any curl_multi_socket*() function yet as we have no
+        # handles added!
+
+        g_main_loop_run(gmain)
+
+    return 0
+
+
+sys.exit(main())

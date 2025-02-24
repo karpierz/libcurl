@@ -59,7 +59,7 @@ Ultrix, QNX, OpenVMS, RISC OS, Novell NetWare, DOS and more...
 
 **libcurl** is free, thread-safe, IPv6 compatible, feature rich, well
 supported, fast, thoroughly documented and is already used by many known,
-big and successful companies. 
+big and successful companies.
 
 Requirements
 ============
@@ -73,10 +73,10 @@ Installation
 
 Prerequisites:
 
-+ Python 3.7 or higher
++ Python 3.9 or higher
 
   * https://www.python.org/
-  * 3.7 with C libcurl 7.84.0 is a primary test environment.
+  * with C libcurl 8.10.1 is a primary test environment.
 
 + pip and setuptools
 
@@ -98,7 +98,7 @@ Prerequisites:
 
     python -m pip install --upgrade tox
 
-Visit `development page`_.
+Visit `Development page`_.
 
 Installation from sources:
 
@@ -123,9 +123,9 @@ or on development mode:
 License
 =======
 
-  | Copyright (c) 2021-2022 Adam Karpierz
+  | |copyright|
   | Licensed under the MIT License
-  | https://opensource.org/licenses/MIT
+  | https://opensource.org/license/mit
   | Please refer to the accompanying LICENSE file.
 
 Authors
@@ -135,7 +135,8 @@ Authors
 
 .. |package| replace:: libcurl-ct
 .. |package_bold| replace:: **libcurl-ct**
+.. |copyright| replace:: Copyright (c) 2021-2025 Adam Karpierz
 .. |respository| replace:: https://github.com/karpierz/libcurl.git
-.. _development page: https://github.com/karpierz/libcurl
+.. _Development page: https://github.com/karpierz/libcurl
 .. _PyPI record: https://pypi.org/project/libcurl-ct/
 .. _Documentation: https://libcurl.readthedocs.io/

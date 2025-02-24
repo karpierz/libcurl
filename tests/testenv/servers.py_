@@ -1,0 +1,2648 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+# This module contains functions that are useful for managing the lifecycle of
+# test servers required when running tests. It is not intended for use within
+# those servers, but rather for starting and stopping them.
+
+from typing import Optional
+from pathlib import Path
+
+from testutil import log_msg
+import serverhelp
+import processhelp
+import testutil
+import sshhelp
+from pathhelp import exe_ext
+
+__all__ = ('',
+           '', '', '', '',
+           '', '', '',
+           '', '')
+
+use IO::Socket;
+
+BEGIN {
+    use base qw(Exporter);
+
+    our @EXPORT = (
+        # variables
+        qw(
+            $SOCKSIN
+            $err_unexpected
+            $debugprotocol
+            'stunnel',
+        ),
+
+        # functions
+        qw(
+            initserverconfig
+        )
+    );
+
+    our @EXPORT_OK = (
+        # functions
+        qw(
+            checkcmd
+            clearlocks
+            'server_for_test',
+            stopserver
+            stopservers
+            'sub_variables',
+            # for debugging only
+            'protoport'
+        ),
+    );
+}
+
+use sshhelp qw(
+    $hstpubmd5f
+    $hstpubsha256f
+    find_sshd
+    find_ssh
+    find_sftp
+    find_httptlssrv
+    );
+
+use pathhelp qw( os_is_win, sys_native_abs_path );
+
+use processhelp;
+use globalconfig;
+
+my %serverpidfile; # all server pid file names, identified by server id
+my %serverportfile;# all server port file names, identified by server id
+my $sshdvernum;  # for socks server, ssh daemon version number
+my $sshdverstr;  # for socks server, ssh daemon version string
+my $sshderror;   # for socks server, ssh daemon version error
+my %doesntrun;    # servers that don't work, identified by pidfile
+my %PORT = (nolisten => 47); # port we use for a local non-listening service
+server_response_maxtime: int = 13
+my $httptlssrv = find_httptlssrv();
+my %run;          # running server
+my %runcert;      # cert file currently in use by an ssl running server
+my $CLIENTIP="127.0.0.1";  # address which curl uses for incoming connections
+my $CLIENT6IP="[::1]";     # address which curl uses for incoming connections
+my $posix_pwd=$pwd;        # current working directory
+my $h2cver = "h2c"; # this version is decided by the nghttp2 lib being used
+my $portrange = 999;       # space from which to choose a random port
+                           # don't increase without making sure generated port
+                           # numbers will always be valid (<=65535)
+my $HOSTIP="127.0.0.1";    # address on which the test server listens
+my $HOST6IP="[::1]";       # address on which the test server listens
+my $HTTPUNIXPATH;          # HTTP server Unix domain socket path
+my $SOCKSUNIXPATH;         # socks server Unix domain socket path
+my $SSHSRVMD5    = "[uninitialized]"  # MD5 of ssh server public key
+my $SSHSRVSHA256 = "[uninitialized]"  # SHA256 of ssh server public key
+my $USER;                  # name of the current user
+my $sshdid;                # for socks server, ssh daemon version id
+ftp_checktime: int = 1      # time it took to verify our test FTP server
+
+# Variables shared with runtests.pl
+our $SOCKSIN = "socksd-request.log"  # what curl sent to the SOCKS proxy
+our $err_unexpected; # error instead of warning on server unexpectedly alive
+our $debugprotocol;  # nonzero for verbose server logs
+stunnel: Optional[Path] = None       # path to stunnel command
+
+
+def checkcmd(cmd: str, extra_paths: List[str]= []) -> str:
+    """Check for a command in the PATH of the test server."""
+    paths = os.environ.get("PATH", "").split(os.pathsep) + [
+            "/usr/sbin", "/usr/local/sbin", "/sbin",
+            "/usr/bin",  "/usr/local/bin"] + extra_paths
+    for path in paths:
+        cmd_path = Path(path)/f"{cmd}{exe_ext('SYS')}"
+        if cmd_path.exists() and not cmd_path.is_dir() and os.access(cmd_path, os.X_OK):
+            # executable bit but not a directory!
+            return f"{path}/{cmd}"
+    else:
+        return ""
+
+
+sub get_free_port(ip_vnum):
+    # Create a server socket on a random (unused) port, then close it and
+    # return the port number
+    try:
+    my $server = IO::Socket->new(LocalPort => 0,
+                                 Domain    => AF_INET6 if ip_vnum == 6 else AF_INET,
+                                 Type      => SOCK_STREAM,
+                                 Reuse     => 1,
+                                 Listen    => 10)
+    except:
+        die(f"Couldn't create tcp server socket: $@\n")
+    return $server->sockport()
+
+
+use File::Temp qw/ tempfile/;
+
+
+def initserverconfig():
+    """Initialize configuration variables"""
+    gloval stunnel
+
+    my ($fh, $socks) = tempfile("curl-socksd-XXXXXXXX", TMPDIR => 1);
+    close($fh);
+    unlink($socks);
+    my ($f2, $http) = tempfile("curl-http-XXXXXXXX", TMPDIR => 1);
+    close($f2);
+    unlink($http);
+    $SOCKSUNIXPATH = $socks;  # SOCKS Unix domain socket
+    $HTTPUNIXPATH  = $http;   # HTTP Unix domain socket
+    stunnel = checkcmd("stunnel4") or checkcmd("tstunnel") or checkcmd("stunnel")
+
+    # get the name of the current user
+    $USER = $ENV{USER};             # Linux
+    if ! $USER:
+        $USER = $ENV{USERNAME};     # Windows
+        if ! $USER:
+            $USER = $ENV{LOGNAME};  # Some Unix (I think)
+    init_serverpidfile_hash()
+
+
+def init_serverpidfile_hash():
+    """
+    Load serverpidfile and serverportfile hashes with file names for all
+    possible servers.
+    """
+    global $serverpidfile
+    global $serverportfile
+    for proto in ("ftp", "gopher", "http", "imap", "pop3", "smtp", "http/2", "http/3"):
+        for ssl in ("", "s"):
+            for ip_vnum in (4, 6):
+                for id_num in (1, 2, 3):
+                    server = serverhelp.server_name_id(f"{proto}{ssl}", ip_vnum, id_num);
+                    pid_file  = serverhelp.server_pid_file(config.LOGDIR/config.PIDDIR,  f"{proto}{ssl}", ip_vnum, id_num)
+                    port_file = serverhelp.server_port_file(config.LOGDIR/config.PIDDIR, f"{proto}{ssl}", ip_vnum, id_num)
+                    $serverpidfile[server]  = pid_file
+                    $serverportfile[server] = port_file
+
+    for proto in ("tftp", "sftp", "socks", "ssh", "rtsp", "httptls", "dict", "smb", "smbs", "telnet", "mqtt"):
+        for ip_vnum in (4, 6):
+            for id_num in (1, 2):
+                server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+                pid_file  = serverhelp.server_pid_file(config.LOGDIR/config.PIDDIR,  proto, ip_vnum, id_num)
+                port_file = serverhelp.server_port_file(config.LOGDIR/config.PIDDIR, proto, ip_vnum, id_num)
+                $serverpidfile[server]  = pid_file
+                $serverportfile[server] = port_file
+
+    for proto in ("http", "imap", "pop3", "smtp", "http/2", "http/3"):
+        for ssl in ("", "s"):
+            server = serverhelp.server_name_id(f"{proto}{ssl}", "unix", 1);
+            pid_file  = serverhelp.server_pid_file(config.LOGDIR/config.PIDDIR,  f"{proto}{ssl}", "unix", 1)
+            port_file = serverhelp.server_port_file(config.LOGDIR/config.PIDDIR, f"{proto}{ssl}", "unix", 1)
+            $serverpidfile[server]  = pid_file
+            $serverportfile[server] = port_file
+
+
+def clearlocks($dir):
+    """Kill the processes that still have lock files in a directory"""
+    my $done = 0;
+    if os_is_win():
+        $dir = sys_native_abs_path($dir);
+        $dir =~ s/\//\\\\/g;
+        my $handle = "handle";
+        if ($ENV{"PROCESSOR_ARCHITECTURE"} =~ /64$/):
+            $handle = "handle64";
+        if checkcmd($handle):
+            my @handles = `$handle $dir -accepteula -nobanner`;
+            for my $tryhandle in @handles:
+                # Skip the "No matching handles found." warning when returned
+                if ($tryhandle =~ /^(\S+)\s+pid:\s+(\d+)\s+type:\s+(\w+)\s+([0-9A-F]+):\s+(.+)\r\r/):
+                    log_msg(f"Found $3 lock of '$5' ($4) by $1 ($2)")
+                    # Ignore stunnel since we cannot do anything about its locks
+                    if ("$3" == "File" and "$1" != "tstunnel.exe"):
+                        log_msg(f"Killing IMAGENAME == $1 and PID == $2")
+                        system("taskkill.exe -f -fi \"IMAGENAME == $1\" -fi \"PID == $2\" >nul 2>&1");
+                        $done = 1;
+
+    return $done;
+
+
+def check_died(pid: Optional[int]) -> bool:
+    """Check if a given child process has just died. Reaps it if so."""
+    use POSIX ":sys_wait_h";
+    if pid is None or pid <= 0:
+        return False
+    rc = processhelp.pid_wait(pid, &WNOHANG)
+    return (rc == pid)
+
+
+def server_for_test(@what: List):
+    """
+    This function makes sure the right set of server is running for the
+    specified test case. This is a useful design when we run single tests as not
+    all servers need to run then!
+
+    Returns: a string, blank if everything is fine or a reason why it failed, and
+             an integer:
+             0 for success
+             1 for an error starting the server
+             2 for not the first time getting an error starting the server
+             3 for a failure to stop a server in order to restart it
+             4 for an unsupported server type
+    """
+    for (my $i = len(@what) - 1; $i >= 0; $i--):
+        my $srvrline = $what[$i];
+        if $srvrline: chomp $srvrline
+
+        if ($srvrline =~ /^(\S+)((\s*)(.*))/):
+            my $server = "${1}";
+            my $lnrest = "${2}";
+            my $tlsext;
+
+            if $server =~ /^(httptls)(\+)(ext|srp)(\d*)(-ipv6|)$/:
+                $server = "${1}${4}${5}";
+                $tlsext = f"TLS-${3}".upper()
+
+            if not grep /^\Q$server\E$/, config.protocols:
+                if substr($server,0,5) != "socks"):
+                    if $tlsext:
+                        return (f"curl lacks $tlsext support", 4);
+                    else:
+                        return (f"curl lacks $server server support", 4);
+
+            if $tlsext: $what[$i] = f"$server$lnrest"
+
+    return start_servers(@what)
+
+
+def startnew($cmd, $pidfile, $timeout, $fakepidfile):
+    """
+    Start a new thread/process and run the given command line in there.
+    Return the pids (yes plural) of the new child process to the parent.
+    """
+    if config.verbose: log_msg(f"startnew: {$cmd}")
+
+    my $child = fork();
+
+    if (not defined $child):
+        log_msg("startnew: fork() failure detected")
+        return [-1, -1]
+
+    if $child == 0:
+        # Here we are the child. Run the given command.
+
+        # Flush output.
+        sys.stdout.reconfigure(line_buffering=False)
+        sys.stderr.reconfigure(line_buffering=False)
+
+        # Put an "exec" in front of the command so that the child process
+        # keeps this child's process ID.
+        exec("exec $cmd") || die "Can't exec() $cmd: $!";
+
+        # exec() should never return back here to this process. We protect
+        # ourselves by calling die() just in case something goes really bad.
+        die("error: exec() has returned")
+
+    # Ugly hack but ssh client and gnutls-serv don't support pid files
+    if $fakepidfile:
+        if open(my $out, ">", $pidfile):
+            print $out $child . "\n";
+            close($out) || die "Failure writing pidfile";
+            if config.verbose: log_msg(f"startnew: {$pidfile} faked with pid=$child")
+        else:
+            log_msg(f"startnew: failed to write fake {$pidfile} with pid=$child")
+        # could/should do a while connect fails sleep a bit and loop
+        processhelp.portable_sleep($timeout)
+        if check_died($child):
+            if config.verbose:
+                log_msg("startnew: child process has failed to start")
+            return [-1, -1]
+
+    pid2  = 0
+    count = $timeout
+    while count:
+        count -= 1
+        pid2 = processhelp.pid_from_file($pidfile)
+        if pid2 > 0 and processhelp.pid_exists(pid2):
+            # if 'pid2' is valid, then make sure this pid is alive, as
+            # otherwise it is just likely to be the _previous_ pidfile or
+            # similar!
+            last;
+        if check_died($child):
+            if config.verbose:
+                log_msg("startnew: child process has died, server might start up")
+            # We can't just abort waiting for the server with a
+            # return (-1,-1);
+            # because the server might have forked and could still start
+            # up normally. Instead, just reduce the amount of time we remain
+            # waiting.
+            count >>= 2
+        time.sleep(1)
+
+    # Return two PIDs, the one for the child process we spawned and the one
+    # reported by the server itself (in case it forked again on its own).
+    # Both (potentially) need to be killed at the end of the test.
+    return ($child, pid2)
+
+
+def protoport(proto):
+    """Return the port to use for the given protocol."""
+    return $PORT{proto} or "[not running]"
+
+
+def stopserver($server, $pidlist):
+    """
+    Stop a test server along with pids which aren't in the %run hash yet.
+    This also stops all servers which are relative to the given one.
+    """
+    global $serverpidfile
+
+    ip_vnum = 4
+
+    # kill sockfilter processes for pingpong relative server
+    #
+    if $server =~ /^(ftp|imap|pop3|smtp)s?(\d*)(-ipv6|)$/:
+        proto  = $1;
+        id_num  = ($2 and ($2 > 1)) ? $2 : 1;
+        ip_vnum = ($3 and ($3 =~ /6$/)) ? 6 : 4;
+        processhelp.kill_sockfilters(config.LOGDIR/config.PIDDIR, proto, ip_vnum, id_num, config.verbose)
+
+    # All servers relative to the given one must be stopped also
+    #
+    my @killservers;
+    if ($server =~ /^(ftp|http|imap|pop3|smtp)s((\d*)(-ipv6|-unix|))$/):
+        # given a stunnel based ssl server, also kill non-ssl underlying one
+        @killservers.append("${1}${2}")
+    elif ($server =~ /^(ftp|http|imap|pop3|smtp)((\d*)(-ipv6|-unix|))$/):
+        # given a non-ssl server, also kill stunnel based ssl piggybacking one
+        @killservers.append("${1}s${2}")
+    elif ($server =~ /^(socks)((\d*)(-ipv6|))$/):
+        # given a socks server, also kill ssh underlying one
+        @killservers.append("ssh${2}")
+    elif ($server =~ /^(ssh)((\d*)(-ipv6|))$/):
+        # given a ssh server, also kill socks piggybacking one
+        @killservers.append("socks${2}")
+
+    if ($server == "http" or $server == "https"):
+        # since the http2+3 server is a proxy that needs to know about the
+        # dynamic http port it too needs to get restarted when the http server
+        # is killed
+        @killservers.append("http/2")
+        @killservers.append("http/3")
+
+    @killservers.append($server)
+    #
+    # kill given pids and server relative ones clearing them in %run hash
+    #
+    for my $server in @killservers:
+        if $run{$server}:
+            # we must prepend a space since $pidlist may already contain a pid
+            $pidlist += " $run{$server}";
+            $run{$server} = 0;
+        $runcert{$server} = 0 if($runcert{$server});
+    processhelp.kill_pid(config.verbose, $pidlist)
+
+    # cleanup server pid files
+    #
+    result = 0
+    for my in $server (@killservers):
+        pidfile = $serverpidfile[$server]
+        pid = processhelp.process_exists($pidfile)
+        if pid > 0:
+            if $err_unexpected:
+                log_msg("ERROR: ", end="")
+                result = -1
+            else:
+                log_msg("Warning: ", end="")
+            log_msg(f"{$server} server unexpectedly alive")
+            processhelp.kill_pid(config.verbose, pid)
+        if pidfile.is_file(): pidfile.unlink()
+
+    return result
+
+
+# OK
+def get_external_proxy_flags():
+    """Return flags to let curl use an external HTTP proxy"""
+    return f" --proxy {config.proxy_address} "
+
+
+def verify_http(proto, ip_vnum, id_num, $ip, $port_or_path):
+    # Verify that the server that runs on $ip, $port is our server.  This also
+    # implies that we can speak with it, as there might be occasions when the
+    # server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
+    # assign requested address")
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $bonus = ""
+    # $port_or_path contains a path for Unix sockets, sws ignores the port
+    $port = 80 if ip_vnum == "unix" else $port_or_path
+
+    verifyout = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.out")
+    if verifyout.is_file(): verifyout.unlink()
+
+    verifylog = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.log")
+    if verifylog.is_file(): verifylog.unlink()
+
+    if proto == "gopher":
+        # gopher is funny
+        $bonus="1/";
+
+    flags  = f"--max-time {server_response_maxtime} "
+    flags += f"--output {verifyout} "
+    flags += "--silent "
+    flags += "--verbose "
+    flags += "--globoff "
+    if ip_vnum == "unix";
+        flags += f"--unix-socket '{$port_or_path}' "
+    if proto == "https":
+        flags += "--insecure "
+    if config.proxy_address:
+        flags += get_external_proxy_flags()
+    flags += f"\"{proto}://$ip:$port/${bonus}verifiedserver\""
+
+    my $cmd = f"{$VCURL} {flags} 2>{verifylog}"
+
+    # verify if our/any server is running on this port
+    if config.verbose: log_msg(f"RUN: {cmd}")
+    my $res = testutil.run_client($cmd)
+
+    $res >>= 8; # rotate the result
+    if $res & 128:
+        log_msg("RUN: curl command died with a coredump")
+        return -1
+
+    if $res and config.verbose:
+        log_msg(f"RUN: curl command returned $res")
+        if $file = verifylog.open("rt"):
+            while (my $string = <$file>):
+                if ($string !~ /^([ \t]*)$/):
+                    logmsg(f"RUN: $string")
+            close($file);
+
+    my $data;
+    if my $file = open(verifyout, "<"):
+        while (my $string = <$file>):
+            $data = $string;
+            last; # only want first line
+        close($file);
+
+    pid = 0
+    if ($data and ($data =~ /WE ROOLZ: (\d+)/)):
+        $pid = int($1)
+    elif $res == 6:
+        # curl: (6) Couldn't resolve host '::1'
+        log_msg(f"RUN: failed to resolve host ({proto}://$ip:$port/verifiedserver)")
+        return -1
+    elif ($data or ($res and ($res != 7))) {
+        log_msg(f"RUN: Unknown server on our {server} port: $port ($res)")
+        return -1
+
+    return pid
+
+
+def verify_ftp(proto, ip_vnum, id_num, $ip, $port):
+    # Verify that the server that runs on $ip, $port is our server.  This also
+    # implies that we can speak with it, as there might be occasions when the
+    # server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
+    # assign requested address")
+    global ftp_checktime
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    beg_time = time.time()
+    extra = ""
+
+    verifylog = config.LOGDIR/(serverhelp.serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.log")
+    if verifylog.is_file(): verifylog.unlink()
+
+    if proto == "ftps":
+        extra += "--insecure --ftp-ssl-control "
+
+    flags  = f"--max-time {server_response_maxtime} "
+    flags += "--silent "
+    flags += "--verbose "
+    flags += "--globoff "
+    flags += extra
+    if config.proxy_address:
+        flags += get_external_proxy_flags()
+    flags += f"\"{proto}://$ip:$port/verifiedserver\""
+
+    my $cmd = f"{$VCURL} {flags} 2>{verifylog}"
+
+    # check if this is our server running on this port:
+    if config.verbose: log_msg(f"RUN: {cmd}")
+    my @data = testutil.run_client_output($cmd)
+
+    my $res = $? >> 8; # rotate the result
+    if $res & 128:
+        log_msg("RUN: curl command died with a coredump")
+        return -1
+
+    pid = 0
+    for line in @data:
+        if (line =~ /WE ROOLZ: (\d+)/):
+            # this is our test server with a known pid!
+            $pid = int($1)
+            last;
+    if pid <= 0 and @data and $data[0]:
+        # this is not a known server
+        log_msg(f"RUN: Unknown server on our {server} port: {$port}")
+        return 0;
+
+    # we can/should use the time it took to verify the FTP server as a measure
+    # on how fast/slow this host/FTP is.
+    took = int(0.5 + time() - beg_time)
+
+    if config.verbose:
+        log_msg(f"RUN: Verifying our test {server} server took {took} seconds")
+    ftp_checktime = max(took, 1)  # make sure it never is below 1
+
+    return pid
+
+
+def verify_rtsp(proto, ip_vnum, id_num, $ip, $port):
+    # Verify that the server that runs on $ip, $port is our server.  This also
+    # implies that we can speak with it, as there might be occasions when the
+    # server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
+    # assign requested address")
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    verifyout = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.out")
+    if verifyout.is_file(): verifyout.unlink()
+
+    verifylog = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.log")
+    if verifylog.is_file(): verifylog.unlink()
+
+    flags  = f"--max-time {server_response_maxtime} "
+    flags += f"--output {verifyout} "
+    flags += "--silent "
+    flags += "--verbose "
+    flags += "--globoff "
+    if config.proxy_address:
+        flags += get_external_proxy_flags()
+    # currently verification is done using http
+    flags += f"\"http://$ip:$port/verifiedserver\""
+
+    my $cmd = f"{$VCURL} {flags} 2>{verifylog}"
+
+    # verify if our/any server is running on this port
+    if config.verbose: log_msg(f"RUN: {cmd}")
+    my $res = testutil.run_client($cmd)
+
+    $res >>= 8; # rotate the result
+    if $res & 128:
+        log_msg("RUN: curl command died with a coredump")
+        return -1
+
+    if $res and config.verbose:
+        log_msg(f"RUN: curl command returned $res")
+        if $file = verifylog.open("rt"):
+            while (my $string = <$file>):
+                if ($string !~ /^[ \t]*$/):
+                    logmsg(f"RUN: $string")
+            close($file);
+
+    my $data;
+    if my $file = open(verifyout, "<"):
+        while (my $string = <$file>):
+            $data = $string;
+            last; # only want first line
+        close($file);
+
+    pid = 0
+    if ($data and ($data =~ /RTSP_SERVER WE ROOLZ: (\d+)/)):
+        $pid = int($1)
+    elif $res == 6:
+        # curl: (6) Couldn't resolve host '::1'
+        log_msg(f"RUN: failed to resolve host ({proto}://$ip:$port/verifiedserver)")
+        return -1
+    elif $data or $res != 7:
+        log_msg(f"RUN: Unknown server on our {server} port: {$port}")
+        return -1
+
+    return pid
+
+
+def verify_ssh(proto, ip_vnum, id_num, $ip, port):
+    # Verify that the ssh server has written out its pidfile, recovering
+    # the pid from the file and returning it if a process with that pid is
+    # actually alive, or a negative value if the process is dead.
+    pid_file = serverhelp.server_pid_file(config.LOGDIR/config.PIDDIR,
+                                          proto, ip_vnum, id_num)
+    pid = processhelp.process_exists(pid_file)
+    if pid < 0:
+        log_msg("RUN: SSH server has died after starting up")
+    return pid
+
+
+def verify_sftp(proto, ip_vnum, id_num, $ip, $port):
+    """
+    Verify that we can connect to the sftp server, properly authenticate
+    with generated config and key files and run a simple remote pwd.
+    """
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    my $verified = 0;
+
+    # Find out sftp client canonical file name
+    my $sftp = find_sftp()
+    if not $sftp:
+        log_msg(f"RUN: SFTP server cannot find {sshhelp.sftpexe}")
+        return -1
+
+    # Find out ssh client canonical file name
+    my $ssh = find_ssh()
+    if not $ssh:
+        log_msg(f"RUN: SFTP server cannot find {sshhelp.sshexe}")
+        return -1
+
+    # Connect to sftp server, authenticate and run a remote pwd
+    # command using our generated configuration and key files
+    my $cmd = (f"\"$sftp\" -b {config.LOGDIR}/{config.PIDDIR}/{sshhelp.sftpcmds} "
+               f"-F {config.LOGDIR}/{config.PIDDIR}/{sshhelp.sftpconfig} "
+               f"-S \"$ssh\" $ip > {sshhelp.sftplog} 2>&1")
+    my $res = testutil.run_client($cmd)
+    # Search for pwd command response in log file
+    if my $sftplog_fh = open(sshhelp.sftplog, "<"):
+        while (<$sftplog_fh>):
+            if (/^Remote working directory: /):
+                $verified = 1
+                last;
+        close($sftplog_fh)
+
+    return $verified;
+
+
+def verify_httptls(proto, ip_vnum, id_num, $ip, $port):
+    """
+    Verify that the non-stunnel HTTP TLS extensions capable server that runs
+    on $ip, $port is our server.  This also implies that we can speak with it,
+    as there might be occasions when the server runs fine but we cannot talk
+    to it ("Failed to connect to ::1: Can't assign requested address")
+    """
+    server  = serverhelp.server_name_id(proto, ip_vnum, id_num)
+    my $pidfile = serverhelp.server_pid_file(config.LOGDIR/config.PIDDIR, proto, ip_vnum, id_num);
+
+    verifyout = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.out")
+    if verifyout.is_file(): verifyout.unlink()
+
+    verifylog = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.log")
+    if verifylog.is_file(): verifylog.unlink()
+
+    flags  = f"--max-time {server_response_maxtime} "
+    flags += f"--output {verifyout} "
+    flags += "--verbose "
+    flags += "--globoff "
+    flags += "--insecure "
+    flags += "--tlsauthtype SRP "
+    flags += "--tlsuser jsmith "
+    flags += "--tlspassword abc "
+    if config.proxy_address:
+        flags += get_external_proxy_flags()
+    flags += f"\"https://{$ip}:{$port}/verifiedserver\""
+
+    my $cmd = f"{$VCURL} {flags} 2>{verifylog}"
+
+    # verify if our/any server is running on this port
+    if config.verbose: log_msg(f"RUN: {cmd}")
+    my $res = testutil.run_client($cmd)
+
+    $res >>= 8  # rotate the result
+    if $res & 128:
+        log_msg("RUN: curl command died with a coredump")
+        return -1
+
+    if $res and config.verbose:
+        log_msg(f"RUN: curl command returned $res")
+        if $file = verifylog.open("rt"):
+            while (my $string = <$file>):
+                logmsg(f"RUN: $string") if($string !~ /^([ \t]*)$/);
+            close($file);
+
+    my $data;
+    if my $file = open(verifyout, "<"):
+        while (my $string = <$file>):
+            $data .= $string;
+        close($file);
+
+    pid = 0
+    if $data and ($data =~ /(GNUTLS|GnuTLS)/) and ($pid = processhelp.process_exists($pidfile)):
+        if $pid < 0:
+            log_msg(f"RUN: {server} server has died after starting up")
+        return pid
+    elif $res == 6:
+        # curl: (6) Couldn't resolve host '::1'
+        log_msg(f"RUN: failed to resolve host (https://$ip:$port/verifiedserver)")
+        return -1
+    elif $data or ($res and $res != 7):
+        log_msg(f"RUN: Unknown server on our {server} port: $port ($res)")
+        return -1
+
+    return pid
+
+
+def verify_mqtt(proto, ip_vnum, id_num, $ip, port):
+   """STUB for verifying mqtt"""
+    pid_file = server_pidfilename(f"$LOGDIR/$PIDDIR", proto, ip_vnum, id_num)
+
+    pid = processexists(pid_file)
+    if pid < 0: log_msg("RUN: MQTT server has died after starting up")
+    return pid
+
+
+def verify_socks(proto, ip_vnum, id_num, $ip, port):
+    """STUB for verifying socks"""
+    pid_file = serverhelp.server_pid_file(config.LOGDIR/config.PIDDIR,
+                                          proto, ip_vnum, id_num)
+    pid = processhelp.process_exists(pid_file)
+    if pid < 0: log_msg("RUN: SOCKS server has died after starting up")
+    return pid
+
+
+def verify_smb(proto, ip_vnum, id_num, $ip, $port):
+    # Verify that the server that runs on $ip, $port is our server.  This also
+    # implies that we can speak with it, as there might be occasions when the
+    # server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
+    # assign requested address")
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    beg_time = time.time()
+    extra = ""
+
+    verifylog = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.log")
+    if verifylog.is_file(): verifylog.unlink()
+
+    flags  = f"--max-time {server_response_maxtime} "
+    flags += "--silent "
+    flags += "--verbose "
+    flags += "--globoff "
+    flags += "-u 'curltest:curltest' "
+    flags += extra
+    flags += f"\"{proto}://{$ip}:{$port}/SERVER/verifiedserver\""
+
+    my $cmd = f"{$VCURL} {flags} 2>{verifylog}"
+
+    # check if this is our server running on this port:
+    if config.verbose: log_msg(f"RUN: {cmd}")
+    my @data = testutil.run_client_output($cmd)
+
+    my $res = $? >> 8; # rotate the result
+    if $res & 128:
+        log_msg(f"RUN: curl command died with a coredump")
+        return -1
+
+    pid = 0
+    for line in @data:
+        if (line =~ /WE ROOLZ: (\d+)/):
+            # this is our test server with a known pid!
+            $pid = int($1)
+            last;
+    if pid <= 0 and @data and $data[0]:
+        # this is not a known server
+        log_msg(f"RUN: Unknown server on our {server} port: {$port}")
+        return 0;
+
+    # we can/should use the time it took to verify the server as a measure
+    # on how fast/slow this host is.
+    took = int(0.5 + time() - beg_time)
+
+    if config.verbose:
+        log_msg(f"RUN: Verifying our test {server} server took {took} seconds")
+
+    return pid
+
+
+def verify_telnet(proto, ip_vnum, id_num, $ip, $port):
+    # Verify that the server that runs on $ip, $port is our server.  This also
+    # implies that we can speak with it, as there might be occasions when the
+    # server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
+    # assign requested address")
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    beg_time = time.time()
+    extra = ""
+
+    verifylog = config.LOGDIR/(serverhelp.server_name_canon(proto, ip_vnum, id_num) + "_verify.log")
+    if verifylog.is_file(): verifylog.unlink()
+
+    flags  = f"--max-time {server_response_maxtime} "
+    flags += "--silent "
+    flags += "--verbose "
+    flags += "--globoff "
+    flags += "--upload-file - "
+    flags += extra
+    flags += f"\"{proto}://{$ip}:{$port}\""
+
+    my $cmd = f"echo 'verifiedserver' | {$VCURL} {flags} 2>{verifylog}"
+
+    # check if this is our server running on this port:
+    if config.verbose: log_msg(f"RUN: {cmd}")
+    my @data = testutil.run_client_output($cmd)
+
+    my $res = $? >> 8; # rotate the result
+    if $res & 128:
+        log_msg(f"RUN: curl command died with a coredump")
+        return -1
+
+    pid = 0
+    for line in @data:
+        if (line =~ /WE ROOLZ: (\d+)/):
+            # this is our test server with a known pid!
+            $pid = int($1)
+            last;
+    if pid <= 0 and @data and $data[0]:
+        # this is not a known server
+        log_msg(f"RUN: Unknown server on our {server} port: {$port}")
+        return 0;
+
+    # we can/should use the time it took to verify the server as a measure
+    # on how fast/slow this host is.
+    took = int(0.5 + time() - beg_time)
+
+    if config.verbose:
+        log_msg(f"RUN: Verifying our test {server} server took {took} seconds")
+
+    return pid
+
+
+#######################################################################
+
+proto_func = {
+    "http":       verify_http,
+    "https":      verify_http,
+    "rtsp":       verify_rtsp,
+    "ftp":        verify_ftp,
+    "pop3":       verify_ftp,
+    "imap":       verify_ftp,
+    "smtp":       verify_ftp,
+    "ftps":       verify_ftp,
+    "pop3s":      verify_ftp,
+    "imaps":      verify_ftp,
+    "mqtt":       verify_mqtt,
+    "smtps":      verify_ftp,
+    "tftp":       verify_ftp,
+    "ssh":        verify_ssh,
+    "socks":      verify_socks,
+    "socks5unix": verify_socks,
+    "gopher":     verify_http,
+    "httptls":    verify_httptls,
+    "dict":       verify_ftp,
+    "smb":        verify_smb,
+    "telnet":     verify_telnet,
+}
+
+def verify_server(proto, ip_vnum, id_num, $ip, port):
+    """
+    Verify that the server that runs on $ip, 'port' is our server.
+    Retry over several seconds before giving up.  The ssh server in
+    particular can take a long time to start if it needs to generate
+    keys on a slow or loaded host.
+
+    Just for convenience, test harness uses 'https' and 'httptls' literals
+    as values for 'proto' variable in order to differentiate different
+    servers. 'https' literal is used for stunnel based https test servers,
+    and 'httptls' is used for non-stunnel https test servers.
+    """
+    count = 30  # try for this many seconds
+
+    pid = None
+    for _ in range(count)
+        pid = proto_func[proto](proto, ip_vnum, id_num, $ip, port)
+
+        if pid > 0:
+            break
+        elif pid < 0:
+            # a real failure, stop trying and bail out
+            return 0
+        time.sleep(1)
+
+    return pid
+
+
+def server_responsive(proto, ip_vnum, id_num, $ip, port):
+    """
+    Single shot server responsiveness test. This should only be used
+    to verify that a server present in %run hash is still functional
+    """
+    global srvr_name
+
+    prev_verbose = config.verbose
+    config.verbose = 0
+    pid = proto_func[proto](proto, ip_vnum, id_num, $ip, port)
+    config.verbose = prev_verbose
+
+    if pid > 0:
+        return 1  # responsive
+    else:
+        srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+        log_msg(f" server precheck FAILED (unresponsive {srvr_name} server)")
+        return 0
+
+
+def http_server_run(proto, verb: int, $alt, $port_or_path):
+    """start the http server"""
+
+    global srvr_name
+    global $serverpidfile
+
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+    my $exe = f"$perl $srcdir/http-server.pl"
+    my $verbose_flag = "--verbose "
+    my $keepalive_secs = 30; # forwarded to sws, was 5 by default which
+                             # led to pukes in CI jobs
+    if $alt == "ipv6":
+        # if IPv6, use a different setup
+        ip_vnum = 6
+        $ip = $HOST6IP
+    elif $alt == "proxy":
+        # basically the same, but another ID
+        id_num = 2
+    elif $alt == "unix":
+        # IP (protocol) is mutually exclusive with Unix sockets
+        ip_vnum = "unix"
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver(server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $portfile = $serverportfile{$server};
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num)
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    if proto == "gopher":
+        flags += "--gopher "
+    if $alt == "proxy":
+        flags += f"--connect $HOSTIP "
+    flags += f"--keepalive $keepalive_secs ";
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    flags += f"--portfile $portfile ";
+    flags += f"--config {config.LOGDIR}/{config.SERVERCMD} "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    if ip_vnum == "unix":
+        flags += f"--unix-socket '{$port_or_path}' "
+    else:
+        flags += f"--ipv{ip_vnum} --port 0 "
+    flags += f"--srcdir \"{$srcdir}\""
+    if $debugprotocol: flags += $verbose_flag
+
+    my $cmd = f"$exe {flags}"
+    my ($httppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $httppid <= 0 or not processhelp.pid_exists($httppid):
+        # it is NOT alive
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1
+        return (1, 0, 0, 0)
+
+    # where is it?
+    my $port = 0;
+    if not $port_or_path:
+        $port = $port_or_path = processhelp.pid_from_file($portfile)
+
+    # Server is up. Verify that we can speak to it.
+    my $pid3 = verify_server(proto, ip_vnum, id_num, $ip, $port_or_path)
+    if ! $pid3:
+        log_msg(f"RUN: {srvr_name} server failed verification")
+        # failed to talk to it properly. Kill the server and return failure
+        stopserver($server, "$httppid $pid2")
+        $doesntrun{$pidfile} = 1
+        return (1, 0, 0, 0)
+
+    pid2 = $pid3
+
+    if verb: log_msg(f"RUN: {srvr_name} server is on PID {$httppid} port {$port_or_path}")
+
+    return (0, $httppid, pid2, $port);
+
+
+def runhttp2server(verb: int):
+    """start the http2 server"""
+
+    global srvr_name
+    global $serverpidfile
+
+    proto   = "http/2"
+    ip_vnum = 4
+    id_num  = 0
+    my $exe = "$perl $srcdir/http2-server.pl";
+    my $verbose_flag = "--verbose ";
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return [2, 0, 0, 0, 0]
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--nghttpx \"$ENV{'NGHTTPX'}\" ";
+    flags += f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    flags += f"--connect $HOSTIP:" . protoport("http") . " ";
+    if $debugprotocol: flags += $verbose_flag
+
+    port   = get_free_port(ip_vnum)
+    port2  = get_free_port(ip_vnum)
+    aflags = f"--port $port --port2 $port2 {flags}"
+    cmd    = f"$exe $aflags";
+    my ($http2pid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $http2pid <= 0 or not processhelp.pid_exists($http2pid):
+        # it is NOT alive
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        $http2pid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0, 0);
+
+    $doesntrun{$pidfile} = 0
+
+    if verb:
+        log_msg(f"RUN: {srvr_name} server PID $http2pid ".
+                f"http-port $port https-port $port2 ".
+                f"backend $HOSTIP:" . protoport("http"))
+
+    return (0+!$http2pid, $http2pid, $pid2, $port, $port2);
+
+
+def http3_server_run(verb: int, $cert):
+    """start the http3 server"""
+
+    global srvr_name
+    global $serverpidfile
+
+    proto   = "http/3"
+    ip_vnum = 4
+    id_num  = 0
+
+    exe = f"$perl $srcdir/http3-server.pl";
+    verbose_flag = "--verbose ";
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--nghttpx \"$ENV{'NGHTTPX'}\" ";
+    flags += f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    flags += f"--connect $HOSTIP:" . protoport("http") . " ";
+    if $cert:
+        flags += f"--cert \"$cert\" "
+    if $debugprotocol: flags += $verbose_flag
+
+    port   = get_free_port(ip_vnum)
+    aflags = f"--port {$port} {flags}"
+    cmd    = f"$exe $aflags";
+    my ($http3pid, $pid3) = startnew($cmd, $pidfile, 15, 0);
+
+    if $http3pid <= 0 or not processhelp.pid_exists($http3pid):
+        # it is NOT alive
+        stopserver($server, "$pid3")
+        $doesntrun{$pidfile} = 1;
+        $http3pid = $pid3 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+
+    if verb: log_msg(f"RUN: {srvr_name} server PID $http3pid port {$port}")
+
+    return (0+!$http3pid, $http3pid, $pid3, $port);
+
+
+def https_server_run(proto, verb: int, $proxy, $certfile):
+    """start the https stunnel based server"""
+
+    global srvr_name
+    gloval stunnel
+    global $serverpidfile
+
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+    if $proxy == "proxy":
+        # the https-proxy runs as https2
+        id_num = 2
+
+    if not stunnel:
+        return (4, 0, 0, 0)
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    $certfile = 'stunnel.pem' unless($certfile);
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"$pidfile\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--ipv{ip_vnum} --proto {proto} "
+    if $certfile != 'stunnel.pem': flags += "--certfile \"$certfile\" "
+    flags += f"--stunnel \"{stunnel}\" --srcdir \"{$srcdir}\" "
+    if proto == "gophers":
+        flags += "--connect " + protoport("gopher")
+    elif not $proxy:
+        flags += "--connect " + protoport("http")
+    else:
+        # for HTTPS-proxy we connect to the HTTP proxy
+        flags += "--connect " + protoport("httpproxy")
+    if $debugprotocol: flags += "--verbose "
+
+    port    = get_free_port(ip_vnum);
+    options = f"{flags} --accept $port"
+    cmd     = f"$perl $srcdir/secureserver.pl $options"
+    my ($httpspid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $httpspid <= 0 or not processhelp.pid_exists($httpspid):
+        # it is NOT alive
+        # don't call stopserver since that will also kill the dependent
+        # server that has already been started properly
+        $doesntrun{$pidfile} = 1;
+        $httpspid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+    # we have a server!
+    if verb: log_msg(f"RUN: {srvr_name} server is PID $httpspid port {$port}")
+
+    $runcert{$server} = $certfile;
+
+    return (0+!$httpspid, $httpspid, $pid2, $port);
+
+
+def httptls_server_run(verb: int, $ipv6):
+    """start the non-stunnel HTTP TLS extensions capable server"""
+
+    global srvr_name
+
+    proto   = "httptls"
+    my $ip  = ($ipv6 and ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
+    ip_vnum = ($ipv6 and ($ipv6 =~ /6$/)) ? 6 : 4;
+    id_num  = 1
+
+    if not $httptlssrv:
+        return (4, 0, 0)
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = "--http ";
+    if $debugprotocol: flags += "--debug 1 "
+    flags += "--priority NORMAL:+SRP ";
+    flags += f"--srppasswd $srcdir/certs/srp-verifier-db ";
+    flags += f"--srppasswdconf $srcdir/certs/srp-verifier-conf";
+
+    port     = get_free_port(ip_vnum)
+    allflags = f"--port {$port} {flags}"
+    cmd      = "$httptlssrv $allflags > $logfile 2>&1";
+    my ($httptlspid, $pid2) = startnew($cmd, $pidfile, 10, 1);
+
+    if $httptlspid <= 0 or not processhelp.pid_exists($httptlspid):
+        # it is NOT alive
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        $httptlspid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+
+    if verb:
+        log_msg(f"RUN: {srvr_name} server PID $httptlspid port {$port}")
+
+    return (0+!$httptlspid, $httptlspid, $pid2, $port);
+
+
+def pingpong_server_run(proto, $id, verb: int, $ipv6):
+   """start the pingpong server (FTP, POP3, IMAP, SMTP)"""
+
+    global srvr_name
+
+    # Check the requested server
+    if (proto !~ /^(?:ftp|imap|pop3|smtp)$/):
+        log_msg(f"Unsupported protocol {proto}!!")
+        return (4, 0, 0)
+
+    $ip      = ($ipv6 and ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
+    ip_vnum = ($ipv6 and ($ipv6 =~ /6$/)) ? 6 : 4;
+    id_num  = ($id and ($id =~ /^(\d+)$/) and ($id > 1)) ? $id : 1;
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    my $pidfile  = $serverpidfile[$server]
+    my $portfile = $serverportfile{$server};
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return [2, 0, 0]
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    flags += f"--portfile \"{$portfile}\" "
+    flags += f"--srcdir \"{$srcdir}\" --proto {proto} "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--ipv{ip_vnum} --port 0 --addr \"$ip\"";
+    if $debugprotocol: flags += "--verbose "
+
+    my $cmd = f"$perl $srcdir/ftpserver.pl {flags}"
+    my ($ftppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $ftppid <= 0 or not processhelp.pid_exists($ftppid):
+        # it is NOT alive
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0)
+
+    # where is it?
+    port = processhelp.pid_from_file($portfile)
+
+    if verb: log_msg(f"PINGPONG runs on port $port ($portfile)")
+
+    # Server is up. Verify that we can speak to it.
+    my $pid3 = verify_server(proto, ip_vnum, id_num, $ip, $port);
+    if ! $pid3:
+        log_msg(f"RUN: {srvr_name} server failed verification")
+        # failed to talk to it properly. Kill the server and return failure
+        stopserver($server, "$ftppid $pid2");
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0)
+
+    pid2 = $pid3
+
+    if verb: log_msg(f"RUN: {srvr_name} server is PID $ftppid port {$port}")
+
+    # Assign the correct port variable!
+    $PORT{proto + ('6' if ip_vnum == 6 else '')} = $port;
+
+    return (0, pid2, $ftppid);
+
+
+def secure_server_run(proto, verb: int, $ipv6, $certfile, $clearport):
+    """start the ftps/imaps/pop3s/smtps server (or rather, tunnel)"""
+
+    global srvr_name
+    gloval stunnel
+
+    ip      = ($ipv6 and ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
+    ip_vnum = ($ipv6 and ($ipv6 =~ /6$/)) ? 6 : 4;
+    id_num  = 1
+
+    if not stunnel:
+        return (4, 0, 0, 0)
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    $certfile = 'stunnel.pem' unless($certfile);
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--ipv{ip_vnum} --proto {proto} "
+    if $certfile != 'stunnel.pem': flags += f"--certfile \"$certfile\" "
+    flags += f"--stunnel \"{stunnel}\" --srcdir \"{$srcdir}\" "
+    flags += f"--connect $clearport"
+    if $debugprotocol: flags += "--verbose "
+
+    port    = get_free_port(ip_vnum)
+    options = f"{flags} --accept $port"
+    cmd     = "$perl $srcdir/secureserver.pl $options";
+    proto_spid, $pid2 = startnew($cmd, $pidfile, 15, 0)
+
+    if proto_spid <= 0 or not processhelp.pid_exists(proto_spid):
+        # it is NOT alive
+        # don't call stopserver since that will also kill the dependent
+        # server that has already been started properly
+        $doesntrun{$pidfile} = 1;
+        proto_spid = $pid2 = 0
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+    $runcert{$server} = $certfile;
+
+    if verb: log_msg(f"RUN: {srvr_name} server is PID {proto_spid} port {$port}")
+
+    return (0+!proto_spid, proto_spid, $pid2, $port)
+
+
+def tftp_server_run($id, verb: int, $ipv6):
+    """start the tftp server"""
+
+    proto   = 'tftp'
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = ($id and ($id =~ /^(\d+)$/) and ($id > 1)) ? $id : 1;
+    if $ipv6:
+        # if IPv6, use a different setup
+        ip_vnum = 6
+        $ip = $HOST6IP;
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $portfile = $serverportfile{$server};
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--portfile \"{$portfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--ipv{ip_vnum} --port 0 --srcdir \"{$srcdir}\""
+    if $debugprotocol: flags += "--verbose "
+
+    my $cmd = f"$perl $srcdir/tftp_server.py {flags}"
+    my ($tftppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $tftppid <= 0 or not processhelp.pid_exists($tftppid):
+        # it is NOT alive
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0, 0)
+
+    port = processhelp.pid_from_file($portfile)
+
+    # Server is up. Verify that we can speak to it.
+    my $pid3 = verify_server(proto, ip_vnum, id_num, $ip, $port);
+    if ! $pid3:
+        log_msg(f"RUN: {srvr_name} server failed verification")
+        # failed to talk to it properly. Kill the server and return failure
+        stopserver($server, "$tftppid $pid2");
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0, 0)
+
+    pid2 = $pid3
+
+    if verb: log_msg(f"RUN: {srvr_name} server on PID $tftppid port {$port}")
+
+    return (0, pid2, $tftppid, $port);
+
+
+def rtsp_server_run(verb: int, $ipv6):
+    """start the rtsp server"""
+
+    proto   = 'rtsp'
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+    if $ipv6:
+        # if IPv6, use a different setup
+        ip_vnum = 6
+        $ip = $HOST6IP;
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    my $pidfile  = $serverpidfile[$server]
+    my $portfile = $serverportfile{$server};
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--portfile \"{$portfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--ipv{ip_vnum} --port 0 --srcdir \"{$srcdir}\""
+    if $debugprotocol: flags += "--verbose "
+
+    my $cmd = f"$perl $srcdir/rtsp_server.py {flags}"
+    my ($rtsppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $rtsppid <= 0 or not processhelp.pid_exists($rtsppid):
+        # it is NOT alive
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0, 0)
+
+    port = processhelp.pid_from_file($portfile)
+
+    # Server is up. Verify that we can speak to it.
+    my $pid3 = verify_server(proto, ip_vnum, id_num, $ip, $port);
+    if ! $pid3:
+        log_msg(f"RUN: {srvr_name} server failed verification")
+        # failed to talk to it properly. Kill the server and return failure
+        stopserver($server, "$rtsppid $pid2");
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0, 0)
+
+    pid2 = $pid3
+
+    if verb: log_msg(f"RUN: {srvr_name} server PID $rtsppid port {$port}")
+
+    return (0, $rtsppid, pid2, $port);
+
+
+sub ssh_server_run($id, verb: int, $ipv6):
+    """Start the ssh (scp/sftp) server"""
+
+    proto   = "ssh"
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = ($id and ($id =~ /^(\d+)$/) and ($id > 1)) ? $id : 1;
+
+    if ! $USER:
+        log_msg("Can't start ssh server due to lack of USER name")
+        return (4, 0, 0, 0);
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    my $sshd = find_sshd();
+    if $sshd:
+        $sshdid, $sshdvernum, $sshdverstr, $sshderror = sshhelp.sshversioninfo($sshd)
+        if $sshderror: log_msg($sshderror, end="")
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logdir \"{config.LOGDIR}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--ipv{ip_vnum} --addr \"$ip\" "
+    flags += f"--user \"{$USER}\""
+    if $debugprotocol: flags += "--debugprotocol "
+    if verb: flags += "--verbose "
+
+    port    = get_free_port(ip_vnum)
+    options = f"{flags} --sshport $port"
+    cmd     = f"$perl $srcdir/sshserver.pl $options";
+    my ($sshpid, $pid2) = startnew($cmd, $pidfile, 60, 0);
+
+    # on loaded systems sshserver start up can take longer than the
+    # timeout passed to startnew, when this happens startnew completes
+    # without being able to read the pidfile and consequently returns a
+    # zero pid2 above.
+    if $sshpid <= 0 or not processhelp.pid_exists($sshpid):
+        # it is NOT alive
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        $sshpid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server on $port")
+        return (3, 0, 0, 0)
+
+    # once it is known that the ssh server is alive, sftp server
+    # verification is performed actually connecting to it, authenticating
+    # and performing a very simple remote command.  This verification is
+    # tried only one time.
+
+    sshhelp.sshdlog = serverhelp.server_log_file(config.LOGDIR, "ssh",  ip_vnum, id_num)
+    sshhelp.sftplog = serverhelp.server_log_file(config.LOGDIR, "sftp", ip_vnum, id_num)
+
+    if verify_sftp("sftp", ip_vnum, id_num, $ip, $port) < 1:
+        log_msg("RUN: SFTP server failed verification")
+        # failed to talk to it properly. Kill the server and return failure
+        sshhelp.display_sftplog()
+        sshhelp.display_sftpconfig()
+        sshhelp.display_sshdlog()
+        sshhelp.display_sshdconfig()
+        stopserver($server, f"$sshpid $pid2")
+        $doesntrun{$pidfile} = 1;
+        $sshpid = $pid2 = 0;
+        log_msg(f"RUN: failed to verify the {srvr_name} server on $port")
+        return (5, 0, 0, 0)
+
+    # we're happy, no need to loop anymore!
+    $doesntrun{$pidfile} = 0
+
+    my $hostfile;
+    if (! $hostfile open("<", config.LOGDIR/config.PIDDIR/$hstpubmd5f) ||
+        (read($hostfile, $SSHSRVMD5, 32) != 32) ||
+        !close($hostfile) ||
+        ($SSHSRVMD5 !~ /^[a-f0-9]{32}$/i)):
+        my $msg = f"Fatal: {srvr_name} pubkey md5 missing : \"$hstpubmd5f\" : $!";
+        log_msg(f"{$msg}")
+        stopservers(verb)
+        die($msg)
+
+    if (! $hostfile open("<", config.LOGDIR/config.PIDDIR/$hstpubsha256f) ||
+        (read($hostfile, $SSHSRVSHA256, 48) == 0) ||
+        !close($hostfile)):
+        my $msg = f"Fatal: {srvr_name} pubkey sha256 missing : \"{$hstpubsha256f}\" : $!"
+        log_msg(f"{$msg}")
+        stopservers(verb)
+        die($msg)
+
+    if verb: log_msg(f"RUN: {srvr_name} on PID $pid2 port {$port}")
+
+    return (0, $pid2, $sshpid, $port);
+
+
+def mqtt_server_run($id, verb: int, $ipv6):
+    """Start the MQTT server"""
+
+    proto   = 'mqtt'
+    ip      = $HOSTIP
+    port    = protoport(proto)
+    ip_vnum = 4
+    id_num  = ($id and ($id =~ /^(\d+)$/) and ($id > 1)) ? $id : 1;
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    my $pidfile  = $serverpidfile[$server]
+    my $portfile = $serverportfile{$server};
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return [2, 0, 0]
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    # start our MQTT server - on a random port!
+    my $cmd = (f"server/mqttd{exe_ext('SRV')} "
+               "--port 0 "
+               f"--pidfile {$pidfile} "
+               f"--portfile $portfile "
+               f"--config {config.LOGDIR}/{config.SERVERCMD} "
+               f"--logfile $logfile "
+               f"--logdir {config.LOGDIR}")
+    my ($sockspid, $pid2) = startnew($cmd, $pidfile, 30, 0);
+
+    if $sockspid <= 0 or not processhelp.pid_exists($sockspid):
+        # it is NOT alive
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0)
+
+    my $mqttport = processhelp.pid_from_file($portfile)
+    $PORT{"mqtt"} = $mqttport;
+
+    if verb:
+        log_msg(f"RUN: {srvr_name} server is now running PID $pid2 on PORT $mqttport")
+
+    return (0, $pid2, $sockspid);
+
+
+sub socks_server_run($id, verb: int, $ipv6, $is_unix):
+    """Start the socks server"""
+
+    proto   = 'socks'
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = ($id and ($id =~ /^(\d+)$/) and ($id > 1)) ? $id : 1;
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $portfile = $serverportfile{$server};
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    # start our socks server, get commands from the FTP cmd file
+    my $cmd="";
+    if $is_unix:
+        $cmd = (f"server/socksd{exe_ext('SRV')} "
+                f"--pidfile {$pidfile} "
+                f"--reqfile {config.LOGDIR}/$SOCKSIN "
+                f"--logfile $logfile "
+                f"--unix-socket $SOCKSUNIXPATH "
+                f"--backend $HOSTIP "
+                f"--config {config.LOGDIR}/{config.SERVERCMD}")
+    else:
+        $cmd = f"server/socksd{exe_ext('SRV')} "
+               "--port 0 "
+               f"--pidfile {$pidfile} "
+               f"--portfile $portfile "
+               f"--reqfile {config.LOGDIR}/$SOCKSIN "
+               f"--logfile $logfile "
+               f"--backend $HOSTIP "
+               f"--config {config.LOGDIR}/{config.SERVERCMD}")
+
+    my ($sockspid, $pid2) = startnew($cmd, $pidfile, 30, 0);
+
+    if $sockspid <= 0 or not processhelp.pid_exists($sockspid):
+        # it is NOT alive
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        return (1, 0, 0, 0)
+
+    port = processhelp.pid_from_file($portfile)
+
+    if verb: log_msg(f"RUN: {srvr_name} server is now running PID $pid2")
+
+    return (0, $pid2, $sockspid, port)
+
+
+sub dict_server_run(verb: int, $alt):
+    """start the dict server"""
+
+    proto   = "dict"
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+
+    if $alt == "ipv6":
+        # No IPv6
+        pass
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--srcdir \"{$srcdir}\" "
+    flags += f"--host $HOSTIP";
+    if $debugprotocol: flags += "--verbose 1 "
+
+    my $port   = get_free_port(ip_vnum)
+    my $aflags = f"--port {$port} {flags}"
+    my $cmd    = "$srcdir/dictserver.py $aflags";
+    my ($dictpid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $dictpid <= 0 or not processhelp.pid_exists($dictpid):
+        # it is NOT alive
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        $dictpid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+
+    if verb: log_msg(f"RUN: {srvr_name} server PID {$dictpid} port {$port}")
+
+    return (0+!$dictpid, $dictpid, $pid2, $port);
+
+
+def smb_server_run(verb: int, $alt):
+    """start the SMB server"""
+
+    proto   = "smb"
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+
+    if $alt == "ipv6":
+        # No IPv6
+        pass
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--srcdir \"{$srcdir}\" "
+    flags += f"--host $HOSTIP"
+    if $debugprotocol: flags += "--verbose 1 "
+
+    my $port   = get_free_port(ip_vnum);
+    my $aflags = f"--port {$port} {flags}"
+    my $cmd    = "$srcdir/smbserver.py $aflags";
+    my ($smbpid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $smbpid <= 0 or not processhelp.pid_exists($smbpid):
+        # it is NOT alive
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        $smbpid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+
+    if verb: log_msg(f"RUN: {srvr_name} server PID {$smbpid} port {$port}")
+
+    return (0+!$smbpid, $smbpid, $pid2, $port);
+
+
+def negtelnet_server_run(verb: int, $alt):
+    """start the telnet server"""
+
+    proto   = "telnet"
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+
+    if $alt == "ipv6":
+        # No IPv6
+        pass
+
+    server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    $pidfile = $serverpidfile[$server]
+
+    # don't retry if the server doesn't work
+    if $doesntrun{$pidfile}:
+        return (2, 0, 0, 0)
+
+    pid = processhelp.process_exists($pidfile)
+    if pid > 0: stopserver($server, f"{pid}")
+    if pidfile.is_file(): pidfile.unlink()
+
+    srvr_name = serverhelp.server_name_str(proto, ip_vnum, id_num)
+    my $logfile  = serverhelp.server_log_file(config.LOGDIR, proto, ip_vnum, id_num);
+
+    flags  = f"--pidfile \"{$pidfile}\" "
+    flags += f"--logfile \"{$logfile}\" "
+    if id_num > 1:
+        flags += f"--id {id_num} "
+    flags += f"--srcdir \"{$srcdir}\""
+    if $debugprotocol: flags += "--verbose 1 "
+
+    my $port   = get_free_port(ip_vnum)
+    my $aflags = f"--port {port} {flags}"
+    my $cmd    = "$srcdir/negtelnetserver.py $aflags";
+    my ($ntelpid, $pid2) = startnew($cmd, $pidfile, 15, 0);
+
+    if $ntelpid <= 0 or not processhelp.pid_exists($ntelpid):
+        # it is NOT alive
+        stopserver($server, f"{$pid2}")
+        $doesntrun{$pidfile} = 1;
+        $ntelpid = $pid2 = 0;
+        log_msg(f"RUN: failed to start the {srvr_name} server")
+        return (3, 0, 0, 0)
+
+    $doesntrun{$pidfile} = 0
+
+    if verb: log_msg(f"RUN: {srvr_name} server PID $ntelpid port {$port}")
+
+    return (0+!$ntelpid, $ntelpid, $pid2, port)
+
+
+def http_server_responsive(proto, verb: int, alt, port_or_path):
+    """
+    Single shot http and gopher server responsiveness test. This should only
+    be used to verify that a server present in %run hash is still functional
+    """
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+    if alt == "ipv6":
+        # if IPv6, use a different setup
+        ip      = $HOST6IP
+        ip_vnum = 6
+    elif alt == "proxy":
+        id_num = 2
+    elif alt == "unix":
+        # IP (protocol) is mutually exclusive with Unix sockets
+        ip_vnum = "unix"
+
+    return server_responsive(proto, ip_vnum, id_num, ip, port_or_path)
+
+
+def pingpong_server_responsive(proto, id, verb: int, ipv6):
+    """
+    Single shot pingpong server responsiveness test. This should only be
+    used to verify that a server present in %run hash is still functional
+    """
+    port     = None
+    ip       = "$HOST6IP" if (ipv6 and (ipv6 =~ /6$/)) else "$HOSTIP"
+    ip_vnum  = 6  if (ipv6 and (ipv6 =~ /6$/)) else 4
+    id_num   = id if (id and (id =~ /^(\d+)$/) and id > 1) else 1
+    proto_ip = proto + ('6' if ip_vnum == 6 else '')
+
+    if proto =~ /^(?:ftp|imap|pop3|smtp)$/:
+        port = protoport(proto_ip)
+    else:
+        log_msg(f"Unsupported protocol (proto)!!")
+        return 0
+
+    return server_responsive(proto, ip_vnum, id_num, ip, port)
+
+
+def rtsp_server_responsive(verb: int, ipv6):
+    """
+    Single shot rtsp server responsiveness test. This should only be
+    used to verify that a server present in %run hash is still functional
+    """
+    proto   = "rtsp"
+    port    = protoport(proto)
+    ip      = $HOSTIP
+    ip_vnum = 4
+    id_num  = 1
+
+    if ipv6:
+        # if IPv6, use a different setup
+        ip_vnum = 6
+        port    = protoport("rtsp6")
+        ip      = $HOST6IP
+
+    return server_responsive(proto, ip_vnum, id_num, ip, port)
+
+
+def tftp_server_responsive(id, verb: int, ipv6):
+    """
+    Single shot tftp server responsiveness test. This should only be
+    used to verify that a server present in %run hash is still functional
+    """
+    proto  = "tftp"
+    port   = protoport(proto)
+    ip     = $HOSTIP
+    ip_vnum = 4
+    id_num  = id if (id and (id =~ /^(\d+)$/) and id > 1) else 1
+
+    if ipv6:
+        # if IPv6, use a different setup
+        ip_vnum = 6
+        port    = protoport("tftp6")
+        ip      = $HOST6IP
+
+    return server_responsive(proto, ip_vnum, id_num, ip, port)
+
+
+def httptls_server_responsive(verb: int, ipv6):
+    """
+    Single shot non-stunnel HTTP TLS extensions capable server
+    responsiveness test. This should only be used to verify that a
+    server present in %run hash is still functional
+    """
+    ip_vnum = 6 if (ipv6 and (ipv6 =~ /6$/)) else 4
+    proto   = "httptls"
+    port    = protoport(proto)
+    ip      = "$HOSTIP"
+    id_num  = 1
+
+    if ip_vnum == 6:
+        port = protoport("httptls6")
+        ip   = "$HOST6IP"
+
+    return server_responsive(proto, ip_vnum, id_num, ip, port)
+
+
+def start_servers(@what: List):
+    """
+    start_servers() starts all the named servers
+
+    Returns: string with error reason or blank for success, and an integer:
+             0 for success
+             1 for an error starting the server
+             2 for not the first time getting an error starting the server
+             3 for a failure to stop a server in order to restart it
+             4 for an unsupported server type
+    """
+    gloval stunnel
+
+    my ($pid, $pid2);
+    my $serr;  # error while starting a server (as as the return enumerations)
+    for $_ in @what:
+
+        my (@whatlist) = split(/\s+/,$_);
+        my $what = $whatlist[0].lower()
+        $what =~ s/[^a-z0-9\/-]//g;
+
+        my $certfile;
+        if($what =~ /^(ftp|gopher|http|imap|pop3|smtp)s((\d*)(-ipv6|-unix|))$/) {
+            $certfile = ($whatlist[1]) ? $whatlist[1] : "stunnel.pem";
+        }
+
+        if $what in ("pop3", "ftp", "imap", "smtp"):
+
+            if (config.torture and $run[what] and
+                not pingpong_server_responsive($what, "", $verbose)) {
+                if stopserver(what):
+                    return (f"failed stopping unresponsive {$what.upper()} server", 3)
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2) = pingpong_server_run($what, "", $verbose);
+                if $pid <= 0:
+                    return (f"failed starting {$what.upper()} server", $serr)
+                logmsg("* pid $what => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+            }
+
+        elif what == "ftp-ipv6":
+
+            if (config.torture and $run{"ftp-ipv6"} &&
+                not pingpong_server_responsive("ftp", "", $verbose, "ipv6")) {
+                if(stopserver("ftp-ipv6")) {
+                    return ("failed stopping unresponsive FTP-IPv6 server", 3);
+                }
+            }
+
+            if(!$run{"ftp-ipv6"}) {
+                ($serr, $pid, $pid2) = pingpong_server_run("ftp", "", $verbose, "ipv6");
+                if $pid <= 0:
+                    return ("failed starting FTP-IPv6 server", $serr);
+                logmsg("* pid ftp-ipv6 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run{"ftp-ipv6"}="$pid $pid2";
+            }
+
+        elif what == "gopher":
+
+            if (config.torture and $run[what] &&
+                not http_server_responsive("gopher", $verbose, 0,
+                                           protoport("gopher"))) {
+                if(stopserver(what)) {
+                    return ("failed stopping unresponsive GOPHER server", 3);
+                }
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{what}) = http_server_run("gopher", $verbose, 0);
+                if $pid <= 0:
+                    return ("failed starting GOPHER server", $serr);
+                logmsg("* pid gopher => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = f"$pid $pid2"
+
+        elif what == "gopher-ipv6":
+
+            if (config.torture and $run{"gopher-ipv6"} &&
+                not http_server_responsive("gopher", $verbose, "ipv6",
+                                       protoport("gopher"))) {
+                if(stopserver("gopher-ipv6")) {
+                    return ("failed stopping unresponsive GOPHER-IPv6 server", 3);
+                }
+            }
+
+            if(!$run{"gopher-ipv6"}) {
+                ($serr, $pid, $pid2, $PORT{"gopher6"}) = http_server_run("gopher", $verbose, "ipv6");
+                if $pid <= 0:
+                    return ("failed starting GOPHER-IPv6 server", $serr);
+                logmsg("* pid gopher-ipv6 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run{"gopher-ipv6"}="$pid $pid2";
+            }
+
+        elif what == "http/3":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"http3"}) = http3_server_run($verbose);
+                if $pid <= 0:
+                    return ("failed starting HTTP/3 server", $serr);
+                logmsg("* pid http/3 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what]="$pid $pid2";
+
+        elif what == "http/2":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"http2"}, $PORT{"http2tls"}) =
+                    runhttp2server($verbose);
+                if $pid <= 0:
+                    return ("failed starting HTTP/2 server", $serr);
+                logmsg("* pid http/2 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = "$pid $pid2"
+
+        elif what == "http":
+
+            if (config.torture and $run[what] and
+                not http_server_responsive("http", $verbose, 0, protoport($what))) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive HTTP server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = http_server_run("http", $verbose, 0);
+                if $pid <= 0:
+                    return ("failed starting HTTP server", $serr);
+                logmsg("* pid http => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "http-proxy":
+
+            if (config.torture and $run[what] and
+                not http_server_responsive("http", $verbose, "proxy",
+                                       protoport("httpproxy"))) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive HTTP-proxy server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"httpproxy"}) = http_server_run("http", $verbose, "proxy");
+                if $pid <= 0:
+                    return ("failed starting HTTP-proxy server", $serr);
+                logmsg("* pid http-proxy => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "http-ipv6":
+
+            if (config.torture and $run[what] and
+                not http_server_responsive("http", $verbose, "ipv6",
+                                       protoport("http6"))) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive HTTP-IPv6 server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"http6"}) = http_server_run("http", $verbose, "ipv6");
+                if $pid <= 0:
+                    return ("failed starting HTTP-IPv6 server", $serr);
+                logmsg("* pid http-ipv6 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = f"$pid $pid2"
+
+        elif what == "rtsp":
+
+            if (config.torture and $run[what] and
+                not rtsp_server_responsive($verbose)) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive RTSP server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = rtsp_server_run($verbose);
+                if $pid <= 0:
+                    return ("failed starting RTSP server", $serr);
+                logmsg("* pid rtsp => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "rtsp-ipv6":
+
+            if (config.torture and $run[what] and
+                not rtsp_server_responsive($verbose, "ipv6")) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive RTSP-IPv6 server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"rtsp6"}) = rtsp_server_run($verbose, "ipv6");
+                if $pid <= 0:
+                    return ("failed starting RTSP-IPv6 server", $serr);
+                logmsg("* pid rtsp-ipv6 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif ($what =~ /^(ftp|imap|pop3|smtp)s$/):
+            my $cproto = $1;
+
+            if not stunnel:
+                # we can't run ftps tests without stunnel
+                return ("no stunnel", 4)
+
+            if($runcert{$what} and ($runcert{$what} != $certfile)) {
+                # stop server when running and using a different cert
+                if stopserver(what):
+                    return ("failed stopping $what server with different cert", 3);
+            }
+
+            if (config.torture and $run{$cproto} &&
+                not pingpong_server_responsive($cproto, "", $verbose)) {
+                if stopserver(cproto):
+                    return ("failed stopping unresponsive $cproto server", 3);
+            }
+
+            if(!$run{$cproto}) {
+                ($serr, $pid, $pid2) = pingpong_server_run($cproto, "", $verbose);
+                if $pid <= 0:
+                    return ("failed starting $cproto server", $serr);
+                logmsg("* pid $cproto => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run{$cproto}="$pid $pid2";
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = secure_server_run($what, $verbose, "", $certfile,
+                                                                       protoport($cproto));
+                if $pid <= 0:
+                    return ("failed starting $what server (stunnel)", $serr);
+                logmsg("* pid $what => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+            }
+
+        elif what == "file":
+
+            # we support it but have no server!
+            pass
+
+        elif what == "https":
+
+            if not stunnel:
+                # we can't run https tests without stunnel
+                return ("no stunnel", 4);
+
+            if($runcert{$what} and ($runcert{$what} != $certfile)) {
+                # stop server when running and using a different cert
+                if stopserver(what):
+                    return ("failed stopping HTTPS server with different cert", 3);
+            }
+            if (config.torture and $run{"http"} &&
+                not http_server_responsive("http", $verbose, 0,
+                                       protoport("http"))) {
+                if(stopserver("http")) {
+                    return ("failed stopping unresponsive HTTP server", 3);
+                }
+            }
+
+            if(!$run{"http"}) {
+                ($serr, $pid, $pid2, $PORT{"http"}) = http_server_run("http", $verbose, 0);
+                if $pid <= 0:
+                    return ("failed starting HTTP server", $serr);
+                logmsg("* pid http => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run{"http"}="$pid $pid2";
+            }
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = https_server_run("https", $verbose, "", $certfile);
+                if $pid <= 0:
+                    return ("failed starting HTTPS server (stunnel)", $serr);
+                logmsg("* pid https => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "gophers":
+
+            if not stunnel:
+                # we can't run TLS tests without stunnel
+                return ("no stunnel", 4)
+
+            if($runcert{$what} and ($runcert{$what} != $certfile)) {
+                # stop server when running and using a different cert
+                if stopserver(what):
+                    return ("failed stopping GOPHERS server with different cert", 3);
+            }
+            if (config.torture and $run{"gopher"} &&
+                not http_server_responsive("gopher", $verbose, 0,
+                                       protoport("gopher"))) {
+                if(stopserver("gopher")) {
+                    return ("failed stopping unresponsive GOPHER server", 3);
+                }
+            }
+
+            if(!$run{"gopher"}) {
+                my $port;
+                ($serr, $pid, $pid2, $port) = http_server_run("gopher", $verbose, 0);
+                $PORT{"gopher"} = $port;
+                if $pid <= 0:
+                    return ("failed starting GOPHER server", $serr);
+                logmsg("* pid gopher => %d %d\n" % ($pid, $pid2)) if $verbose;
+                if($verbose): log_msg(f"GOPHERPORT => $port")
+                $run{"gopher"}="$pid $pid2";
+            }
+            if not $run[what]:
+                my $port;
+                ($serr, $pid, $pid2, $port) = https_server_run($what, $verbose, "", $certfile);
+                $PORT[what] = $port;
+                if $pid <= 0:
+                    return ("failed starting GOPHERS server (stunnel)", $serr);
+                logmsg("* pid gophers => %d %d\n" % ($pid, $pid2)) if $verbose;
+                if $verbose: log_msg(f"GOPHERSPORT => $port")
+                $run[what] = r"$pid $pid2"
+
+        elif what == "https-proxy":
+
+            if not stunnel:
+                # we can't run https-proxy tests without stunnel
+                return ("no stunnel", 4)
+
+            if($runcert{$what} && ($runcert{$what} != $certfile)) {
+                # stop server when running and using a different cert
+                if stopserver(what):
+                    return ("failed stopping HTTPS-proxy with different cert", 3);
+            }
+
+            # we front the http-proxy with stunnel so we need to make sure the
+            # proxy runs as well
+            my ($f, $e) = start_servers(["http-proxy"])
+            if($f) {
+                return ($f, $e);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"httpsproxy"}) = https_server_run("https", $verbose, "proxy", $certfile);
+                if $pid <= 0:
+                    return ("failed starting HTTPS-proxy (stunnel)", $serr);
+                logmsg("* pid https-proxy => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "httptls":
+
+            if not $httptlssrv:
+                # for now, we can't run http TLS-EXT tests without gnutls-serv
+                return ("no gnutls-serv (with SRP support)", 4);
+
+            if (config.torture and $run[what] and
+                not httptls_server_responsive($verbose, "IPv4")) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive HTTPTLS server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = httptls_server_run($verbose, "IPv4");
+                if $pid <= 0:
+                    return ("failed starting HTTPTLS server (gnutls-serv)", $serr);
+                logmsg("* pid httptls => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "httptls-ipv6":
+
+            if not $httptlssrv:
+                # for now, we can't run http TLS-EXT tests without gnutls-serv
+                return ("no gnutls-serv", 4)
+
+            if (config.torture and $run[what] and
+                not httptls_server_responsive($verbose, "ipv6")) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive HTTPTLS-IPv6 server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"httptls6"}) = httptls_server_run($verbose, "ipv6");
+                if $pid <= 0:
+                    return ("failed starting HTTPTLS-IPv6 server (gnutls-serv)", $serr);
+                logmsg("* pid httptls-ipv6 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "tftp":
+
+            if (config.torture and $run[what] and
+                not tftp_server_responsive("", $verbose)) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive TFTP server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = tftp_server_run("", $verbose);
+                if $pid <= 0:
+                    return ("failed starting TFTP server", $serr);
+                logmsg("* pid tftp => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "tftp-ipv6":
+
+            if (config.torture and $run[what] and
+                not tftp_server_responsive("", $verbose, "ipv6")) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive TFTP-IPv6 server", 3);
+            }
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT{"tftp6"}) = tftp_server_run("", $verbose, "ipv6");
+                if $pid <= 0:
+                    return ("failed starting TFTP-IPv6 server", $serr);
+                logmsg("* pid tftp-ipv6 => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif $what == "sftp" or $what == "scp":
+
+            if(!$run{"ssh"}) {
+                ($serr, $pid, $pid2, $PORT{"ssh"}) = ssh_server_run("", $verbose);
+                if $pid <= 0:
+                    return ("failed starting SSH server", $serr);
+                logmsg("* pid ssh => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run{"ssh"}="$pid $pid2";
+            }
+
+        elif $what == "socks4" or $what == "socks5":
+
+            if(!$run{"socks"}) {
+                ($serr, $pid, $pid2, $PORT{"socks"}) = socks_server_run("", $verbose);
+                if $pid <= 0:
+                    return ("failed starting socks server", $serr);
+                logmsg("* pid socks => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run{"socks"}="$pid $pid2";
+            }
+
+        elif what == "socks5unix":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2) = socks_server_run("2", $verbose, "", "unix");
+                if $pid <= 0:
+                    return ("failed starting socks5unix server", $serr);
+                logmsg("* pid socks5unix => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "mqtt":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2) = mqtt_server_run("", $verbose);
+                if $pid <= 0:
+                    return ("failed starting mqtt server", $serr);
+                logmsg("* pid mqtt => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "http-unix":
+
+            if (config.torture and $run[what] and
+                not http_server_responsive("http", $verbose, "unix", $HTTPUNIXPATH)) {
+                if stopserver(what):
+                    return ("failed stopping unresponsive HTTP-unix server", 3);
+
+            if not $run[what]:
+                my $unused;
+                ($serr, $pid, $pid2, $unused) = http_server_run("http", $verbose, "unix", $HTTPUNIXPATH);
+                if $pid <= 0:
+                    return ("failed starting HTTP-unix server", $serr);
+                logmsg("* pid http-unix => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "dict":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = dict_server_run($verbose, "");
+                if $pid <= 0:
+                    return ("failed starting DICT server", $serr);
+                logmsg("* pid DICT => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "smb":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = smb_server_run($verbose, "");
+                if $pid <= 0:
+                    return ("failed starting SMB server", $serr);
+                logmsg("* pid SMB => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "telnet":
+
+            if not $run[what]:
+                ($serr, $pid, $pid2, $PORT[what]) = negtelnet_server_run($verbose, "");
+                if $pid <= 0:
+                    return ("failed starting neg TELNET server", $serr);
+                logmsg("* pid neg TELNET => %d %d\n" % ($pid, $pid2)) if $verbose;
+                $run[what] = r"$pid $pid2"
+
+        elif what == "none":
+
+            if $verbose: log_msg(f"* starts no server")
+
+        else:
+            warn "we don't support a server for $what";
+            return (f"no server for $what", 4)
+
+
+    return ("", 0)
+
+
+def stopservers(verb = 0) -> int:
+    """Stop all running test servers"""
+
+    # kill sockfilter processes for all pingpong servers
+    #
+    processhelp.kill_all_sockfilters(config.LOGDIR/config.PIDDIR, verb)
+
+    # kill all server pids from %run hash clearing them
+    #
+    $pidlist: str = ""
+    for server in (keys %run):
+        if $run[server]:
+            if verb:
+                my $prev = 0;
+                my $pids = $run[server]
+                for pid in $pids.split(" "):
+                    if pid != $prev:
+                        log_msg("* kill pid for %s => %d" % (server, pid))
+                        $prev = pid
+            $pidlist += "$run{$server} "
+            $run{$server} = 0;
+        if $runcert{$server}: $runcert{$server} = 0
+    processhelp.kill_pid(verb, $pidlist)
+
+    # cleanup all server pid files
+    #
+    result: int = 0
+    for server in (keys %serverpidfile):
+        pid_file = $serverpidfile[server]
+        pid = processhelp.process_exists(pid_file)
+        if pid > 0:
+            if $err_unexpected:
+                log_msg("ERROR: ", end="")
+                result = -1
+            else:
+                log_msg("Warning: ", end="")
+            log_msg(f"{server} server unexpectedly alive")
+            processhelp.kill_pid(verb, pid)
+        if pid_file.is_file(): pid_file.unlink()
+
+    return result
+
+
+def sub_variables(thing, test_num, prefix) -> str:
+    """
+    substitute the variable stuff into either a joined up file
+    or a command, in either case passed by reference
+    """
+    global ftp_checktime
+    if not prefix: prefix = "%"
+
+    # test server ports
+    # Substitutes variables like %HTTPPORT and %SMTP6PORT with the server ports
+    for proto in ("DICT",
+                  "FTP", "FTP6", "FTPS",
+                  "GOPHER", "GOPHER6", "GOPHERS",
+                  "HTTP", "HTTP6", "HTTPS",
+                  "HTTPSPROXY", "HTTPTLS", "HTTPTLS6",
+                  "HTTP2", "HTTP2TLS",
+                  "HTTP3",
+                  "IMAP", "IMAP6", "IMAPS",
+                  "MQTT",
+                  "NOLISTEN",
+                  "POP3", "POP36", "POP3S",
+                  "RTSP", "RTSP6",
+                  "SMB", "SMBS",
+                  "SMTP", "SMTP6", "SMTPS",
+                  "SOCKS",
+                  "SSH",
+                  "TELNET",
+                  "TFTP", "TFTP6"):
+        port  = protoport(proto.lower())
+        thing = re.sub(rf"{prefix}(?:{proto})PORT", rf"{port}", thing)
+
+    # Special case: for PROXYPORT substitution, use httpproxy.
+    port  = protoport("httpproxy")
+    thing = re.sub(r"{prefix}PROXYPORT", rf"{port}", thing)
+
+    # server Unix domain socket paths
+    thing = re.sub(r"{prefix}HTTPUNIXPATH",  rf"{$HTTPUNIXPATH}",  thing)
+    thing = re.sub(r"{prefix}SOCKSUNIXPATH", rf"{$SOCKSUNIXPATH}", thing)
+
+    # client IP addresses
+    thing = re.sub(r"{prefix}CLIENT6IP", rf"{$CLIENT6IP}", thing)
+    thing = re.sub(r"{prefix}CLIENTIP",  rf"{$CLIENTIP}",  thing)
+
+    # server IP addresses
+    thing = re.sub(r"{prefix}HOST6IP", rf"{$HOST6IP}", thing)
+    thing = re.sub(r"{prefix}HOSTIP",  rf"{$HOSTIP}",  thing)
+
+    # misc
+    thing = re.sub(r"{prefix}CURL",       rf"{$CURL}", thing)
+    thing = re.sub(r"{prefix}LOGDIR",     rf"{config.LOGDIR}", thing)
+    thing = re.sub(r"{prefix}PWD",        rf"{$pwd}", thing)
+    thing = re.sub(r"{prefix}POSIX_PWD",  rf"{$posix_pwd}", thing)
+    thing = re.sub(r"{prefix}VERSION",    rf"{config.CURLVERSION}", thing)
+    thing = re.sub(r"{prefix}TESTNUMBER", rf"{$test_num}", thing)
+
+    file_pwd = $pwd;
+    if file_pwd !~ /^\//: file_pwd = f"/{file_pwd}"
+    ssh_pwd = $posix_pwd;
+    # this only works after the SSH server has been started
+    # TODO: call sshhelp.sshversioninfo early and store $sshdid so this substitution
+    # always works
+    if $sshdid and $sshdid =~ /OpenSSH-Windows/:
+        ssh_pwd = file_pwd
+
+    thing = re.sub(r"{prefix}FILE_PWD", rf"{$file_pwd}", thing)
+    thing = re.sub(r"{prefix}SSH_PWD",  rf"{$ssh_pwd}", thing)
+    thing = re.sub(r"{prefix}SRCDIR",   rf"{$srcdir}", thing)
+    thing = re.sub(r"{prefix}USER",     rf"{$USER}", thing)
+
+    thing = re.sub(r"{prefix}SSHSRVMD5",    rf"{$SSHSRVMD5}",    thing)
+    thing = re.sub(r"{prefix}SSHSRVSHA256", rf"{$SSHSRVSHA256}", thing)
+
+    # The purpose of FTPTIME2 and FTPTIME3 is to provide times that can be
+    # used for time-out tests and that would work on most hosts as these
+    # adjust for the startup/check time for this particular host. We needed to
+    # do this to make the test suite run better on very slow hosts.
+    ftp2 = ftp_checktime * 8
+    ftp3 = ftp_checktime * 12
+    thing = re.sub(r"{prefix}FTPTIME2", rf"{ftp2}", thing)
+    thing = re.sub(r"{prefix}FTPTIME3", rf"{ftp3}", thing)
+
+    # HTTP2
+    thing = re.sub(r"{prefix}H2CVER", rf"{$h2cver}", thing)
+
+    return thing

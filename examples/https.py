@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Simple HTTPS GET
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 def main(argv=sys.argv[1:]):
@@ -40,11 +40,11 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             # If you want to connect to a site who is not using a certificate that is
             # signed by one of the certs in the CA bundle you have, you can skip the
             # verification of the server's certificate. This makes the connection
@@ -57,18 +57,19 @@ def main(argv=sys.argv[1:]):
         if defined("SKIP_HOSTNAME_VERIFICATION"):
             # If the site you are connecting to uses a different host name that what
             # they have mentioned in their server certificate's commonName (or
-            # subjectAltName) fields, libcurl will refuse to connect. You can skip
-            # this check, but this will make the connection less secure.
+            # subjectAltName) fields, libcurl refuses to connect. You can skip this
+            # check, but it makes the connection insecure.
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYHOST, 0)
+        # cache the CA cert bundle in memory for a week
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_CA_CACHE_TIMEOUT, 604800)
 
-        # Perform the request, res will get the return code
+        # Perform the request, res gets the return code
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

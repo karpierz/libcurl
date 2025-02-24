@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,25 +20,24 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-SMTP example using the multi interface
+Send SMTP email with the multi interface
 """
 
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
+from curl_utils import *  # noqa
 
 # This is an example showing how to send mail using libcurl's SMTP
 # capabilities. It builds on the smtp-mail.c example to demonstrate
 # how to use libcurl's multi interface.
 
 # The libcurl options want plain addresses, the viewable headers in the
-# mail can very well get a full name as well.
+# mail can get a full name as well.
 
 FROM_ADDR = "<sender@example.org>"
 TO_ADDR   = "<addressee@example.net>"
@@ -56,11 +55,11 @@ payload_text: str = (
     "Message-ID: <dcd7cb36-11db-487a-9f3a-e652a9458efd@"
     "rfcpedant.example.org>\r\n"
     "Subject: SMTP example message\r\n"
-    "\r\n"  # empty line to divide headers from body, see RFC5322
+    "\r\n"  # empty line to divide headers from body, see RFC 5322
     "The body of the message starts here.\r\n"
     "\r\n"
     "It could be a lot of lines, could be MIME encoded, whatever.\r\n"
-    "Check RFC5322.\r\n"
+    "Check RFC 5322.\r\n"
 )
 
 payload_data: bytes = payload_text.encode("utf-8")
@@ -73,9 +72,9 @@ class upload_status(ct.Structure):
 
 
 @lcurl.read_callback
-def payload_source(buffer, size, nitems, stream):
-    upload_ctx = ct.cast(stream, ct.POINTER(upload_status)).contents
-    buffer_size = size * nitems
+def payload_source(buffer, size, nitems, userp):
+    upload_ctx = ct.cast(userp, ct.POINTER(upload_status)).contents
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     data = payload_data[upload_ctx.bytes_read:]
     if not data: return 0
@@ -95,14 +94,14 @@ def main(argv=sys.argv[1:]):
     mcurl: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
     curl:  ct.POINTER(lcurl.CURL)  = lcurl.easy_init()
 
-    with curl_guard(True, curl, mcurl):
+    with curl_guard(True, curl, mcurl) as guard:
         if not curl:  return 1
         if not mcurl: return 2
 
         # This is the URL for your mailserver
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        # Note that this option is not strictly required, omitting it will result
-        # in libcurl sending the MAIL FROM command with empty sender data. All
+        # Note that this option is not strictly required, omitting it results in
+        # libcurl sending the MAIL FROM command with empty sender data. All
         # autoresponses should have an empty reverse-path, and should be directed
         # to the address in the reverse-path which triggered them. Otherwise,
         # they could cause an endless loop. See RFC 5321 Section 4.5.5 for more
@@ -127,10 +126,10 @@ def main(argv=sys.argv[1:]):
 
         still_running = ct.c_int(1)
         while still_running.value:
+
             mc: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
-            if still_running.value:
-                # wait for activity, timeout or "nothing"
-                mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
+            # wait for activity, timeout or "nothing"
+            if still_running.value: mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
             if mc:
                 break
 

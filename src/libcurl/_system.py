@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 # **************************************************************************
 #                                  _   _ ____  _
@@ -9,7 +8,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -32,7 +31,7 @@
 # changed.
 #
 # In order to differentiate between platforms/compilers/architectures use
-# only compiler built in predefined preprocessor symbols.
+# only compiler built-in predefined preprocessor symbols.
 #
 # curl_off_t
 # ----------
@@ -47,7 +46,7 @@
 # As a general rule, curl_off_t shall not be mapped to off_t. This rule shall
 # only be violated if off_t is the only 64-bit data type available and the
 # size of off_t is independent of large file support settings. Keep your
-# build on the safe side avoiding an off_t gating.  If you have a 64-bit
+# build on the safe side avoiding an off_t gating. If you have a 64-bit
 # off_t then take for sure that another 64-bit data type exists, dig deeper
 # and you will find it.
 
@@ -59,44 +58,18 @@ CURL_FORMAT_CURL_OFF_TU    = "u"
 CURL_TYPEOF_CURL_SOCKLEN_T = ct.c_int
 
 """
-if defined("__DJGPP__") or defined("__GO32__"):
-    if defined("__DJGPP__") and (__DJGPP__ > 1):
-        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
-        CURL_SUFFIX_CURL_OFF_T  = LL
-        CURL_SUFFIX_CURL_OFF_TU = ULL
-    else:
-        CURL_TYPEOF_CURL_OFF_T  = long
-        CURL_SUFFIX_CURL_OFF_T  = L
-        CURL_SUFFIX_CURL_OFF_TU = UL
-    CURL_TYPEOF_CURL_SOCKLEN_T  = ct.c_int
-
-elif defined("__SALFORDC__"):
-    CURL_TYPEOF_CURL_OFF_T     = long
-    CURL_SUFFIX_CURL_OFF_T     = L
-    CURL_SUFFIX_CURL_OFF_TU    = UL
+if defined("__DJGPP__"):
+    CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+    CURL_SUFFIX_CURL_OFF_T  = LL
+    CURL_SUFFIX_CURL_OFF_TU = ULL
 
 elif defined("__BORLANDC__"):
-    if __BORLANDC__ < 0x520:
-        CURL_TYPEOF_CURL_OFF_T  = long
-        CURL_SUFFIX_CURL_OFF_T  = L
-        CURL_SUFFIX_CURL_OFF_TU = UL
-    else:
-        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
-        CURL_SUFFIX_CURL_OFF_T  = i64
-        CURL_SUFFIX_CURL_OFF_TU = ui64
-    CURL_TYPEOF_CURL_SOCKLEN_T  = ct.c_int
-
-elif defined("__TURBOC__"):
-   CURL_TYPEOF_CURL_OFF_T     = long
-   CURL_SUFFIX_CURL_OFF_T     = L
-   CURL_SUFFIX_CURL_OFF_TU    = UL
+    CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+    CURL_SUFFIX_CURL_OFF_T  = i64
+    CURL_SUFFIX_CURL_OFF_TU = ui64
 
 elif defined("__POCC__"):
-    if __POCC__ < 280:
-        CURL_TYPEOF_CURL_OFF_T  = long
-        CURL_SUFFIX_CURL_OFF_T  = L
-        CURL_SUFFIX_CURL_OFF_TU = UL
-    elif defined("_MSC_VER"):
+    if defined("_MSC_VER"):
         CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
         CURL_SUFFIX_CURL_OFF_T  = i64
         CURL_SUFFIX_CURL_OFF_TU = ui64
@@ -104,45 +77,50 @@ elif defined("__POCC__"):
         CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
         CURL_SUFFIX_CURL_OFF_T  = LL
         CURL_SUFFIX_CURL_OFF_TU = ULL
-    CURL_TYPEOF_CURL_SOCKLEN_T  = ct.c_int
 
 elif defined("__LCC__"):
-    if defined("__MCST__"): # MCST eLbrus Compiler Collection
-        CURL_TYPEOF_CURL_OFF_T     = long
-        CURL_SUFFIX_CURL_OFF_T     = L
-        CURL_SUFFIX_CURL_OFF_TU    = UL
+    if defined("__MCST__"):  # MCST eLbrus Compiler Collection
+        CURL_TYPEOF_CURL_OFF_T  = long
+        CURL_SUFFIX_CURL_OFF_T  = L
+        CURL_SUFFIX_CURL_OFF_TU = UL
         CURL_TYPEOF_CURL_SOCKLEN_T = socklen_t
-    else:                # Local (or Little) C Compiler
-        CURL_TYPEOF_CURL_OFF_T     = long
-        CURL_SUFFIX_CURL_OFF_T     = L
-        CURL_SUFFIX_CURL_OFF_TU    = UL
+    else:                    # Local (or Little) C Compiler
+        CURL_TYPEOF_CURL_OFF_T  = long
+        CURL_SUFFIX_CURL_OFF_T  = L
+        CURL_SUFFIX_CURL_OFF_TU = UL
 
-elif defined("__SYMBIAN32__"):
-    if defined("__EABI__"): # Treat all ARM compilers equally
-        CURL_TYPEOF_CURL_OFF_T = ct.c_int64
-    elif defined("__CW32__"):
-        CURL_TYPEOF_CURL_OFF_T = ct.c_int64
-    elif defined("__VC32__"):
-        CURL_TYPEOF_CURL_OFF_T = ct.c_int64
-    CURL_SUFFIX_CURL_OFF_T     = LL
-    CURL_SUFFIX_CURL_OFF_TU    = ULL
-    CURL_TYPEOF_CURL_SOCKLEN_T = ct.c_uint
+elif defined("macintosh"):
+    # #include <ConditionalMacros.h>
+    if defined("TYPE_LONGLONG") and TYPE_LONGLONG:
+        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64 # long long
+        CURL_SUFFIX_CURL_OFF_T  = LL
+        CURL_SUFFIX_CURL_OFF_TU = ULL
+    else:
+        CURL_TYPEOF_CURL_OFF_T  = long
+        CURL_SUFFIX_CURL_OFF_T  = L
+        CURL_SUFFIX_CURL_OFF_TU = UL
+    CURL_TYPEOF_CURL_SOCKLEN_T  = ct.c_uint
 
-elif defined("__MWERKS__"):
-   CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
-   CURL_SUFFIX_CURL_OFF_T     = LL
-   CURL_SUFFIX_CURL_OFF_TU    = ULL
+elif defined("__TANDEM"):
+    if not defined("__LP64"):
+        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+        CURL_SUFFIX_CURL_OFF_T  = LL
+        CURL_SUFFIX_CURL_OFF_TU = ULL
+    else:
+        CURL_TYPEOF_CURL_OFF_T  = long
+        CURL_SUFFIX_CURL_OFF_T  = L
+        CURL_SUFFIX_CURL_OFF_TU = UL
+        CURL_TYPEOF_CURL_SOCKLEN_T = ct.c_uint
 
 elif defined("_WIN32_WCE"):
-   CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
-   CURL_SUFFIX_CURL_OFF_T     = i64
-   CURL_SUFFIX_CURL_OFF_TU    = ui64
+    CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
+    CURL_SUFFIX_CURL_OFF_T     = i64
+    CURL_SUFFIX_CURL_OFF_TU    = ui64
 
 elif defined("__MINGW32__"):
-   CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
-   CURL_SUFFIX_CURL_OFF_T     = LL
-   CURL_SUFFIX_CURL_OFF_TU    = ULL
-   CURL_TYPEOF_CURL_SOCKLEN_T = socklen_t
+    CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
+    CURL_SUFFIX_CURL_OFF_T     = LL
+    CURL_SUFFIX_CURL_OFF_TU    = ULL
 
 elif defined("__VMS"):
     if defined("__VAX"):
@@ -156,27 +134,21 @@ elif defined("__VMS"):
     CURL_TYPEOF_CURL_SOCKLEN_T  = ct.c_uint
 
 elif defined("__OS400__"):
-    if defined("__ILEC400__"):
-        CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
-        CURL_SUFFIX_CURL_OFF_T     = LL
-        CURL_SUFFIX_CURL_OFF_TU    = ULL
-        CURL_TYPEOF_CURL_SOCKLEN_T = socklen_t
+    CURL_TYPEOF_CURL_OFF_T     = ct.c_int64
+    CURL_SUFFIX_CURL_OFF_T     = LL
+    CURL_SUFFIX_CURL_OFF_TU    = ULL
+    CURL_TYPEOF_CURL_SOCKLEN_T = socklen_t
 
 elif defined("__MVS__"):
-    if defined("__IBMC__") or defined("__IBMCPP__"):
-        if defined("_LONG_LONG"):
-            CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
-            CURL_SUFFIX_CURL_OFF_T  = LL
-            CURL_SUFFIX_CURL_OFF_TU = ULL
-        elif defined("_LP64"):
-            CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
-            CURL_SUFFIX_CURL_OFF_T  = L
-            CURL_SUFFIX_CURL_OFF_TU = UL
-        else:
-            CURL_TYPEOF_CURL_OFF_T  = long
-            CURL_SUFFIX_CURL_OFF_T  = L
-            CURL_SUFFIX_CURL_OFF_TU = UL
-        CURL_TYPEOF_CURL_SOCKLEN_T  = socklen_t
+    if defined("_LONG_LONG"):
+        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+        CURL_SUFFIX_CURL_OFF_T  = LL
+        CURL_SUFFIX_CURL_OFF_TU = ULL
+    else:  # _LP64 and default
+        CURL_TYPEOF_CURL_OFF_T  = long
+        CURL_SUFFIX_CURL_OFF_T  = L
+        CURL_SUFFIX_CURL_OFF_TU = UL
+    CURL_TYPEOF_CURL_SOCKLEN_T  = socklen_t
 
 elif defined("__370__"):
     if defined("__IBMC__") or defined("__IBMCPP__"):
@@ -184,15 +156,11 @@ elif defined("__370__"):
             CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
             CURL_SUFFIX_CURL_OFF_T  = LL
             CURL_SUFFIX_CURL_OFF_TU = ULL
-        elif defined("_LP64"):
-            CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
-            CURL_SUFFIX_CURL_OFF_T  = L
-            CURL_SUFFIX_CURL_OFF_TU = UL
-        else:
+        else:  # _LP64 and default
             CURL_TYPEOF_CURL_OFF_T  = long
             CURL_SUFFIX_CURL_OFF_T  = L
             CURL_SUFFIX_CURL_OFF_TU = UL
-        CURL_TYPEOF_CURL_SOCKLEN_T = socklen_t
+        CURL_TYPEOF_CURL_SOCKLEN_T  = socklen_t
 
 elif defined("TPF"):
     CURL_TYPEOF_CURL_OFF_T     = long
@@ -230,20 +198,25 @@ elif defined("__xlc__"): # IBM xlc compiler
         CURL_SUFFIX_CURL_OFF_TU = UL
     CURL_TYPEOF_CURL_SOCKLEN_T  = socklen_t
 
+elif defined("__hpux"): # HP aCC compiler
+    if not defined("_LP64"):
+        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+        CURL_SUFFIX_CURL_OFF_T  = LL
+        CURL_SUFFIX_CURL_OFF_TU = ULL
+    else:
+        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+        CURL_SUFFIX_CURL_OFF_T  = L
+        CURL_SUFFIX_CURL_OFF_TU = UL
+    CURL_TYPEOF_CURL_SOCKLEN_T  = socklen_t
+
 # ===================================== #
 #    KEEP MSVC THE PENULTIMATE ENTRY    #
 # ===================================== #
 
 elif defined("_MSC_VER"):
-    if _MSC_VER >= 900 and _INTEGRAL_MAX_BITS >= 64:
-        CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
-        CURL_SUFFIX_CURL_OFF_T  = i64
-        CURL_SUFFIX_CURL_OFF_TU = ui64
-    else:
-        CURL_TYPEOF_CURL_OFF_T  = long
-        CURL_SUFFIX_CURL_OFF_T  = L
-        CURL_SUFFIX_CURL_OFF_TU = UL
-    CURL_TYPEOF_CURL_SOCKLEN_T  = ct.c_int
+    CURL_TYPEOF_CURL_OFF_T  = ct.c_int64
+    CURL_SUFFIX_CURL_OFF_T  = i64
+    CURL_SUFFIX_CURL_OFF_TU = ui64
 
 # ===================================== #
 #    KEEP GENERIC GCC THE LAST ENTRY    #
@@ -272,10 +245,10 @@ elif defined("__GNUC__") and not defined("_SCO_DS"):
     CURL_TYPEOF_CURL_SOCKLEN_T = socklen_t
 
 else:
-    # generic "safe guess" on old 32 bit style
-    CURL_TYPEOF_CURL_OFF_T     = long
-    CURL_SUFFIX_CURL_OFF_T     = L
-    CURL_SUFFIX_CURL_OFF_TU    = UL
+    # generic "safe guess" on old 32-bit style
+    CURL_TYPEOF_CURL_OFF_T  = long
+    CURL_SUFFIX_CURL_OFF_T  = L
+    CURL_SUFFIX_CURL_OFF_TU = UL
 
 # Data type definition of curl_socklen_t.
 if defined("CURL_TYPEOF_CURL_SOCKLEN_T"):
@@ -298,7 +271,7 @@ if defined("CURL_TYPEOF_CURL_OFF_T"):
 
 if (defined("__STDC__") or defined("_MSC_VER")     or defined("__cplusplus") or
     defined("__HP_aCC") or defined("__BORLANDC__") or defined("__LCC__")     or
-    defined("__POCC__") or defined("__SALFORDC__") or defined("__HIGHC__")   or
+    defined("__POCC__") or defined("__HIGHC__")    or
     defined("__ILEC400__")):
     # This compiler is believed to have an ISO compatible preprocessor
     # define CURL_ISOCPP

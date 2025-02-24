@@ -1,0 +1,370 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+# This is the HTTPS, FTPS, POP3S, IMAPS, SMTPS, server used for curl test
+# harness. Actually just a layer that runs stunnel properly using the
+# non-secure test harness servers.
+
+from typing import Optional
+import argparse
+import sys
+from pathlib import Path
+
+import serverhelp
+
+if "srcdir" in os.environ: @INC.append(os.environ["srcdir"])
+@INC.append(".")
+
+use Cwd;
+use Cwd 'abs_path';
+use File::Basename;
+
+use pathhelp;
+
+accept_port: int = 8991  # just our default, weird enough
+target_port: int = 8999  # default test http-server port
+
+my $stuncert;
+
+my $ver_major;
+my $ver_minor;
+stunnel: Path = Path("stunnel")
+tstunnel_windows: bool = False
+fips_support:     bool = False
+my $cmd;
+
+pid_file: Optional[Path] = None  # stunnel pid file
+log_file: Optional[Path] = None  # stunnel log file
+my $loglevel = 5;     # stunnel log level
+
+proto: str = 'https';  # default secure server protocol
+my $ipvnum = 4;       # default IP version of stunneled server
+my $idnum = 1;        # default stunneled server instance number
+conf_file: Optional[Path] = None  # stunnel configuration file
+my $capath;           # certificate chain PEM folder
+my $certfile;         # certificate chain PEM file
+
+verbose: int = 0  # set to 1 for debugging
+
+# **************************************************************************
+# stunnel requires full path specification for several files.
+#
+my $path   = getcwd();
+my $srcdir = $path;
+my $logdir = $path .'/log';
+my $piddir;
+
+
+def exit_signal_handler($signame):
+    """Signal handler to remove our stunnel 4.00 and newer configuration file."""
+    global conf_file
+    local $!; # preserve errno
+    local $?; # preserve exit status
+    if conf_file and conf_file.is_file(): conf_file.unlink()
+    exit;
+
+
+def get_options(argv=sys.argv[1:]):
+    """Process command line options"""
+    app_name = sys.argv[0].rpartition("/")[2].rpartition("\\")[2]
+
+    parser = argparse.ArgumentParser(prog=f"python {app_name}")
+
+    parser.add_argument("--pidfile", action="store", type=Path,
+                        help="file name for the PID")
+    parser.add_argument("--logfile", action="store", type=Path,
+                        help="file name for the log")
+    parser.add_argument("--logdir", action="store", type=Path, default=str(curr_dir/"log"),
+                        help="logs directory")
+    parser.add_argument("--verbose", action="store", type=int, default=0,
+                        help="verbose output")
+
+    options = parser.parse_args(argv)
+    options._app_name   = app_name
+    options._arg_parser = parser
+
+    return options
+
+    while(@ARGV) {
+        elif ($ARGV[0] == '--proto') {
+            if($ARGV[1]) {
+                proto = $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        elif ($ARGV[0] == '--accept') {
+            if($ARGV[1]) {
+                if($ARGV[1] =~ /^(\d+)$/) {
+                    accept_port = int($1)
+                    shift @ARGV;
+                }
+            }
+        }
+        elif ($ARGV[0] == '--connect') {
+            if($ARGV[1]) {
+                if($ARGV[1] =~ /^(\d+)$/) {
+                    target_port = int($1)
+                    shift @ARGV;
+                }
+            }
+        }
+        elif ($ARGV[0] == '--stunnel') {
+            if($ARGV[1]) {
+                stunnel = $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        elif ($ARGV[0] == '--srcdir') {
+            if($ARGV[1]) {
+                $srcdir = Path($ARGV[1])
+                shift @ARGV;
+            }
+        }
+        elif ($ARGV[0] == '--certfile') {
+            if($ARGV[1]) {
+                $stuncert = $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        elif ($ARGV[0] == '--id') {
+            if($ARGV[1]) {
+                if($ARGV[1] =~ /^(\d+)$/) {
+                    $idnum = $1 if($1 > 0);
+                    shift @ARGV;
+                }
+            }
+        }
+        elif ($ARGV[0] == '--ipv4') {
+            $ipvnum = 4;
+        }
+        elif ($ARGV[0] == '--ipv6') {
+            $ipvnum = 6;
+        }
+        elsif($ARGV[0] == '--pidfile') {
+            if($ARGV[1]) {
+                pid_file = "$path/". $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        elsif($ARGV[0] == '--logfile') {
+            if($ARGV[1]) {
+                log_file = "$path/". $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        elsif($ARGV[0] == '--logdir') {
+            if($ARGV[1]) {
+                $logdir = "$path/". $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        shift @ARGV;
+    }
+
+
+def main(argv=sys.argv[1:]) -> int:
+
+    # Get the options from the user.
+    options = get_options(argv)
+
+    # Initialize command line option dependent variables
+    if pid_file:
+        # Use our pidfile directory to store the conf files
+        $piddir = dirname(pid_file);
+    else:
+        # Use the current directory to store the conf files
+        $piddir = $path;
+        pid_file = serverhelp.server_pid_file($piddir, proto, $ipvnum, $idnum)
+    if not log_file:
+        log_file = serverhelp.server_log_file($logdir, proto, $ipvnum, $idnum)
+
+    conf_file = Path(f"$piddir/${proto}_stunnel.conf")
+
+    $capath = abs_path($path);
+    $certfile = "$srcdir/". ($stuncert?"certs/$stuncert":"stunnel.pem");
+    $certfile = abs_path($certfile);
+
+    my $ssltext = f"{proto.upper()} SSL/TLS:"
+
+    host_ip: str = "::1" if $ipvnum == 6 else "127.0.0.1"
+
+    # **************************************************************************
+    # Find out version info for the given stunnel binary
+    #
+    for $veropt in ('-version', '-V'):
+        foreach my $verstr (qx(f"{stunnel}" $veropt 2>&1)) {
+            if($verstr =~ /^stunnel (\d+)\.(\d+) on /) {
+                $ver_major = $1;
+                $ver_minor = $2;
+            }
+            elif ($verstr =~ /^sslVersion.*fips *= *yes/) {
+                # the fips option causes an error if stunnel doesn't support it
+                fips_support = True
+                break
+            }
+        }
+        if $ver_major:
+            break
+    if not $ver_major or not defined($ver_minor):
+        if (-x f"{stunnel}" && ! -d "{stunnel}"):
+            print(f"$ssltext Unknown stunnel version")
+        else:
+            print(f"{$ssltext} No stunnel")
+        exit 1;
+    stunnel_version: int = (100 * $ver_major) + $ver_minor
+
+    # Verify minimum stunnel required version
+    if stunnel_version < 310:
+        print(f"$ssltext Unsupported stunnel version $ver_major.$ver_minor")
+        exit 1;
+
+    # Find out if we are running on Windows using the tstunnel binary
+    if f"{stunnel}" =~ /tstunnel(\.exe)?$/:
+        tstunnel_windows = True
+        # convert Cygwin/MinGW paths to Windows format
+        $capath   = pathhelp::sys_native_abs_path($capath)
+        $certfile = pathhelp::sys_native_abs_path($certfile)
+
+    # Build command to execute for stunnel 3.X versions
+    if stunnel_version < 400:
+
+        socket_opt = ""
+        if stunnel_version >= 319:
+            socket_opt = "-O a:SO_REUSEADDR=1"
+        # TODO: we do not use host_ip in this old version. I simply find
+        # no documentation how to. But maybe ipv6 is not available anyway?
+        $cmd  = f"\"{stunnel}\" -p $certfile -P {pid_file} "
+        $cmd += f"-d {accept_port} -r {target_port} -f -D $loglevel ";
+        $cmd += f"{socket_opt} " if socket_opt else ""
+        $cmd += f">{log_file} 2>&1";
+
+        if verbose:
+            print f"{proto.upper()} server (stunnel $ver_major.$ver_minor)\n"
+            print f"cmd: $cmd\n";
+            print f"pem cert file: $certfile\n";
+            print f"pid file: {pid_file}\n"
+            print f"log file: {log_file}\n";
+            print f"log level: $loglevel\n";
+            print f"listen on port: {accept_port}\n";
+            print f"connect to port: {target_port}\n";
+
+    # Build command to execute for stunnel 4.00 and newer
+    if stunnel_version >= 400:
+
+        socket_opt = "a:SO_REUSEADDR=1"
+        if stunnel_version >= 534 and tstunnel_windows:
+            # SO_EXCLUSIVEADDRUSE is on by default on Vista or newer,
+            # but does not work together with SO_REUSEADDR being on.
+            socket_opt += "\nsocket = a:SO_EXCLUSIVEADDRUSE=0"
+        $cmd  = f"\"$stunnel\" {conf_file} "
+        $cmd += f">{log_file} 2>&1"
+
+        # setup signal handler
+        $SIG{INT}  = exit_signal_handler
+        $SIG{TERM} = exit_signal_handler
+
+        # stunnel configuration file
+        try:
+            $stunconf = conf_file.open("wt",
+        except:
+            print(f"$ssltext Error writing file {conf_file}")
+            exit 1;
+        try:
+            with $stunconf:
+                print(f"CApath = $capath", file=$stunconf)
+                print(f"cert = $certfile", file=$stunconf)
+                print(f"debug = $loglevel", file=$stunconf)
+                print(f"socket = {socket_opt}", file=$stunconf)
+                if fips_support:
+                    # disable fips in case OpenSSL doesn't support it
+                    print("fips = no", file=$stunconf)
+                if not tstunnel_windows:
+                    # do not use Linux-specific options on Windows
+                    print(f"output = {log_file}", file=$stunconf)
+                    print(f"pid = {pid_file}", file=$stunconf)
+                    print("foreground = yes", file=$stunconf)
+                print(file=$stunconf)
+                print("[curltest]", file=$stunconf)
+                print(f"accept = {host_ip}:{accept_port}", file=$stunconf)
+                print(f"connect = {host_ip}:{target_port}", file=$stunconf)
+        except:
+            print(f"$ssltext Error closing file {conf_file}")
+            exit 1;
+
+        if verbose:
+            print(f"{proto.upper()} server (stunnel $ver_major.$ver_minor)")
+            print(f"cmd: $cmd")
+            print(f"CApath = $capath")
+            print(f"cert = $certfile")
+            print(f"debug = $loglevel")
+            print(f"socket = {socket_opt}")
+            if fips_support:
+                print("fips = no")
+            if not tstunnel_windows:
+                print(f"pid = {pid_file}")
+                print(f"output = {log_file}")
+                print("foreground = yes")
+            print()
+            print("[curltest]")
+            print(f"accept = {host_ip}:{accept_port}")
+            print(f"connect = {host_ip}:{target_port}")
+
+    # Set file permissions on certificate pem file.
+    chmod(0600, $certfile) if(-f $certfile);
+    if verbose: print(f"RUN: {$cmd}", file=sys.stderr)
+
+    # **************************************************************************
+    # Run tstunnel on Windows.
+    #
+    if tstunnel_windows:
+        # Fake pidfile for tstunnel on Windows.
+        if (out := pid_file.open(">")):
+            print($$, file=out)
+            close(out)
+
+        # Flush output.
+        sys.stdout.reconfigure(line_buffering=False)
+        sys.stderr.reconfigure(line_buffering=False)
+
+        # Put an "exec" in front of the command so that the child process
+        # keeps this child's process ID by being tied to the spawned shell.
+        exec("exec $cmd") || die "Can't exec() $cmd: $!";
+        # exec() will create a new process, but ties the existence of the
+        # new process to the parent waiting perl.exe and sh.exe processes.
+
+        # exec() should never return back here to this process. We protect
+        # ourselves by calling die() just in case something goes really bad.
+        die("error: exec() has returned")
+
+    # Run stunnel.
+    rc = os.system($cmd)
+    rc = rc >> 8
+
+    if conf_file and conf_file.is_file(): conf_file.unlink()
+
+    exit rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

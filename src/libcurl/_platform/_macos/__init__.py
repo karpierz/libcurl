@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 import sys
 import os
@@ -82,9 +81,78 @@ class sockaddr(ct.Structure):
     ("__pad2",    ct.c_ulong),
 ]
 
+# POSIX.1g specifies this type name for the `sa_family' member.
+sa_family_t = ct.c_ushort
+
+# Type to represent a port.
+in_port_t = ct.c_uint16
+
+# IPv4 AF_INET sockets:
+
+class in_addr(ct.Structure):
+    _fields_ = [
+    ("s_addr", ct.c_uint32),
+]
+
+class sockaddr_in(ct.Structure):
+    _fields_ = [
+    ("sin_family", sa_family_t),  # e.g. AF_INET, AF_INET6
+    ("sin_port",   in_port_t),    # Port number.
+    ("sin_addr",   in_addr),      # Internet address.
+    ("sin_zero",   (ct.c_ubyte    # Pad to size of `struct sockaddr'.
+                    * (ct.sizeof(sockaddr)
+                       - ct.sizeof(sa_family_t)
+                       - ct.sizeof(in_port_t)
+                       - ct.sizeof(in_addr)))),
+]
+
+# IPv6 AF_INET6 sockets:
+
+class in6_addr(ct.Union):
+    _fields_ = [
+    ("s6_addr",   (ct.c_uint8 * 16)),
+    ("s6_addr16", (ct.c_uint16 * 8)),
+    ("s6_addr32", (ct.c_uint32 * 4)),
+]
+
+class sockaddr_in6(ct.Structure):
+    _fields_ = [
+    ("sin6_family",   sa_family_t),  # address family, AF_INET6
+    ("sin6_port",     in_port_t),    # Transport layer port #
+    ("sin6_flowinfo", ct.c_uint32),  # IPv6 flow information
+    ("sin6_addr",     in6_addr),     # IPv6 address
+    ("sin6_scope_id", ct.c_uint32),  # IPv6 scope-id
+]
+
+# From <sys/select.h>
+
+# The fd_set member
 fd_mask = ct.c_long
+NFDBITS = 8 * ct.sizeof(fd_mask)
+
+# Maximum number of file descriptors in `fd_set'.
+FD_SETSIZE = 1024
 
 class fd_set(ct.Structure):
     _fields_ = [
-    ("fds_bits", fd_mask * 32),
+    ("fds_bits", fd_mask * (FD_SETSIZE // NFDBITS)),
 ]
+
+@CFUNC(None, ct.POINTER(fd_set))
+def FD_ZERO(fdsetp):
+    ct.memset(fdsetp, 0, ct.sizeof(fdsetp))
+
+@CFUNC(ct.c_int, ct.c_int, ct.POINTER(fd_set))
+def FD_ISSET(fd, fdsetp):
+    fdset = fdsetp.contents
+    return int(fdset.fds_bits[fd // NFDBITS] & (1 << (fd % NFDBITS)))
+
+@CFUNC(None, ct.c_int, ct.POINTER(fd_set))
+def FD_SET(fd, fdsetp):
+    fdset = fdsetp.contents
+    fdset.fds_bits[fd // NFDBITS] |= (1 << (fd % NFDBITS))
+
+@CFUNC(None, ct.c_int, ct.POINTER(fd_set))
+def FD_CLR(fd, fdsetp):
+    fdset = fdsetp.contents
+    fdset.fds_bits[fd // NFDBITS] &= ~(1 << (fd % NFDBITS))

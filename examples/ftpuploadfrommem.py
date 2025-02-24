@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 FTP upload a file from memory
@@ -30,8 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
+from curl_utils import *  # noqa
 
 # Silly test data to upload
 text: str = (
@@ -59,7 +58,7 @@ class WriteThis(ct.Structure):
 @lcurl.read_callback
 def read_function(buffer, size, nitems, stream):
     upload = ct.cast(stream, ct.POINTER(WriteThis)).contents
-    buffer_size = size * nitems
+    buffer_size = nitems * size
     if upload.sizeleft == 0 or buffer_size == 0:
         return 0  # no more data left to deliver
     # copy as much as possible from the source to the destination
@@ -73,17 +72,17 @@ def read_function(buffer, size, nitems, stream):
 
 def main(argv=sys.argv[1:]):
 
-    url: str = (argv[0] if len(argv) >= 1 else
-                "ftp://example.com/path/to/upload/file")
+    url: str        = argv[0] if len(argv) >= 1 else "ftp://example.com/path/to/upload/file"
+    user_login: str = argv[1] if len(argv) >= 2 else "login:secret"
 
     upload = WriteThis(data, len(data))
 
-    # In windows, this will init the winsock stuff
+    # In Windows, this inits the Winsock stuff
     res: lcurl.CURLcode = lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     # get a curl handle
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         # Check for errors
         if res != lcurl.CURLE_OK: return 1
         if not curl: return 1
@@ -91,7 +90,8 @@ def main(argv=sys.argv[1:]):
         # First set the URL, the target file
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
         # User and password for the FTP login
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_USERPWD, b"login:secret")
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_USERPWD,
+                                user_login.encode("utf-8") if user_login else None)
         # Now specify we want to UPLOAD data
         lcurl.easy_setopt(curl, lcurl.CURLOPT_UPLOAD, 1)
         # we want to use our own read function
@@ -104,14 +104,13 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_INFILESIZE_LARGE,
                           lcurl.off_t(upload.sizeleft).value)
 
-        # Perform the request, res will get the return code
+        # Perform the request, res gets the return code
         res = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

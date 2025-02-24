@@ -1,0 +1,483 @@
+# **************************************************************************
+#
+# This example source code introduces a c library buffered I/O interface to
+# URL reads it supports open(), fread(), fgets(), feof(), close(),
+# rewind(). Supported functions have identical prototypes to their normal c
+# lib namesakes and are preceaded by url_ .
+#
+# Using this code you can replace your program's open() with url_open()
+# and fread() with url_fread() and it become possible to read remote streams
+# instead of (only) local files. Local files (ie those that can be directly
+# opened) will drop back to using the underlying clib implementations
+#
+# See the main() function at the bottom that shows an app that retrieves from
+# a specified url using fgets() and fread() and saves as two output files.
+#
+# Copyright (c) 2003 - 2021 Simtec Electronics
+#
+# Re-implemented by Vincent Sanders <vince@kyllikki.org> with extensive
+# reference to original curl example code
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. The name of the author may not be used to endorse or promote products
+#    derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+# NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# This example requires libcurl 7.9.7 or later.
+#
+# **************************************************************************
+
+"""
+Implements an open() abstraction allowing reading from URLs
+"""
+
+import sys
+import ctypes as ct
+import enum
+import io
+import errno
+import select
+import time
+
+import libcurl as lcurl
+from curl_utils import *  # noqa
+
+
+class CFTYPE(enum.IntEnum):
+    NONE = 0
+    FILE = 1
+    CURL = 2
+
+class URL_FILE(ct.Structure):
+    class _handle(ct.Union):
+        _fields_ = [
+        ("curl", ct.POINTER(lcurl.CURL)),
+        ("file", ct.POINTER(FILE)),
+    ]
+    _fields_ = [
+    ("type",          CFTYPE),       # type of handle
+    ("handle",        _handle),      # handle
+    ("buffer",        ct.POINTER(ct.c_ubyte)),  # buffer to store cached data
+    ("buffer_len",    ct.c_size_t),  # currently allocated buffers length
+    ("buffer_pos",    ct.c_size_t),  # end of data in buffer
+    ("still_running", ct.c_int),     # Is background url fetch still in progress
+]
+
+# we use a global one for convenience
+multi_handle = ct.POINTER(lcurl.CURLM)()
+
+
+@lcurl.write_callback
+def write_callback(buffer, size, nitems, userp):
+    # curl calls this routine to get more data
+    url_file: URL_FILE = ct.cast(userp, ct.POINTER(URL_FILE)).contents
+
+    size *= nitems
+    # remaining space in buffer
+    rembuff: int = url_file.buffer_len - url_file.buffer_pos
+
+    if size > rembuff:
+        # not enough space in buffer
+        newbuff: char * = realloc(url_file.buffer, url_file.buffer_len + (size - rembuff))
+        if not newbuff:
+            print("callback buffer grow failed", file=sys.stderr)
+            size = rembuff;
+        else:
+            # realloc succeeded increase buffer size
+            url_file.buffer_len += size - rembuff
+            url_file.buffer      = newbuff
+
+    ct.memmove(&url_file.buffer[url_file.buffer_pos], buffer, size)
+    url_file.buffer_pos += size
+
+    return size
+
+
+def fill_buffer(URL_FILE *file, size_t want) -> int:
+    # use to attempt to fill the read buffer up to requested number of bytes
+
+    global multi_handle
+
+    int rc;
+
+    # only attempt to fill buffer if transactions still running
+    # and buffer does not exceed required size already
+    if not file->still_running or file->buffer_pos > want:
+        return 0
+
+    # attempt to fill buffer
+    while True:
+
+        fd_read  = lcurl.fd_set()
+        fd_write = lcurl.fd_set()
+        fd_excep = lcurl.fd_set()
+
+        curl_timeout = ct.c_long(-1)
+        curl_multi_timeout(multi_handle, ct.byref(curl_timeout))
+        curl_timeout = curl_timeout.value
+
+        # get file descriptors from the transfers
+        max_fd = ct.c_int(-1)
+        mc: lcurl.CURLMcode = lcurl.multi_fdset(multi_handle,
+                                 ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                                 ct.byref(max_fd))
+        max_fd = max_fd.value
+        if mc != lcurl.CURLM_OK:
+            print("libcurl.multi_fdset() failed, code %d." % mc, file=sys.stderr)
+            break
+
+        # On success the value of max_fd is guaranteed to be >= -1. We call
+        # select(max_fd + 1, ...); specially in case of (max_fd == -1) there are
+        # no fds ready yet so we call select(0, ...) --or Sleep() on Windows--
+        # to sleep 100ms, which is the minimum suggested value in the
+        # curl_multi_fdset() doc.
+
+        # set a suitable timeout to fail on
+        timeout = ((lcurl.timeval(tv_sec=curl_timeout // 1000,
+                                  tv_usec=(curl_timeout % 1000) * 1000)
+                    if curl_timeout < 1000 else
+                    lcurl.timeval(tv_sec=1, tv_usec=0))
+                   if curl_timeout >= 0 else
+                   lcurl.timeval(tv_sec=60, tv_usec=0))  # 1 minute
+        if max_fd == -1:
+            time.sleep(100 / 1000)
+            rc = 0
+        else:
+            rc = lcurl.select(max_fd + 1, fd_read, fd_write, fd_excep, timeout)
+
+        if rc == -1:
+            # select error
+            print("@@@", "lcurl.select error!")
+            pass
+        else:  # 0 and others:
+            # timeout or readable/writable sockets
+            lcurl.multi_perform(multi_handle, ct.byref(file->still_running))
+
+        if not (file->still_running and file->buffer_pos < want):
+            break
+
+    return 1
+
+
+def use_buffer(URL_FILE *file, size_t want) -> int:
+    # use to remove want bytes from the front of a files buffer
+
+    # sort out buffer
+    if want >= file->buffer_pos:
+        # ditch buffer - write will recreate
+        free(file->buffer);
+        file->buffer = NULL;
+        file->buffer_pos = 0
+        file->buffer_len = 0
+    else:
+        # move rest down make it available for later
+        memmove(file->buffer, &file->buffer[want], (file->buffer_pos - want));
+        file->buffer_pos -= want;
+
+    return 0
+
+
+def url_open(url: str, mode: str = "r") -> URL_FILE:
+    # this code could check for URLs or types in the 'url'
+    # and basically use the real open() for standard files
+
+    global multi_handle
+
+    url_file = URL_FILE()
+    try:
+        url_file.handle.file = open(url, mode)
+        url_file.type = CFTYPE.FILE  # marked as FILE
+    except OSError as exc:
+        url_file.type = CFTYPE.CURL  # marked as URL
+        url_file.handle.curl = lcurl.easy_init()
+
+        lcurl.easy_setopt(url_file.handle.curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
+        lcurl.easy_setopt(url_file.handle.curl, lcurl.CURLOPT_WRITEFUNCTION, write_callback)
+        lcurl.easy_setopt(url_file.handle.curl, lcurl.CURLOPT_WRITEDATA, ct.byref(url_file))
+        lcurl.easy_setopt(url_file.handle.curl, lcurl.CURLOPT_VERBOSE, 0)
+
+        if not multi_handle:
+            multi_handle = lcurl.multi_init()
+
+        lcurl.multi_add_handle(multi_handle, url_file.handle.curl)
+
+        # lets start the fetch
+        lcurl.multi_perform(multi_handle, ct.byref(url_file.still_running))
+
+        if url_file.buffer_pos == 0 and not url_file.still_running:
+            # if still_running is 0 now, we should return NULL
+            # make sure the easy handle is not in the multi handle anymore
+            lcurl.multi_remove_handle(multi_handle, url_file.handle.curl)
+            # cleanup
+            lcurl.easy_cleanup(url_file.handle.curl)
+            raise Exception("???")  # !!!
+
+    return url_file
+
+
+def url_close(url_file: URL_FILE):
+
+    global multi_handle
+
+    if url_file.type == CFTYPE.FILE:
+
+        url_file.handle.file.close()  # passthrough
+
+    elif url_file.type == CFTYPE.CURL:
+
+        # make sure the easy handle is not in the multi handle anymore
+        lcurl.multi_remove_handle(multi_handle, url_file.handle.curl)
+        # cleanup
+        lcurl.easy_cleanup(url_file.handle.curl)
+
+    else: # unknown or unsupported type - oh dear
+        #TODO: exception kind ?
+        error = errno.EBADF
+        raise Exception("Unknown or unsupported file type")
+
+    url_file.buffer[:] = b""  # free any allocated buffer space
+
+URL_FILE.close = url_close
+
+
+def url_feof(url_file: URL_FILE) -> int:
+
+    ret: int = 0
+
+    if url_file.type == CFTYPE.FILE:
+
+        ret = feof(url_file.handle.file)
+
+    elif url_file.type == CFTYPE.CURL:
+
+        if url_file.buffer_pos == 0 and not url_file.still_running:
+            ret = 1
+
+    else:  # unknown or supported type - oh dear
+        ret = -1;
+        error = errno.EBADF
+
+    return ret
+
+
+size_t url_fread(url_file: URL_FILE, size: int = -1):
+
+    size_t want;
+
+    if url_file.type == CFTYPE.FILE:
+
+        want = url_file.read(size)
+
+    elif url_file.type == CFTYPE.CURL:
+
+        want = nmemb * size;
+
+        fill_buffer(file, size);
+
+        # check if there's data in the buffer - if not fill_buffer()
+        # either errored or EOF
+        if ! file->buffer_pos:
+            return 0
+
+        # ensure only available data is considered
+        if file->buffer_pos < want:
+            want = file->buffer_pos;
+
+        # xfer data to caller
+        ct.memmove(ptr, file->buffer, want)
+
+        use_buffer(file, want)
+
+        want = want / size;     # number of items
+
+    else: # unknown or supported type - oh dear
+        #TODO: exception kind ?
+        error = errno.EBADF
+        raise Exception("Unknown or unsupported file type")
+
+    return want
+
+
+char *url_fgets(char *ptr, size_t size, URL_FILE *file):
+
+    size_t want = size - 1  # always need to leave room for zero termination
+    size_t loop;
+
+    if url_file.type == CFTYPE.FILE:
+
+        ptr = fgets(ptr, (int)size, file->handle.file);
+
+    elif url_file.type == CFTYPE.CURL:
+
+        fill_buffer(file, want);
+
+        # check if there's data in the buffer - if not fill either errored
+        # or EOF
+        if(!file->buffer_pos)
+            return NULL;
+
+        # ensure only available data is considered
+        if(file->buffer_pos < want)
+            want = file->buffer_pos;
+
+        # buffer contains data
+        # look for newline or eof
+        for(loop = 0; loop < want; loop++) {
+            if(file->buffer[loop] == '\n') {
+                want = loop + 1;# include newline
+                break;
+            }
+        }
+
+        # xfer data to caller
+        ct.memmove(ptr, file->buffer, want)
+        ptr[want] = 0;# always null terminate
+
+        use_buffer(file, want);
+
+    else: # unknown or supported type - oh dear
+        #TODO: exception kind ?
+        error = errno.EBADF
+        raise Exception("Unknown or unsupported file type")
+
+    return ptr  # success
+
+
+def url_rewind(url_file: URL_FILE):
+
+    global multi_handle
+
+    if url_file.type == CFTYPE.FILE:
+
+        # passthrough
+        url_file.handle.file.seek(0, io.SEEK_SET)
+
+    elif url_file.type == CFTYPE.CURL:
+
+        # halt transaction and  restart
+        lcurl.multi_remove_handle(multi_handle, url_file.handle.curl)
+        lcurl.multi_add_handle(multi_handle, url_file.handle.curl)
+
+        # ditch buffer - write will recreate - resets stream pos
+        url_file.buffer[:]  = b""
+        url_file.buffer_pos = 0
+        url_file.buffer_len = 0
+
+    else: # unknown or supported type - oh dear
+        #TODO: exception kind ?
+        error = errno.EBADF
+        raise Exception("Unknown or unsupported file type")
+
+URL_FILE.rewind = url_rewind
+
+
+FGETS_FILE  = "fgets.test"
+FREAD_FILE  = "fread.test"
+REWIND_FILE = "rewind.test"
+
+
+# Small main program to retrieve from a url using fgets and fread saving the
+# output to two test files (note the fgets method will corrupt binary files if
+# they contain 0 chars
+
+def main(argv=sys.argv[1:]):
+
+    url: str = argv[1] if argc >= 2 else "http://192.168.7.3/testfile"  # default to testurl
+
+    out_file: object
+    url_file: URL_FILE
+
+    size_t nread;
+    char buffer[256];
+
+    # copy from url line by line with fgets
+    try:
+        out_file = open(FGETS_FILE, "wb+")
+    except OSError as exc:
+        perror("couldn't open fgets output file\n")
+        return 1
+
+    try:
+        url_file = url_open(url, "r")
+    except:
+        print("couldn't url_open() %s" % url)
+        out_file.close()
+        return 2
+
+    while not url_feof(url_file):
+        url_fgets(buffer, sizeof(buffer), handle)
+        out_file.write(buffer[0:strlen(buffer)])
+
+    url_file.close()
+    out_file.close()
+
+    # Copy from url with fread
+    try:
+        out_file = open(FREAD_FILE, "wb+")
+    except OSError as exc:
+        perror("couldn't open fread output file\n")
+        return 1
+
+    try:
+        url_file = url_open("testfile", "rb")
+    except:
+        print("couldn't url_open() testfile")
+        out_file.close()
+        return 2
+
+    while True:
+        nread = url_fread(buffer, 1, sizeof(buffer), handle)
+        if not nread: break
+        out_file.write(buffer[0:nread])
+
+    url_file.close()
+    out_file.close()
+
+    # Test rewind
+    try:
+        out_file = open(REWIND_FILE, "wb+")
+    except OSError as exc:
+        perror("couldn't open fread output file\n")
+        return 1
+
+    try:
+        url_file = url_open("testfile", "r")
+    except:
+        print("couldn't url_open() testfile")
+        out_file.close()
+        return 2
+
+    nread = url_fread(buffer, 1, sizeof(buffer), handle)
+    out_file.write(buffer[0:nread])
+    url_file.rewind()
+
+    buffer[0] = b"\n"
+    out_file.write(buffer[:1])
+
+    nread = url_fread(buffer, 1, sizeof(buffer), handle)
+    out_file.write(buffer[0:nread])
+
+    url_file.close()
+    out_file.close()
+
+    return 0  # all done
+
+
+sys.exit(main())

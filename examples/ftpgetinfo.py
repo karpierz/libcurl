@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,25 +20,18 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Checks a single file's size and mtime from an FTP server.
 """
 
 import sys
-import time
 import ctypes as ct
+import time
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
-
-@lcurl.write_callback
-def throw_away(buffer, size, nitems, stream):
-    # we are not interested in the headers itself,
-    # so we only return the size we would have saved ...
-    return size * nitems
+from curl_utils import *  # noqa
 
 
 def main(argv=sys.argv[1:]):
@@ -50,7 +43,7 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, ftpurl.encode("utf-8"))
@@ -58,7 +51,8 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOBODY, 1)
         # Ask for filetime
         lcurl.easy_setopt(curl, lcurl.CURLOPT_FILETIME, 1)
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADERFUNCTION, throw_away)
+        # we are not interested in the headers itself
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADERFUNCTION, lcurl.write_skipped)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADER, 0)
         # Switch on full protocol/debug output
         # lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
@@ -66,25 +60,26 @@ def main(argv=sys.argv[1:]):
         # Perform the custom request
         res: int = lcurl.easy_perform(curl)
 
+        # Check for errors
+        handle_easy_perform_error(res)
         if res != lcurl.CURLE_OK:
-            # we failed
-            handle_easy_perform_error(res)
-        else:
-            # https://curl.se/libcurl/c/curl_easy_getinfo.html
+            raise guard.Break
 
-            filetime = ct.c_long(-1)
-            res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_FILETIME,
-                                     ct.byref(filetime))
-            filetime = filetime.value
-            if res == lcurl.CURLE_OK and filetime >= 0:
-                print("filetime %s: %s" % (filename, time.ctime(filetime)))
+        # https://curl.se/libcurl/c/curl_easy_getinfo.html
 
-            filesize = ct.c_double(0.0)
-            res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONTENT_LENGTH_DOWNLOAD,
-                                     ct.byref(filesize))
-            filesize = filesize.value
-            if res == lcurl.CURLE_OK and filesize > 0.0:
-                print("filesize %s: %0.0f bytes" % (filename, filesize))
+        filetime = ct.c_long(-1)
+        res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_FILETIME,
+                                 ct.byref(filetime))
+        filetime = filetime.value
+        if res == lcurl.CURLE_OK and filetime >= 0:
+            print("filetime %s: %s" % (filename, time.ctime(filetime)))
+
+        filesize = lcurl.off_t(0)
+        res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,
+                                 ct.byref(filesize))
+        filesize = filesize.value
+        if res == lcurl.CURLE_OK and filesize > 0:
+            print("filesize %s: %d bytes" % (filename, filesize))
 
     return 0
 

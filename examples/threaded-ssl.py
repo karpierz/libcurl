@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Show the required mutex callback setups for GnuTLS and OpenSSL when using
@@ -32,77 +32,18 @@ import ctypes as ct
 import threading
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
+from curl_utils import *  # noqa
 
 # A multi-threaded example that uses pthreads and fetches 4 remote files at
-# once over HTTPS. The lock callbacks and stuff assume OpenSSL <1.1 or GnuTLS
-# (libgcrypt) so far.
+# once over HTTPS.
 #
-# OpenSSL docs for this:
-#   https://www.openssl.org/docs/man1.0.2/man3/CRYPTO_num_locks.html
-# gcrypt docs for this:
-#   https://gnupg.org/documentation/manuals/gcrypt/Multi_002dThreading.html
+# Recent versions of OpenSSL and GnuTLS are thread safe by design, assuming
+# support for the underlying OS threading API is built-in. Older revisions
+# of this example demonstrated locking callbacks for the SSL library, which
+# are no longer necessary. An older revision with callbacks can be found at
+# https://github.com/curl/curl/blob/curl-7_88_1/docs/examples/threaded-ssl.c
 
-# USE_OPENSSL = 1  # or USE_GNUTLS = 1 accordingly
-
-if defined("USE_OPENSSL"):
-    #include <openssl/crypto.h>
-
-    """!!!
-    # we have this global to let the callback get easy access to it
-    pthread_mutex_t* lockarray;
-
-
-    def init_locks():
-        global lockarray
-
-        lockarray = (pthread_mutex_t *)OPENSSL_malloc(CRYPTO_num_locks() *
-                                                      sizeof(pthread_mutex_t))
-        for i in range(CRYPTO_num_locks()):
-            pthread_mutex_init(&(lockarray[i]), NULL)
-
-        CRYPTO_set_id_callback((unsigned long (*)())thread_id)
-        CRYPTO_set_locking_callback((void (*)())lock_callback)
-
-
-    def kill_locks():
-        global lockarray
-
-        CRYPTO_set_locking_callback(NULL)
-
-        for i in range(CRYPTO_num_locks()):
-            pthread_mutex_destroy(&(lockarray[i]))
-
-        OPENSSL_free(lockarray)
-
-
-    def lock_callback(int mode, int type, char *file, int line)
-        global lockarray
-
-        if mode & CRYPTO_LOCK:
-            pthread_mutex_lock(&(lockarray[type]))
-        else:
-            pthread_mutex_unlock(&(lockarray[type]))
-
-
-    def thread_id() -> int: # -> unsigned long
-        return (unsigned long)pthread_self()
-    """
-
-
-elif defined("USE_GNUTLS"):
-    #include <gcrypt.h>
-    #GCRY_THREAD_OPTION_PTHREAD_IMPL;
-
-    init_locks = lambda: gcry_control(GCRYCTL_SET_THREAD_CBS)
-    kill_locks = lambda: None
-
-else:
-
-    init_locks = lambda: None
-    kill_locks = lambda: None
-
+USE_OPENSSL = 1  # or USE_GNUTLS = 1 accordingly
 
 # List of URLs to fetch.
 urls = [
@@ -117,7 +58,7 @@ def pull_one_url(url: str):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
         # this example does not verify the server's certificate,
@@ -134,28 +75,24 @@ def main(argv=sys.argv[1:]):
     # Must initialize libcurl before any threads are started
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
 
-    with curl_guard(True):
+    with curl_guard(True) as guard:
 
-        init_locks()
-        try:
-            threads = []
-            for i, url in enumerate(urls):
-                try:
-                    thread = threading.Thread(target=pull_one_url, args=(url,))
-                    thread.start()
-                except Exception as exc:
-                    print("Couldn't run thread number %d, error %s" % (i, exc),
-                          file=sys.stderr)
-                else:
-                    threads.append(thread)
-                    print("Thread %d, gets %s" % (i, url), file=sys.stderr)
+        threads = []
+        for i, url in enumerate(urls):
+            try:
+                thread = threading.Thread(target=pull_one_url, args=(url,))
+                thread.start()
+            except Exception as exc:
+                print("Couldn't run thread number %d, error %s" % (i, exc),
+                      file=sys.stderr)
+            else:
+                threads.append(thread)
+                print("Thread %d, gets %s" % (i, url), file=sys.stderr)
 
-            # now wait for all threads to terminate
-            for i, thread in enumerate(threads):
-                thread.join()
-                print("Thread %d terminated" % i, file=sys.stderr)
-        finally:
-            kill_locks()
+        # now wait for all threads to terminate
+        for i, thread in enumerate(threads):
+            thread.join()
+            print("Thread %d terminated" % i, file=sys.stderr)
 
     return 0
 

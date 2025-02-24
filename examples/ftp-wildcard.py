@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,22 +20,21 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 FTP wildcard pattern matching
 """
 
-from dataclasses import dataclass
 import sys
 import ctypes as ct
+from dataclasses import dataclass
 from pathlib import Path
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 here = Path(__file__).resolve().parent
-
 
 OUT_DIR = here/"output"
 
@@ -50,8 +49,7 @@ def file_is_coming(transfer_info, ptr, remains):
     finfo = ct.cast(transfer_info, ct.POINTER(lcurl.fileinfo)).contents
     data  = lcurl.from_oid(ptr)
     fname = finfo.filename.decode("utf-8")
-    global OUT_DIR
- 
+
     print("%3d %40s %10uB " %
           (remains, fname, finfo.size), end="")
 
@@ -85,10 +83,10 @@ def file_is_downloaded(stream):
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    data = lcurl.from_oid(stream)
+def write_function(buffer, size, nitems, userp):
+    data = lcurl.from_oid(userp)
     file = data.outstream or sys.stdout
-    buffer_size = size * nitems
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     bwritten = bytes(buffer[:buffer_size])
     nwritten = file.write(bwritten)
@@ -97,7 +95,7 @@ def write_function(buffer, size, nitems, stream):
 
 def main(argv=sys.argv[1:]):
 
-    url: str = (argv[0] if len(argv) >= 1 else # 
+    url: str = (argv[0] if len(argv) >= 1 else #
                 "ftp://example.com/test/*")
                #"ftp://ftp.gnu.org/gnu/binutils/binutils-2.*.tar.bz2")
 
@@ -107,14 +105,14 @@ def main(argv=sys.argv[1:]):
     rc: int = lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if rc: return rc
         if not curl:
             return lcurl.CURLE_OUT_OF_MEMORY
 
-        # set an URL containing wildcard pattern (only in the last part)
+        # set a URL containing wildcard pattern (only in the last part)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         # turn on wildcard matching
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WILDCARDMATCH, 1)
@@ -122,7 +120,7 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_CHUNK_BGN_FUNCTION, file_is_coming)
         # callback is called after data from the file have been transferred
         lcurl.easy_setopt(curl, lcurl.CURLOPT_CHUNK_END_FUNCTION, file_is_downloaded)
-        # Define our callback to get called when there's data to be written
+        # this callback writes contents into files
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
         # put transfer data into callbacks
         lcurl.easy_setopt(curl, lcurl.CURLOPT_CHUNK_DATA, id(data))
@@ -136,11 +134,9 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            # we failed
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
-    return res
+    return int(res)
 
 
 sys.exit(main())

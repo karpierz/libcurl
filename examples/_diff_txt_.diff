@@ -1,0 +1,377 @@
+diff --git examples.c/http2-upload.c examples.c/http2-upload.c
+index dd63b8c..7fa8134 100644
+--- examples.c/http2-upload.c
++++ examples.c/http2-upload.c
+@@ -32,23 +32,45 @@
+ 
+ #define NUM_HANDLES 1000
+ 
++#ifdef _MSC_VER
++#define gettimeofday(a, b) my_gettimeofday((a), (b))
++int my_gettimeofday(struct timeval *tp, void *tzp)
++{
++  (void)tzp;
++  if(tp) {
++    /* Offset between 1601-01-01 and 1970-01-01 in 100 nanosec units */
++    #define _WIN32_FT_OFFSET (116444736000000000)
++    union {
++      CURL_TYPEOF_CURL_OFF_T ns100; /* time since 1 Jan 1601 in 100ns units */
++      FILETIME ft;
++    } _now;
++    GetSystemTimeAsFileTime(&_now.ft);
++    tp->tv_usec = (long)((_now.ns100 / 10) % 1000000);
++    tp->tv_sec = (long)((_now.ns100 - _WIN32_FT_OFFSET) / 10000000);
++  }
++  return 0;
++}
++#endif
++
+ struct input {
+   FILE *in;
+   size_t bytes_read; /* count up */
+
+# ------------------------------------- #
+
+modified:   crawler.py.nok
+modified:   ephiperfifo.py.nok
+modified:   evhiperfifo.py.nok
+modified:   ghiper.py.nok
+modified:   hiperfifo.py.nok
+modified:   multi-event.py.nok
+modified:   multi-uv.py.nok
+
+# ------------------------------------- #
+
+RTSP streams
+
+http://streams.videolan.org/samples/
+
+# ------------------------------------- #
+
+diff --git a/examples/examples.c/crawler.c b/examples/examples.c/crawler.c
+index 2ff4ae7..d2f89db 100644
+--- a/examples/examples.c/crawler.c
++++ b/examples/examples.c/crawler.c
+@@ -30,14 +30,6 @@
+  * </DESC>
+  */
+ 
+-/* Parameters */
+-int max_con = 200;
+-int max_total = 20000;
+-int max_requests = 500;
+-int max_link_per_page = 5;
+-int follow_relative_links = 0;
+-char *start_page = "https://www.reuters.com";
+-
+ #include <libxml/HTMLparser.h>
+ #include <libxml/xpath.h>
+ #include <libxml/uri.h>
+@@ -47,9 +39,18 @@ char *start_page = "https://www.reuters.com";
+ #include <math.h>
+ #include <signal.h>
+ 
+-int pending_interrupt = 0;
+-void sighandler(int dummy)
++/* Parameters */
++static int max_con = 200;
++static int max_total = 20000;
++static int max_requests = 500;
++static size_t max_link_per_page = 5;
++static int follow_relative_links = 0;
++static const char *start_page = "https://www.reuters.com";
++
++static int pending_interrupt = 0;
++static void sighandler(int dummy)
+ {
+   pending_interrupt = 1;
+ }
+ 
+@@ -117,37 +119,43 @@ CURL *make_handle(char *url)
+ }
+ 
+ /* HREF finder implemented in libxml2 but could be any HTML parser */
+ static size_t follow_links(CURLM *multi_handle, memory *mem, const char *url)
+ {
+   int opts = HTML_PARSE_NOBLANKS | HTML_PARSE_NOERROR | \
+              HTML_PARSE_NOWARNING | HTML_PARSE_NONET;
+-  htmlDocPtr doc = htmlReadMemory(mem->buf, mem->size, url, NULL, opts);
++  htmlDocPtr doc = htmlReadMemory(mem->buf, (int)mem->size, url, NULL, opts);
++  size_t count;
++  int i;
++  xmlChar *xpath;
++  xmlNodeSetPtr nodeset;
++  xmlXPathContextPtr context;
++  xmlXPathObjectPtr result;
+   if(!doc)
+     return 0;
+-  xmlChar *xpath = (xmlChar*) "//a/@href";
+-  xmlXPathContextPtr context = xmlXPathNewContext(doc);
+-  xmlXPathObjectPtr result = xmlXPathEvalExpression(xpath, context);
++  xpath = (xmlChar*) "//a/@href";
++  context = xmlXPathNewContext(doc);
++  result = xmlXPathEvalExpression(xpath, context);
+   xmlXPathFreeContext(context);
+   if(!result)
+     return 0;
+-  xmlNodeSetPtr nodeset = result->nodesetval;
++  nodeset = result->nodesetval;
+   if(xmlXPathNodeSetIsEmpty(nodeset)) {
+     xmlXPathFreeObject(result);
+     return 0;
+   }
+-  size_t count = 0;
+-  int i;
++  count = 0;
+   for(i = 0; i < nodeset->nodeNr; i++) {
+     double r = rand();
+-    int x = r * nodeset->nodeNr / RAND_MAX;
++    int x = (int)(r * nodeset->nodeNr / RAND_MAX);
+     const xmlNode *node = nodeset->nodeTab[x]->xmlChildrenNode;
+     xmlChar *href = xmlNodeListGetString(doc, node, 1);
++    char *link;
+     if(follow_relative_links) {
+       xmlChar *orig = href;
+       href = xmlBuildURI(href, (xmlChar *) url);
+       xmlFree(orig);
+     }
+-    char *link = (char *) href;
++    link = (char *) href;
+     if(!link || strlen(link) < 20)
+       continue;
+     if(!strncmp(link, "http://", 7) || !strncmp(link, "https://", 8)) {
+@@ -161,17 +169,23 @@ size_t follow_links(CURLM *multi_handle, memory *mem, char *url)
+ 
+ int main(void)
+ {
++  CURLM *multi_handle;
++  int msgs_left;
++  int pending;
++  int complete;
++  int still_running;
++
+   signal(SIGINT, sighandler);
+-  LIBXML_TEST_VERSION;
++  LIBXML_TEST_VERSION
+   curl_global_init(CURL_GLOBAL_DEFAULT);
+-  CURLM *multi_handle = curl_multi_init();
++  multi_handle = curl_multi_init();
+   curl_multi_setopt(multi_handle, CURLMOPT_MAX_TOTAL_CONNECTIONS, max_con);
+   curl_multi_setopt(multi_handle, CURLMOPT_MAX_HOST_CONNECTIONS, 6L);
+ 
+@@ -183,17 +197,18 @@ int main(void)
+   /* sets html start page */
+   curl_multi_add_handle(multi_handle, make_handle(start_page));
+ 
+-  int msgs_left;
+-  int pending = 0;
+-  int complete = 0;
+-  int still_running = 1;
++  pending = 0;
++  complete = 0;
++  still_running = 1;
+   while(still_running && !pending_interrupt) {
+     int numfds;
++    CURLMsg *m;
++
+     curl_multi_wait(multi_handle, NULL, 0, 1000, &numfds);
+     curl_multi_perform(multi_handle, &still_running);
+ 
+     /* See how the transfers went */
+-    CURLMsg *m = NULL;
++    m = NULL;
+     while((m = curl_multi_info_read(multi_handle, &msgs_left))) {
+       if(m->msg == CURLMSG_DONE) {
+         CURL *handle = m->easy_handle;
+diff --git a/examples/examples.c/evhiperfifo.c b/examples/examples.c/evhiperfifo.c
+index 8997dff..a96687e 100644
+--- a/examples/examples.c/evhiperfifo.c
++++ b/examples/examples.c/evhiperfifo.c
+@@ -75,8 +75,6 @@ callback.
+ #include <sys/stat.h>
+ #include <errno.h>
+ 
+-#define DPRINT(x...) printf(x)
+-
+ #define MSG_OUT stdout /* Send info to stdout, change to stderr if you want */
+ 
+ 
+@@ -119,7 +117,8 @@ static void timer_cb(EV_P_ struct ev_timer *w, int revents);
+ /* Update the event timer after curl_multi library calls */
+ static int multi_timer_cb(CURLM *multi, long timeout_ms, GlobalInfo *g)
+ {
+-  DPRINT("%s %li\n", __PRETTY_FUNCTION__, timeout_ms);
++  printf("%s %li\n", __PRETTY_FUNCTION__, timeout_ms);
+   ev_timer_stop(g->loop, &g->timer_event);
+   if(timeout_ms >= 0) {
+     /* -1 means delete, other values are timeout times in milliseconds */
+@@ -201,12 +200,15 @@ static void check_multi_info(GlobalInfo *g)
+ /* Called by libevent when we get action on a multi socket */
+ static void event_cb(EV_P_ struct ev_io *w, int revents)
+ {
+-  DPRINT("%s  w %p revents %i\n", __PRETTY_FUNCTION__, w, revents);
+-  GlobalInfo *g = (GlobalInfo*) w->data;
++  GlobalInfo *g;
+   CURLMcode rc;
++  int action;
++
++  printf("%s  w %p revents %i\n", __PRETTY_FUNCTION__, (void *)w, revents);
++  g = (GlobalInfo*) w->data;
+ 
+-  int action = ((revents & EV_READ) ? CURL_POLL_IN : 0) |
+-    ((revents & EV_WRITE) ? CURL_POLL_OUT : 0);
++  action = ((revents & EV_READ) ? CURL_POLL_IN : 0) |
++           ((revents & EV_WRITE) ? CURL_POLL_OUT : 0);
+   rc = curl_multi_socket_action(g->multi, w->fd, action, &g->still_running);
+   mcode_or_die("event_cb: curl_multi_socket_action", rc);
+   check_multi_info(g);
+@@ -219,11 +221,13 @@ static void event_cb(EV_P_ struct ev_io *w, int revents)
+ /* Called by libevent when our timeout expires */
+ static void timer_cb(EV_P_ struct ev_timer *w, int revents)
+ {
+-  DPRINT("%s  w %p revents %i\n", __PRETTY_FUNCTION__, w, revents);
+-
+-  GlobalInfo *g = (GlobalInfo *)w->data;
++  GlobalInfo *g;
+   CURLMcode rc;
+ 
++  printf("%s  w %p revents %i\n", __PRETTY_FUNCTION__, (void *)w, revents);
++
++  g = (GlobalInfo *)w->data;
++
+   rc = curl_multi_socket_action(g->multi, CURL_SOCKET_TIMEOUT, 0,
+                                 &g->still_running);
+   mcode_or_die("timer_cb: curl_multi_socket_action", rc);
+@@ -247,11 +251,11 @@ static void remsock(SockInfo *f, GlobalInfo *g)
+ static void setsock(SockInfo *f, curl_socket_t s, CURL *e, int act,
+                     GlobalInfo *g)
+ {
+-  printf("%s  \n", __PRETTY_FUNCTION__);
+-
+   int kind = ((act & CURL_POLL_IN) ? EV_READ : 0) |
+              ((act & CURL_POLL_OUT) ? EV_WRITE : 0);
+ 
++  printf("%s  \n", __PRETTY_FUNCTION__);
++
+   f->sockfd = s;
+   f->action = act;
+   f->easy = e;
+@@ -278,13 +282,13 @@ static void addsock(curl_socket_t s, CURL *easy, int action, GlobalInfo *g)
+ /* CURLMOPT_SOCKETFUNCTION */
+ static int sock_cb(CURL *e, curl_socket_t s, int what, void *cbp, void *sockp)
+ {
+-  DPRINT("%s e %p s %i what %i cbp %p sockp %p\n",
+-         __PRETTY_FUNCTION__, e, s, what, cbp, sockp);
+-
+   GlobalInfo *g = (GlobalInfo*) cbp;
+   SockInfo *fdp = (SockInfo*) sockp;
+   const char *whatstr[]={ "none", "IN", "OUT", "INOUT", "REMOVE"};
+ 
++  printf("%s e %p s %i what %i cbp %p sockp %p\n",
++         __PRETTY_FUNCTION__, e, s, what, cbp, sockp);
++
+   fprintf(MSG_OUT,
+           "socket callback: s=%d e=%p what=%s ", s, e, whatstr[what]);
+   if(what == CURL_POLL_REMOVE) {
+@@ -317,22 +321,22 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
+ {
+   ConnInfo *conn = (ConnInfo *)p;
+   (void)ult;
+   (void)uln;
+ 
+-  fprintf(MSG_OUT, "Progress: %s (%g/%g)\n", conn->url, dlnow, dltotal);
++  fprintf(MSG_OUT, "Progress: %s (%" CURL_FORMAT_CURL_OFF_T
++          "/%" CURL_FORMAT_CURL_OFF_T ")\n", conn->url, dlnow, dltotal);
+   return 0;
+ }
+ 
+diff --git a/examples/examples.c/ghiper.c b/examples/examples.c/ghiper.c
+index 57047ed..8e83007 100644
+--- a/examples/examples.c/ghiper.c
++++ b/examples/examples.c/ghiper.c
+@@ -118,18 +118,16 @@ static void mcode_or_die(const char *where, CURLMcode code)
+ /* Check for completed transfers, and remove their easy handles */
+ static void check_multi_info(GlobalInfo *g)
+ {
+-  char *eff_url;
+   CURLMsg *msg;
+   int msgs_left;
+-  ConnInfo *conn;
+-  CURL *easy;
+-  CURLcode res;
+ 
+   MSG_OUT("REMAINING: %d\n", g->still_running);
+   while((msg = curl_multi_info_read(g->multi, &msgs_left))) {
+     if(msg->msg == CURLMSG_DONE) {
+-      easy = msg->easy_handle;
+-      res = msg->data.result;
++      CURL *easy = msg->easy_handle;
++      CURLcode res = msg->data.result;
++      char *eff_url;
++      ConnInfo *conn;
+       curl_easy_getinfo(easy, CURLINFO_PRIVATE, &conn);
+       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &eff_url);
+       MSG_OUT("DONE: %s => (%d) %s\n", eff_url, res, conn->error);
+@@ -281,23 +279,27 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
+ {
+   ConnInfo *conn = (ConnInfo *)p;
+-  MSG_OUT("Progress: %s (%g/%g)\n", conn->url, dlnow, dltotal);
++
++  fprintf(MSG_OUT, "Progress: %s (%" CURL_FORMAT_CURL_OFF_T
++          "/%" CURL_FORMAT_CURL_OFF_T ")\n", conn->url, dlnow, dltotal);
+   return 0;
+ }
+ 
+@@ -411,13 +413,12 @@ int init_fifo(void)
+ {
+-  GlobalInfo *g;
++  GlobalInfo *g = g_malloc0(sizeof(GlobalInfo));
+   GMainLoop*gmain;
+   int fd;
+   GIOChannel* ch;
+-  g = g_malloc0(sizeof(GlobalInfo));
+ 
+   fd = init_fifo();
+   ch = g_io_channel_unix_new(fd);
+diff --git a/examples/examples.c/hiperfifo.c b/examples/examples.c/hiperfifo.c
+index bde3059..d9c00b8 100644
+--- a/examples/examples.c/hiperfifo.c
++++ b/examples/examples.c/hiperfifo.c
+@@ -315,26 +315,27 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
+ {
+   ConnInfo *conn = (ConnInfo *)p;
+   (void)ult;
+   (void)uln;
+ 
+-  fprintf(MSG_OUT, "Progress: %s (%g/%g)\n", conn->url, dlnow, dltotal);
++  fprintf(MSG_OUT, "Progress: %s (%" CURL_FORMAT_CURL_OFF_T
++          "/%" CURL_FORMAT_CURL_OFF_T ")\n", conn->url, dlnow, dltotal);
+   return 0;
+ }
+ 
+diff --git a/examples/examples.c/multi-legacy.c b/examples/examples.c/multi-legacy.c
+index 3e7714f..b0c37ea 100644
+--- a/examples/examples.c/multi-legacy.c
++++ b/examples/examples.c/multi-legacy.c
+@@ -100,11 +100,19 @@ int main(void)
+ 
+     curl_multi_timeout(multi_handle, &curl_timeo);
+     if(curl_timeo >= 0) {
++#if defined(MSDOS) || defined(__AMIGA__)
++      timeout.tv_sec = (time_t)(curl_timeo / 1000);
++#else
+       timeout.tv_sec = curl_timeo / 1000;
++#endif
+       if(timeout.tv_sec > 1)
+         timeout.tv_sec = 1;
+       else
++#if defined(MSDOS) || defined(__AMIGA__)
++        timeout.tv_usec = (time_t)(curl_timeo % 1000) * 1000;
++#else
+         timeout.tv_usec = (int)(curl_timeo % 1000) * 1000;
++#endif
+     }
+ 
+     /* get file descriptors from the transfers */
+
+# ------------------------------------- #

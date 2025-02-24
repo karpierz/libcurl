@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Download a given URL into a local file named page.out.
@@ -31,29 +31,18 @@ import ctypes as ct
 from pathlib import Path
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 here = Path(__file__).resolve().parent
 
-
 PAGE_FILENAME = here/"page.out"
-
-
-@lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    file = lcurl.from_oid(stream)
-    buffer_size = size * nitems
-    if buffer_size == 0: return 0
-    bwritten = bytes(buffer[:buffer_size])
-    nwritten = file.write(bwritten)
-    return nwritten
 
 
 def main(argv=sys.argv[1:]):
     app_name = sys.argv[0].rpartition("/")[2].rpartition("\\")[2]
 
     if len(argv) < 1:
-        print("Usage: %s <URL>" % app_name)
+        print("Usage: python %s <URL>" % app_name)
         return 1
 
     url: str = argv[0]
@@ -62,19 +51,19 @@ def main(argv=sys.argv[1:]):
     # init the curl session
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         # set URL to get here
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         # Switch on full protocol/debug output while testing
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         # disable progress meter, set to 0 to enable it
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 1)
-        # send all data to this function 
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
+        # send all data to this function
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, lcurl.write_to_file)
 
         # open the file
         with PAGE_FILENAME.open("wb") as page_file:

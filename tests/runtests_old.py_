@@ -1,0 +1,2732 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+# For documentation, run `man ./runtests.1` and see README.md.
+
+# Experimental hooks are available to run tests remotely on machines that
+# are able to run curl but are unable to run the test harness.
+# The following sections need to be modified:
+#
+#  $HOSTIP, $HOST6IP - Set to the address of the host running the test suite
+#  $CLIENTIP, $CLIENT6IP - Set to the address of the host running curl
+#  testutil.run_client, testutil.run_client_output - Modify to copy all the files in the log/
+#    directory to the system running curl, run the given command remotely
+#    and save the return code or returned stdout (respectively), then
+#    copy all the files from the remote system's log/ directory back to
+#    the host running the test suite.  This can be done a few ways, such
+#    as using scp & ssh, rsync & telnet, or using a NFS shared directory
+#    and ssh.
+#
+# 'make && make test' needs to be done on both machines before making the
+# above changes and running runtests.py manually.  In the shared NFS case,
+# the contents of the tests/server/ directory must be from the host
+# running the test suite, while the rest must be from the host running curl.
+#
+# Note that even with these changes a number of tests will still fail (mainly
+# to do with cookies, those that set environment variables, or those that
+# do more than touch the file system in a <precheck> or <postcheck>
+# section). These can be added to the $TESTCASES line below,
+# e.g. $TESTCASES="!8 !31 !63 !cookies..."
+#
+# Finally, to properly support -g and -n, runner.check_test_cmd needs to change
+# to check the remote system's PATH, and the places in the code where
+# the curl binary is read directly to determine its type also need to be
+# fixed. As long as the -g option is never given, and the -n is always
+# given, this won't be a problem.
+
+import sys
+import os
+import pathlib
+import time
+from datetime import datetime
+
+from .. import globalconfig as config
+from .  import getpart, runner, servers, testutil
+from valgrind import valgrind_parse
+
+use strict;
+# Promote all warnings to fatal
+use warnings FATAL => 'all';
+
+# These should be the only variables that might be needed to get edited:
+
+BEGIN {
+# Define srcdir to the location of the tests source directory. This is
+# usually set by the Makefile, but for out-of-tree builds with direct
+# invocation of runtests.py, it may not be set.
+if "srcdir" not in os.environ:
+    os.environ["srcdir"] = str(pathlib.Path(__file__).resolve().parent)
+@INC.append(os.environ["srcdir"])
+
+# run time statistics needs Time::HiRes
+eval {
+    no warnings "all";
+    require Time::HiRes;
+    import  Time::HiRes qw( time );
+}
+}
+
+use Digest::MD5 qw(md5);
+use List::Util 'sum';
+
+use pathhelp qw( exe_ext, sys_native_current_path );
+
+use appveyor;
+use azure;
+use valgrind;  # valgrind report parser
+
+my %custom_skip_reasons;
+
+my $ACURL=$VCURL;  # what curl binary to use to talk to APIs (relevant for CI)
+                   # ACURL is handy to set to the system one for reliability
+my $CURLCONFIG="../curl-config"; # curl-config from current build
+
+# Normally, all test cases should be run, but at times it is handy to
+# simply run a particular one:
+my $TESTCASES="all";
+
+# To run specific test cases, set them like:
+# $TESTCASES="1 2 3 7 8";
+
+#######################################################################
+# No variables below this point should need to be modified
+#
+
+my $libtool;
+my $repeat = 0;
+
+my $start;          # time at which testing started
+
+my $uname_release = `uname -r`;
+is_wsl: bool = ($uname_release =~ /Microsoft$/)
+
+my $http_ipv6;      # set if HTTP server has IPv6 support
+my $http_unix;      # set if HTTP server has Unix sockets support
+my $ftp_ipv6;       # set if FTP server has IPv6 support
+
+my $resolver;       # name of the resolver backend (for human presentation)
+
+my $has_textaware;  # set if running on a system that has a text mode concept
+                    # on files. Windows for example
+
+my %skipped;    # skipped{reason}=counter, reasons for skip
+my @teststat;   # teststat[testnum]=reason, reasons for skip
+my %disabled_keywords;  # key words of tests to skip
+my %ignored_keywords;   # key words of tests to ignore results
+my %enabled_keywords;   # key words of tests to run
+my %disabled;           # disabled test cases
+my %ignored;            # ignored results of test cases
+
+my $timestats;   # time stamping and stats generation
+my $fullstats;   # show time stats for every single test
+my %timeprepini; # timestamp for each test preparation start
+my %timesrvrini; # timestamp for each test required servers verification start
+my %timesrvrend; # timestamp for each test required servers verification end
+my %timetoolini; # timestamp for each test command run starting
+my %timetoolend; # timestamp for each test command run stopping
+
+# values for RunTests.singletest_state
+use constant {
+    ST_INIT => 0,
+    ST_CLEAR_LOCKS => 1,
+    ST_INITED => 2,
+    ST_PREPROCESS => 3,
+    ST_RUN => 4,
+};
+
+# Azure Pipelines specific variables
+AZURE_RUN_ID    = 0
+AZURE_RESULT_ID = 0
+
+
+class RunTests:
+
+    def __new__(cls):
+        self.singletest_state: Dict = {}  # current state of singletest() by runner ID
+        self.singletest_logs:  Dict = {}  # log messages while in singletest array ref by runner
+        self.singletest_buffered_runner = None # runner ID which is buffering logs
+        my %runnerids;         # runner IDs by number
+        self.runners_idle:     List = []  # runner IDs idle and ready to execute a test
+        self.count_for_runner: Dict = {}  # test count by runner ID
+        self.runners_running:  Dict = {}  # tests currently running by runner ID
+        self.time_server_log:  Dict = {}  # timestamp for each test server logs lock removal
+        self.time_verify_end:  Dict = {}  # timestamp for each test result verification end
+
+        self.ignore_testcodes: Dict = {}  # if test results are to be ignored
+
+        self.global_abort: bool = False  # flag signalling program abort
+        self.jobs:         int  = 0
+
+        # variables that command line options may set
+        self.short:          bool = False
+        self.no_debuginfod:  bool = False
+        self.keep_out_files: bool = False  # keep stdout and stderr files after tests
+        self.clear_locks:    bool = False  # force removal of files by killing locking processes
+        self.postmortem:     bool = False  # display detailed info about failed tests
+        my $run_disabled; # run the specific tests even if listed in DISABLED
+        my $scrambleorder;
+
+    def log_msg(self, *args, end=None):
+        """'log_msg' is our general message logging subroutine."""
+        global is_wsl
+        if self.singletest_buffered_runner:
+            # Logs are currently being buffered
+            singletest_log_msg(*args)
+        else:
+            for line in args:
+                if not line:
+                    continue
+                if is_wsl:
+                    # use \r\n for WSL shell
+                    line =~ s/\r?\n$/\r\n/g;
+                print(f"{line}", end=end)
+
+    # OK
+    def log_msg_bufferfortest(self, runner_id):
+        """enable log_msg buffering for the given runner ID"""
+        if self.jobs:
+            # Only enable buffering in multiprocess mode
+            self.singletest_buffered_runner = runner_id
+
+    def singletest_log_msg(self, *args):
+        """
+        Store a log message in a buffer for this test
+        The messages can then be displayed all at once at the end of the test
+        which prevents messages from different tests from being interleaved.
+        """
+        if self.singletest_buffered_runner not in self.singletest_logs:
+            # initialize to a reference to an empty anonymous array
+            self.singletest_logs[self.singletest_buffered_runner] = []
+        self.singletest_logs[self.singletest_buffered_runner].append(args)
+
+    def singletest_unbuffer_logs(self):
+        """Stop buffering log messages, but don't touch them"""
+        undef self.singletest_buffered_runner
+
+    def singletest_dump_logs(self) -> str:
+        """Clear the buffered log messages & stop buffering after returning them"""
+
+        if not defined self.singletest_buffered_runner:
+            # probably not multiprocess mode and logs weren't buffered
+            return undef;
+
+        logs = self.singletest_logs[self.singletest_buffered_runner]
+        msg = "".join(logs)
+        del self.singletest_logs[self.singletest_buffered_runner]
+        self.singletest_unbuffer_logs()
+
+        return msg
+
+    def catch_zap(self, sig_name):
+        print(f"runtests.py received SIG{sig_name}, exiting")
+        self.global_abort = True
+
+    def catch_usr1(self):
+        print "runtests.py internal state:\r\n";
+        print "%d busy test runner(s) of %d\r\n" % (len(self.runners_running), scalar(keys %runnerids))
+        for runner_id in sorted(self.runners_running.keys()):
+            runner_num = "unknown"
+            for $rnum in (keys %runnerids):
+                if $runnerids{$rnum} == runner_id:
+                    runner_num = $rnum
+                    break
+            print f"Runner {runner_num} (id {runner_id}) running test {self.runners_running[runner_id]} in state {self.singletest_state[runner_id]}\r\n"
+
+
+$SIG{INT}  = catch_zap;
+$SIG{TERM} = catch_zap;
+# some msys2 perl versions don't define SIGUSR1
+eval { $SIG{USR1} = catch_usr1 }
+$SIG{PIPE} = "IGNORE"  # these errors are captured in the read/write calls
+
+##########################################################################
+# Clear all possible '*_proxy' environment variables for various protocols
+# to prevent them to interfere with our testing!
+
+for $protocol in ("ftp", "http", "ftps", "https", "no", "all"):
+    proxy = f"{protocol}_proxy"
+    # clear lowercase version
+    if $ENV{$proxy}: del $ENV{$proxy}
+    # clear uppercase version
+    if $ENV{uc($proxy)}: del $ENV{uc($proxy)}
+
+# make sure we don't get affected by other variables that control our
+# behavior
+
+if "SSL_CERT_DIR"   in $ENV: del $ENV["SSL_CERT_DIR"]
+if "SSL_CERT_PATH"  in $ENV: del $ENV["SSL_CERT_PATH"]
+if "CURL_CA_BUNDLE" in $ENV: del $ENV["CURL_CA_BUNDLE"]
+
+# provide defaults from our config file for ENV vars not explicitly
+# set by the caller
+if (open(my $fd, "<", "config")) {
+    while(my $line = <$fd>) {
+        next if ($line =~ /^#/);
+        chomp $line;
+        my ($name, $val) = split(/\s*:\s*/, $line, 2);
+        $ENV{$name} = $val if(!$ENV{$name});
+    }
+    close($fd);
+}
+
+# Check if we have nghttpx available and if it talks http/3
+my $nghttpx_h3 = 0;
+if (!$ENV{"NGHTTPX"}):
+    $ENV{"NGHTTPX"} = runner.check_test_cmd("nghttpx")
+if ($ENV{"NGHTTPX"}):
+    my $nghttpx_version=join(' ', `"$ENV{'NGHTTPX'}" -v 2>${os.devnull}`);
+    $nghttpx_h3 = $nghttpx_version =~ /nghttp3\//;
+    chomp $nghttpx_h3;
+
+#######################################################################
+# Get the list of tests that the tests/data/Makefile.am knows about!
+#
+my $disttests = "";
+sub get_disttests():
+    # If a non-default config.TESTDIR is being used there may not be any
+    # Makefile.inc in which case there's nothing to do.
+    try:
+        open(my $dh, "<", config.TESTDIR/"Makefile.inc")
+    except:
+        return
+    with $dh:
+        while (<$dh>):
+            chomp $_;
+            if (($_ =~ /^#/) ||($_ !~ /test/)):
+                continue
+            $disttests += $_;
+
+
+#######################################################################
+# Remove all files in the specified directory
+#
+sub cleardir {
+    my $dir = $_[0];
+    my $done = 1;  # success
+    my $file;
+
+    # Get all files
+    try:
+        opendir(my $dh, $dir)
+    except:
+        return 0  # can't open dir
+    while($file = readdir($dh)) {
+        # Don't clear the config.PIDDIR or config.LOCKDIR since those need
+        # to live beyond one test
+        if(($file !~ /^(\.|\.\.)\z/) and "$file" != config.PIDDIR and "$file" != config.LOCKDIR) {
+            if(-d "$dir/$file") {
+                if(!cleardir("$dir/$file")) {
+                    $done = 0;
+                }
+                if(!rmdir("$dir/$file")) {
+                    $done = 0;
+                }
+            }
+            else {
+                # Ignore stunnel since we cannot do anything about its locks
+                if(!unlink("$dir/$file") and "$file" !~ /_stunnel\.log$/) {
+                    $done = 0;
+                }
+            }
+        }
+    }
+    closedir $dh;
+
+    return $done;
+}
+
+    @classmethod
+    def show_diff(log_dir: Path, $firstref, $secondref) -> List[str]:
+        """
+        Given two array references, this function will store them in two temporary
+        files, run 'diff' on them, store the result and return the diff output!
+        """
+        $file1 = log_dir/"check-generated"
+        $file2 = log_dir/"check-expected"
+
+        try:
+            $temp = $file1.open("wt", newline="")
+        except:
+            die("Failure writing diff file")
+        for $l in @$firstref:
+            $l =~ s/\r/[CR]/g;
+            $l =~ s/\n/[LF]/g;
+            $l =~ s/([^\x20-\x7f])/sprintf "%%%02x", ord $1/eg;
+            print $temp $l;
+            print $temp "\n";
+        }
+        close($temp) || die("Failure writing diff file")
+
+        try:
+            $temp = $file2.open("wt", newline="")
+        except:
+            die("Failure writing diff file")
+        for $l in @$secondref:
+            $l =~ s/\r/[CR]/g;
+            $l =~ s/\n/[LF]/g;
+            $l =~ s/([^\x20-\x7f])/sprintf "%%%02x", ord $1/eg;
+            print $temp $l;
+            print $temp "\n";
+        }
+        close($temp) || die("Failure writing diff file")
+        out = `diff -u $file2 $file1 2>${os.devnull}`.splitlines()
+        if not $out[0]:
+            out = `diff -c $file2 $file1 2>${os.devnull}`.splitlines()
+
+        return out
+
+    def compare(self, runner_id, test_num, test_name, subject, first_ref, second_ref):
+        """
+        compare test results with the expected output, we might filter off
+        some pattern that is allowed to differ, output test results
+        """
+        not_equal = getpart.compare_parts(first_ref, second_ref)
+
+        if not not_equal:
+            return not_equal
+
+        # timestamp test result verification end
+        self.time_verify_end[test_num] = Time::HiRes::time();
+
+        if not self.short:
+            self.log_msg(f"\n {test_num}: {subject} FAILED:")
+            log_dir = self.get_runner_logdir(runner_id)
+            self.log_msg(self.show_diff(log_dir, first_ref, second_ref), end="")
+        elif not $automakestyle:
+            self.log_msg("FAILED")
+        else:
+            # automakestyle
+            self.log_msg(f"FAIL: {test_num} - {test_name} - {subject}")
+
+        return not_equal
+
+    def check_system_features(self):
+        """
+        Check & display information about curl and the host the test suite runs on.
+        Information to do with servers is displayed in display_server_features, after
+        the server initialization is performed.
+        """
+
+        my $feat;
+        my $curl;
+        my $libcurl;
+        my $versretval;
+        my $versnoexec;
+        my @version=();
+        my @disabled;
+        my $dis = "";
+
+        my $curlverout = config.LOGDIR/"curlverout.log"
+        my $curlvererr = config.LOGDIR/"curlvererr.log"
+        my $versioncmd = testutil.shell_quote($CURL) . " --version 1>$curlverout 2>$curlvererr";
+
+        unlink($curlverout);
+        unlink($curlvererr);
+
+        $versretval = testutil.run_client($versioncmd)
+        $versnoexec = $!;
+
+        open(my $versout, "<", "$curlverout");
+        @version = <$versout>;
+        close($versout);
+
+        open(my $disabledh, "-|", "server/disabled".exe_ext('TOOL'))
+        @disabled = <$disabledh>;
+        close($disabledh);
+
+        if($disabled[0]) {
+            s/[\r\n]//g for @disabled;
+            $dis = join(", ", @disabled);
+        }
+
+        $resolver="stock";
+        for(@version) {
+            chomp;
+
+            if($_ =~ /^curl ([^ ]*)/) {
+                $curl = $_;
+                config.CURLVERSION = $1
+                $curl =~ s/^(.*)(libcurl.*)/$1/g || die "Failure determining curl binary version";
+
+                $libcurl = $2;
+                if($curl =~ /linux|bsd|solaris/) {
+                    # system support LD_PRELOAD; may be disabled later
+                    config.feature["ld_preload"] = True
+                }
+                if($curl =~ /win32|Windows|mingw(32|64)/) {
+                    # This is a Windows MinGW build or native build, we need to use
+                    # Win32-style path.
+                    $pwd = sys_native_current_path();
+                    $has_textaware = 1;
+                    config.feature["win32"] = True
+                    # set if built with MinGW (as opposed to MinGW-w64)
+                    if ($curl =~ /-pc-mingw32/):
+                        config.feature["MinGW"] = 1
+                }
+               if ($libcurl =~ /\s(winssl|schannel)\b/i) {
+                   config.feature["Schannel"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\sopenssl\b/i) {
+                   config.feature["OpenSSL"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\sgnutls\b/i) {
+                   config.feature["GnuTLS"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\srustls-ffi\b/i) {
+                   config.feature["rustls"] = True
+               }
+               elif ($libcurl =~ /\swolfssl\b/i) {
+                   config.feature["wolfssl"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\sbearssl\b/i) {
+                   config.feature["bearssl"] = True
+               }
+               elif ($libcurl =~ /\ssecuretransport\b/i) {
+                   config.feature["sectransp"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\sBoringSSL\b/i) {
+                   # OpenSSL compatible API
+                   config.feature["OpenSSL"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\slibressl\b/i) {
+                   # OpenSSL compatible API
+                   config.feature["OpenSSL"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               elif ($libcurl =~ /\smbedTLS\b/i) {
+                   config.feature["mbedtls"] = True
+                   config.feature["SSLpinning"] = True
+               }
+               if ($libcurl =~ /ares/i) {
+                   config.feature["c-ares"] = True
+                   $resolver="c-ares";
+               }
+               if ($libcurl =~ /Hyper/i) {
+                   config.feature["hyper"] = True
+               }
+                if ($libcurl =~ /nghttp2/i) {
+                    # nghttp2 supports h2c, hyper does not
+                    config.feature["h2c"] = True
+                }
+                if ($libcurl =~ /libssh2/i) {
+                    config.feature["libssh2"] = True
+                }
+                if ($libcurl =~ /libssh\/([0-9.]*)\//i) {
+                    config.feature["libssh"] = True
+                    if($1 =~ /(\d+)\.(\d+).(\d+)/) {
+                        my $v = $1 * 100 + $2 * 10 + $3;
+                        if($v < 94) {
+                            # before 0.9.4
+                            config.feature["oldlibssh"] = True
+                        }
+                    }
+                }
+                if ($libcurl =~ /wolfssh/i) {
+                    config.feature["wolfssh"] = True
+                }
+            }
+            elif ($_ =~ /^Protocols: (.*)/i) {
+                # these are the protocols compiled in to this libcurl
+                config.protocols = testutil.parse_protocols($1)
+            }
+            elif ($_ =~ /^Features: (.*)/i) {
+
+                $feat = $1;
+
+                # built with memory tracking support (--enable-curldebug); may be disabled later
+                config.feature["TrackMemory"] = $feat =~ /TrackMemory/i;
+                # curl was built with --enable-debug
+                config.feature["debug"] = $feat =~ /debug/i;
+                # ssl enabled
+                config.feature["SSL"] = $feat =~ /SSL/i;
+                # multiple ssl backends available.
+                config.feature["MultiSSL"] = $feat =~ /MultiSSL/i;
+                # large file support
+                config.feature["large_file"] = $feat =~ /Largefile/i;
+                # IDN support
+                config.feature["idn"] = $feat =~ /IDN/i;
+                # IPv6 support
+                config.feature["ipv6"] = $feat =~ /IPv6/i;
+                # Unix sockets support
+                config.feature["unix-sockets"] = $feat =~ /UnixSockets/i;
+                # libz compression
+                config.feature["libz"] = $feat =~ /libz/i;
+                # Brotli compression
+                config.feature["brotli"] = $feat =~ /brotli/i;
+                # Zstd compression
+                config.feature["zstd"] = $feat =~ /zstd/i;
+                # NTLM enabled
+                config.feature["NTLM"] = $feat =~ /NTLM/i;
+                # NTLM delegation to winbind daemon ntlm_auth helper enabled
+                config.feature["NTLM_WB"] = $feat =~ /NTLM_WB/i;
+                # SSPI enabled
+                config.feature["SSPI"] = $feat =~ /SSPI/i;
+                # GSS-API enabled
+                config.feature["GSS-API"] = $feat =~ /GSS-API/i;
+                # Kerberos enabled
+                config.feature["Kerberos"] = $feat =~ /Kerberos/i;
+                # SPNEGO enabled
+                config.feature["SPNEGO"] = $feat =~ /SPNEGO/i;
+                # CharConv enabled
+                config.feature["CharConv"] = $feat =~ /CharConv/i;
+                # TLS-SRP enabled
+                config.feature["TLS-SRP"] = $feat =~ /TLS-SRP/i;
+                # PSL enabled
+                config.feature["PSL"] = $feat =~ /PSL/i;
+                # alt-svc enabled
+                config.feature["alt-svc"] = $feat =~ /alt-svc/i;
+                # HSTS support
+                config.feature["HSTS"] = $feat =~ /HSTS/i;
+                if $feat =~ /AsynchDNS/i:
+                    if not config.feature["c-ares"]:
+                        # this means threaded resolver
+                        config.feature["threaded-resolver"] = True
+                        $resolver = "threaded"
+                # http2 enabled
+                config.feature["http/2"] = $feat =~ /HTTP2/;
+                if config.feature["http/2"]:
+                    config.protocols.append('http/2')
+                # http3 enabled
+                config.feature["http/3"] = $feat =~ /HTTP3/;
+                if config.feature["http/3"]:
+                    config.protocols.append('http/3')
+                # https proxy support
+                config.feature["https-proxy"] = $feat =~ /HTTPS-proxy/;
+                if config.feature["https-proxy"]:
+                    # 'https-proxy' is used as "server" so consider it a protocol
+                    config.protocols.append('https-proxy')
+                # UNICODE support
+                config.feature["Unicode"] = $feat =~ /Unicode/i;
+                # Thread-safe init
+                config.feature["threadsafe"] = $feat =~ /threadsafe/i;
+            }
+            #
+            # Test harness currently uses a non-stunnel server in order to
+            # run HTTP TLS-SRP tests required when curl is built with https
+            # protocol support and TLS-SRP feature enabled. For convenience
+            # 'httptls' may be included in the test harness protocols array
+            # to differentiate this from classic stunnel based 'https' test
+            # harness server.
+            #
+            if config.feature["TLS-SRP"]:
+                my $add_httptls;
+                for $_ in config.protocols:
+                    if $_ =~ /^https(-ipv6|)$/:
+                        $add_httptls=1;
+                        break
+                if $add_httptls and (! grep /^httptls$/, config.protocols)
+                    config.protocols.append('httptls')
+                    config.protocols.append('httptls-ipv6')
+        }
+
+        if(!$curl) {
+            self.log_msg("unable to get curl's version, further details are:")
+            self.log_msg("issued command: ")
+            self.log_msg("$versioncmd ")
+            if ($versretval == -1) {
+                self.log_msg("command failed with: ")
+                self.log_msg("$versnoexec ")
+            }
+            elif ($versretval & 127) {
+                log_msg("command died with signal %d, and %s coredump." %
+                        ($versretval & 127, "a" if $versretval & 128 else "no"))
+            }
+            else {
+                log_msg("command exited with value %d " % ($versretval >> 8))
+            }
+            self.log_msg("contents of $curlverout: ")
+            self.display_log_content("$curlverout")
+            self.log_msg("contents of $curlvererr: ")
+            self.display_log_content("$curlvererr")
+            die "couldn't get curl's version";
+        }
+
+        if (-r "../lib/curl_config.h"):
+            open(my $conf, "<", "../lib/curl_config.h");
+            while (<$conf>):
+                if ($_ =~ /^\#define HAVE_GETRLIMIT/):
+                    # set if system has getrlimit()
+                    config.feature["getrlimit"] = True
+            close($conf);
+
+        # allow this feature only if debug mode is disabled
+        config.feature["ld_preload"] = config.feature["ld_preload"] and not config.feature["debug"]
+
+        if config.feature["ipv6"]:
+            # client has IPv6 support
+
+            # check if the HTTP server has it!
+            my $cmd = "server/sws".exe_ext('SRV')." --version";
+            my @sws = `$cmd`;
+            if($sws[0] =~ /IPv6/) {
+                # HTTP server has IPv6 support!
+                $http_ipv6 = 1;
+            }
+
+            # check if the FTP server has it!
+            $cmd = "server/sockfilt".exe_ext('SRV')." --version";
+            @sws = `$cmd`;
+            if($sws[0] =~ /IPv6/) {
+                # FTP server has IPv6 support!
+                $ftp_ipv6 = 1;
+            }
+
+        if config.feature["unix-sockets"]:
+            # client has Unix sockets support, check whether the HTTP server has it
+            my $cmd = "server/sws".exe_ext('SRV')." --version";
+            my @sws = `$cmd`;
+            $http_unix = 1 if($sws[0] =~ /unix/);
+
+        open(my $manh, "-|", testutil.shell_quote($CURL) . " -M 2>&1");
+        while (my $s = <$manh>):
+            if ($s =~ /built-in manual was disabled at build-time/):
+                config.feature["manual"] = 0;
+                break
+            config.feature["manual"] = True
+            last;
+        close($manh);
+
+        config.feature["unittest"]   = config.feature["debug"]
+        config.feature["nghttpx"]    = !!$ENV{'NGHTTPX'};
+        config.feature["nghttpx-h3"] = !!$nghttpx_h3
+
+        #
+        # strings that must exactly match the names used in server/disabled.c
+        #
+        config.feature["cookies"] = True
+        # Use this as a proxy for any cryptographic authentication
+        config.feature["crypto"] = config.feature["NTLM"] or config.feature["Kerberos"] or config.feature["SPNEGO"]
+        config.feature["DoH"] = True
+        config.feature["HTTP-auth"] = True
+        config.feature["Mime"] = True
+        config.feature["form-api"] = True
+        config.feature["netrc"] = True
+        config.feature["parsedate"] = True
+        config.feature["proxy"] = True
+        config.feature["shuffle-dns"] = True
+        config.feature["typecheck"] = True
+        config.feature["verbose-strings"] = True
+        config.feature["wakeup"] = True
+        config.feature["headers-api"] = True
+        config.feature["xattr"] = True
+        config.feature["large-time"] = True
+
+        # make each protocol an enabled "feature"
+        for $p in config.protocols:
+            config.feature[$p] = True
+
+        # 'socks' was once here but is now removed
+
+        $has_shared = `sh $CURLCONFIG --built-shared`;
+        chomp $has_shared;
+        $has_shared = ($has_shared == "yes")
+
+        if not config.feature["TrackMemory"] and config.torture:
+            die "can't run torture tests since curl was built without ".
+                "TrackMemory feature (--enable-curldebug)";
+
+        my $hostname=join(' ', testutil.run_client_output("hostname"))
+        my $hosttype=join(' ', testutil.run_client_output("uname -a"))
+        my $hostos=$^O;
+
+        # display summary information about curl and the test host
+        log_msg("********* System characteristics ******** \n",
+                "* $curl\n",
+                "* $libcurl\n",
+                "* Features: $feat\n",
+                "* Disabled: $dis\n",
+                "* Host: $hostname",
+                "* System: $hosttype",
+                "* OS: $hostos")
+
+        if self.jobs:
+            # Only show if not the default for now
+            self.log_msg("* Jobs: $self.jobs")
+
+        if config.feature["TrackMemory"] and config.feature["threaded-resolver"]:
+            self.log_msg("*\n",
+                         "*** DISABLES memory tracking when using threaded resolver\n",
+                         "*")
+
+        log_msg("* Env: %s%s%s" % (
+                "Valgrind "    if config.valgrind  else "",
+                "event-based " if $run_event_based else "",
+                $nghttpx_h3))
+        log_msg("Libtool " if $libtool else "")
+        log_msg("* Seed: $randseed")
+
+        # Disable memory tracking when using threaded resolver
+        config.feature["TrackMemory"] = config.feature["TrackMemory"] and not config.feature["threaded-resolver"]
+
+        # toggle off the features that were disabled in the build
+        for $d in @disabled:
+            config.feature[$d] = 0
+
+    @classmethod
+    def display_server_features(cls):
+        """display information about server features"""
+        log_msg("* Servers: %s" % ("SSL " if servers.stunnel else ""), end="")
+        log_msg("HTTP-IPv6 "              if $http_ipv6      else "",  end="")
+        log_msg("HTTP-unix "              if $http_unix      else "",  end="")
+        log_msg("FTP-IPv6 "               if $ftp_ipv6       else "")
+        self.log_msg("***************************************** ")
+
+    def timestamp_skipped_events(self, test_num: Optional[int]):
+        """Provide time stamps for single test skipped events"""
+
+        if not defined(test_num) or test_num < 1:
+            return
+
+        if not $timestats:
+            return
+
+        if self.time_verify_end[testnum]:
+            return
+        elif self.time_server_log[testnum]:
+            self.time_verify_end[testnum] = self.time_server_log[testnum];
+            return
+        elif $timetoolend{test_num}:
+            self.time_verify_end[testnum] = $timetoolend{test_num};
+            self.time_server_log[testnum] = $timetoolend{test_num};
+        elif $timetoolini{test_num}:
+            self.time_verify_end[testnum] = $timetoolini{test_num};
+            self.time_server_log[testnum] = $timetoolini{test_num};
+            $timetoolend{test_num} = $timetoolini{test_num};
+        elif $timesrvrend{test_num}:
+            self.time_verify_end[testnum] = $timesrvrend{test_num};
+            self.time_server_log[testnum] = $timesrvrend{test_num};
+            $timetoolend{test_num} = $timesrvrend{test_num};
+            $timetoolini{test_num} = $timesrvrend{test_num};
+        elif $timesrvrini{test_num}:
+            self.time_verify_end[testnum] = $timesrvrini{test_num};
+            self.time_server_log[testnum] = $timesrvrini{test_num};
+            $timetoolend{test_num} = $timesrvrini{test_num};
+            $timetoolini{test_num} = $timesrvrini{test_num};
+            $timesrvrend{test_num} = $timesrvrini{test_num};
+        elif $timeprepini{test_num}:
+            self.time_verify_end[testnum] = $timeprepini{test_num};
+            self.time_server_log[testnum] = $timeprepini{test_num};
+            $timetoolend{test_num} = $timeprepini{test_num};
+            $timetoolini{test_num} = $timeprepini{test_num};
+            $timesrvrend{test_num} = $timeprepini{test_num};
+            $timesrvrini{test_num} = $timeprepini{test_num};
+
+# Setup CI Test Run
+def citest_starttestrun():
+    global AZURE_RUN_ID
+    if azure_check_environment():
+        AZURE_RUN_ID = azure_create_test_run($ACURL)
+        if config.verbose:
+            log_msg("Azure Run ID: $AZURE_RUN_ID")
+    # Appveyor doesn't require anything here
+
+
+def citest_starttest(test_num):
+    """Register the test case with the CI runner"""
+
+    global AZURE_RUN_ID, AZURE_RESULT_ID
+
+    # get the name of the test early
+    test_name = getpart.get_part("client", "name")[0]
+    chomp test_name;
+
+    # create test result in CI services
+    if azure_check_environment() and AZURE_RUN_ID:
+        AZURE_RESULT_ID = azure_create_test_result($ACURL, AZURE_RUN_ID, test_num, test_name)
+    elif appveyor_check_environment():
+        appveyor_create_test_result($ACURL, test_num, test_name)
+
+    def citest_finish_test(self, test_num, $error):
+        """Submit the test case result with the CI runner"""
+        global AZURE_RUN_ID, AZURE_RESULT_ID
+
+        # update test result in CI services
+        if azure_check_environment() and AZURE_RUN_ID and AZURE_RESULT_ID:
+            AZURE_RESULT_ID = azure_update_test_result($ACURL, AZURE_RUN_ID, AZURE_RESULT_ID, test_num, $error,
+                                                       $timeprepini{test_num}, self.time_verify_end[testnum])
+        elif appveyor_check_environment():
+            appveyor_update_test_result($ACURL, test_num, $error, $timeprepini{test_num}, self.time_verify_end[testnum])
+
+    @classmethod
+    def citest_finish_testrun(cls):
+        # Complete CI test run
+        global AZURE_RUN_ID
+
+        if azure_check_environment() and AZURE_RUN_ID:
+            AZURE_RUN_ID = azure_update_test_run($ACURL, AZURE_RUN_ID)
+        # Appveyor doesn't require anything here
+
+    def updatetesttimings(self, test_num, %testtimings):
+        """add one set of test timings from the runner to global set"""
+
+        if(defined $testtimings{"timeprepini"}) {
+            $timeprepini{test_num} = $testtimings{"timeprepini"};
+        }
+        if(defined $testtimings{"timesrvrini"}) {
+            $timesrvrini{test_num} = $testtimings{"timesrvrini"};
+        }
+        if(defined $testtimings{"timesrvrend"}) {
+            $timesrvrend{test_num} = $testtimings{"timesrvrend"};
+        }
+        if(defined $testtimings{"timetoolini"}) {
+            $timetoolini{test_num} = $testtimings{"timetoolini"};
+        }
+        if(defined $testtimings{"timetoolend"}) {
+            $timetoolend{test_num} = $testtimings{"timetoolend"};
+        }
+        if(defined $testtimings{"timesrvrlog"}) {
+            self.time_server_log[testnum] = $testtimings{"timesrvrlog"};
+        }
+
+    def get_runner_num_log_dir(self, runner_num) -> Path:
+        """Return the log directory for the given test runner"""
+         if self.jobs <= 1:
+             return config.LOGDIR
+        return config.LOGDIR/str(runner_num)
+
+    de get_runner_logdir(self, runner_id) -> Path:
+        """Return the log directory for the given test runner ID"""
+        if self.jobs <= 1:
+            return config.LOGDIR
+        # TODO: speed up this O(n) operation
+        for runner_num in (keys %runnerids):
+            if $runnerids{runner_num} == runner_id:
+                return config.LOGDIR/str(runner_num)
+        else:
+            die(f"Internal error: runner ID {runner_id} not found")
+
+    def singletest_shouldrun(self, test_num):
+        """Verify that this test case should be run"""
+
+        my $why;   # why the test won't be run
+        my $errorreturncode = 1; # 1 means normal error, 2 means ignored error
+        my @what;  # what features are needed
+
+        if ($disttests !~ /test$test_num(\W|\z)/ ):
+            self.log_msg(f"Warning: test{test_num} not present in tests/data/Makefile.inc")
+
+        if $disabled{test_num}:
+            if not $run_disabled:
+                $why = "listed in DISABLED";
+            else:
+                self.log_msg(f"Warning: test{test_num} is explicitly disabled")
+
+        if $ignored{test_num}:
+            self.log_msg(f"Warning: test{test_num} result is ignored")
+            $errorreturncode = 2;
+
+        if getpart.load_test(config.TESTDIR/f"test${testnum}"):
+            if config.verbose:
+                # this is not a test
+                self.log_msg(f"RUN: {test_num} doesn't look like a test case")
+            $why = "no test"
+        else:
+            @what = getpart.get_part("client", "features")
+
+        # We require a feature to be present
+        for(@what):
+            my $f = $_;
+            $f =~ s/\s//g;
+
+            if ($f =~ /^([^!].*)$/):
+                if config.feature[$1]:
+                    continue
+
+                $why = "curl lacks $1 support";
+                break
+
+        # We require a feature to not be present
+        if not $why:
+            for(@what):
+                my $f = $_;
+                $f =~ s/\s//g;
+
+                if ($f =~ /^!(.*)$/):
+                    if not config.feature[$1]:
+                        continue
+                else:
+                    continue
+
+                $why = "curl has $1 support";
+                break
+
+        my @info_keywords;
+        if(!$why) {
+            @info_keywords = getpart.get_part("info", "keywords")
+
+            if(!$info_keywords[0]) {
+                $why = "missing the <keywords> section!";
+            }
+
+            my $match;
+            for my $k (@info_keywords) {
+                chomp $k;
+                if ($disabled_keywords{$k.lower()}) {
+                    $why = "disabled by keyword";
+                }
+                elif ($enabled_keywords{$k.lower()}) {
+                    $match = 1;
+                }
+                if ($ignored_keywords{$k.lower()}) {
+                    self.log_msg(f"Warning: test{test_num} result is ignored due to {$k}")
+                    $errorreturncode = 2;
+                }
+            }
+
+            if(!$why and !$match and %enabled_keywords) {
+                $why = "disabled by missing keyword";
+            }
+        }
+
+        if (!$why and defined $custom_skip_reasons{test}{test_num}) {
+            $why = $custom_skip_reasons{test}{test_num}
+        }
+
+        if (!$why and defined $custom_skip_reasons{tool}) {
+            for my $tool getpart.get_part("client", "tool"):
+                foreach my $tool_skip_pattern (keys %{$custom_skip_reasons{tool}}) {
+                    if ($tool =~ /$tool_skip_pattern/i) {
+                        $why = $custom_skip_reasons{tool}{$tool_skip_pattern};
+                    }
+                }
+        }
+
+        if (!$why and defined $custom_skip_reasons{keyword}) {
+            foreach my $keyword (@info_keywords) {
+                foreach my $keyword_skip_pattern (keys %{$custom_skip_reasons{keyword}}) {
+                    if ($keyword =~ /$keyword_skip_pattern/i) {
+                        $why = $custom_skip_reasons{keyword}{$keyword_skip_pattern};
+                    }
+                }
+            }
+        }
+
+        return ($why, $errorreturncode);
+
+    def singletest_count(self, test_num, $why):
+        """Print the test name and count tests"""
+
+        if $why and not config.listonly:
+            # there's a problem, count it as "skipped"
+            $skipped{$why} += 1
+            $teststat[test_num] = $why  # store reason for this test case
+
+            if not self.short:
+                if $skipped{$why} <= 3:
+                    # show only the first three skips for each reason
+                    self.log_msg("test %04d SKIPPED: %s" % (test_num, $why))
+
+            self.timestamp_skipped_events(test_num)
+            return -1
+
+        # At this point we've committed to run this test
+        if not $automakestyle:
+            self.log_msg("test %04d..." % test_num, end="")
+
+        # name of the test
+        test_name = getpart.get_part("client", "name")[0]
+        chomp test_name;
+        if not self.short:
+            log_msg(f"[{test_name}]")
+
+        if config.listonly:
+            self.timestamp_skipped_events(test_num)
+
+        return 0
+
+    def singletest_check(self, runner_id, $testnum, $cmdres, $CURLOUT, $tool, $usedvalgrind):
+        """Verify test succeeded"""
+
+        # Skip all the verification on torture tests
+        if config.torture:
+            # timestamp test result verification end
+            self.time_verify_end[testnum] = Time::HiRes::time();
+            return -2
+
+        log_dir = self.get_runner_logdir(runner_id)
+
+        my @err = getpart.get_part("verify", "errorcode")
+        my $errorcode = ($err[0] or "0")
+        my $ok="";
+        my $res;
+        chomp $errorcode;
+        my $testname= getpart.get_part("client", "name")[0]
+        chomp $testname;
+        # what parts to cut off from stdout/stderr
+        my @stripfile = getpart.get_part("verify", "stripfile")
+
+        my @validstdout = getpart.get_part("verify", "stdout")
+        # get all attributes
+        my %hash = getpart.get_partattr("verify", "stdout")
+
+        my $loadfile = $hash{'loadfile'};
+        if ($loadfile) {
+            try:
+                open(my $tmp, "<", "$loadfile")
+            except:
+                die "Cannot open file $loadfile: $!";
+            @validstdout = <$tmp>;
+            close($tmp);
+
+            # Enforce LF newlines on load
+            s/\r\n/\n/g for @validstdout;
+        }
+
+        if (@validstdout) {
+            # verify redirected stdout
+            my @actual = getpart.load_array(stdoutfilename(log_dir, $testnum))
+
+            foreach my $strip (@stripfile) {
+                chomp $strip;
+                my @newgen;
+                for(@actual) {
+                    eval $strip;
+                    if($_) {
+                        @newgen.append($_)
+                    }
+                }
+                # this is to get rid of array entries that vanished (zero
+                # length) because of replacements
+                @actual = @newgen;
+            }
+
+            # get the mode attribute
+            my $filemode=$hash{'mode'};
+            if($filemode and ($filemode == "text") and $has_textaware) {
+                # text mode when running on windows: fix line endings
+                s/\r\n/\n/g for @validstdout;
+                s/\n/\r\n/g for @validstdout;
+                s/\r\n/\n/g for @actual;
+                s/\n/\r\n/g for @actual;
+            }
+
+            if $hash{'nonewline'}:
+                # Yes, we must cut off the final newline from the final line
+                # of the protocol data
+                chomp($validstdout[-1]);
+
+            if $hash{'crlf'} or (config.feature["hyper"] and ($keywords{"HTTP"} or $keywords{"HTTPS"})):
+                subnewlines(0, \$_) for @validstdout;
+
+            $res = self.compare(runner_id, $testnum, $testname, "stdout", \@actual, \@validstdout);
+            if $res:
+                return -1
+
+            $ok += "s"
+        }
+        else:
+            $ok += "-"  # stdout not checked
+
+        my @validstderr = getpart.get_part("verify", "stderr")
+        if (@validstderr) {
+            # verify redirected stderr
+            my @actual = getpart.load_array(stderrfilename(log_dir, $testnum))
+
+            foreach my $strip (@stripfile) {
+                chomp $strip;
+                my @newgen;
+                for(@actual) {
+                    eval $strip;
+                    if($_) {
+                        @newgen.append($_)
+                    }
+                }
+                # this is to get rid of array entries that vanished (zero
+                # length) because of replacements
+                @actual = @newgen;
+            }
+
+            # get all attributes
+            my %hash = getpart.get_partattr("verify", "stderr")
+
+            # get the mode attribute
+            my $filemode=$hash{'mode'};
+            if $filemode and ($filemode == "text") and config.feature["hyper"]:
+                # text mode check in hyper-mode. Sometimes necessary if the stderr
+                # data *looks* like HTTP and thus has gotten CRLF newlines
+                # mistakenly
+                s/\r\n/\n/g for @validstderr;
+            if $filemode and ($filemode == "text") and $has_textaware:
+                # text mode when running on windows: fix line endings
+                s/\r\n/\n/g for @validstderr;
+                s/\n/\r\n/g for @validstderr;
+
+            if $hash{'nonewline'}:
+                # Yes, we must cut off the final newline from the final line
+                # of the protocol data
+                chomp($validstderr[-1]);
+
+            $res = self.compare(runner_id, $testnum, $testname, "stderr", \@actual, \@validstderr);
+            if $res:
+                return -1
+
+            $ok += "r";
+        }
+        else:
+            $ok += "-"  # stderr not checked
+
+        # what to cut off from the live protocol sent by curl
+        my @strip = getpart.get_part("verify", "strip")
+
+        # what parts to cut off from the protocol & upload
+        my @strippart = getpart.get_part("verify", "strippart")
+
+        # this is the valid protocol blurb curl should generate
+        my @protocol = getpart.get_part("verify", "protocol")
+        if @protocol:
+            # Verify the sent request
+            my @out = getpart.load_array(log_dir/config.SERVERIN)
+
+            # check if there's any attributes on the verify/protocol section
+            my %hash = getpart.get_partattr("verify", "protocol")
+
+            if $hash{'nonewline'}:
+                # Yes, we must cut off the final newline from the final line
+                # of the protocol data
+                chomp($protocol[-1]);
+
+            for $_ in @strip:
+                # strip off all lines that match the patterns from both arrays
+                chomp $_;
+                @out      = getpart.strip_array($_, @out)
+                @protocol = getpart.strip_array($_, @protocol)
+
+            for my $strip in @strippart:
+                chomp $strip;
+                for(@out) {
+                    eval $strip;
+                }
+
+            if($hash{'crlf'}) {
+                subnewlines(1, \$_) for @protocol;
+            }
+
+            if (!$out[0] or ($out[0] == "")) and $protocol[0]:
+                log_msg(f"\n $testnum: protocol FAILED!\n".
+                        f" There was no content at all in the file {log_dir}/{config.SERVERIN}.\n".
+                        f" Server glitch? Total curl failure? Returned: $cmdres")
+                # timestamp test result verification end
+                self.time_verify_end[testnum] = Time::HiRes::time();
+                return -1
+
+            $res = self.compare(runner_id, $testnum, $testname, "protocol", \@out, \@protocol);
+            if $res:
+                return -1
+
+            $ok += "p";
+        else:
+            $ok += "-"  # protocol not checked
+
+        my %replyattr = getpart.get_partattr("reply", "data")
+        my @reply;
+        if getpart.part_exists("reply", "datacheck"):
+            for my $partsuffix (('', '1', '2', '3', '4')) {
+                my @replycheckpart = getpart.get_part("reply", f"datacheck{$partsuffix}")
+                if(@replycheckpart) {
+                    my %replycheckpartattr = getpart.get_partattr("reply", f"datacheck{$partsuffix}")
+                    # get the mode attribute
+                    my $filemode=$replycheckpartattr{'mode'};
+                    if $filemode and ($filemode == "text") and $has_textaware:
+                        # text mode when running on windows: fix line endings
+                        s/\r\n/\n/g for @replycheckpart;
+                        s/\n/\r\n/g for @replycheckpart;
+                    if $replycheckpartattr{'nonewline'}:
+                        # Yes, we must cut off the final newline from the final line
+                        # of the datacheck
+                        chomp($replycheckpart[-1]);
+                    if $replycheckpartattr{'crlf'} or (config.feature["hyper"] and ($keywords{"HTTP"} or $keywords{"HTTPS"})):
+                        subnewlines(0, \$_) for @replycheckpart;
+
+                    push(@reply, @replycheckpart);
+                }
+            }
+        else:
+            # check against the data section
+            @reply = getpart.get_part("reply", "data")
+            if @reply:
+                if $replyattr{'nonewline'}:
+                    # cut off the final newline from the final line of the data
+                    chomp($reply[-1]);
+            # get the mode attribute
+            my $filemode=$replyattr{'mode'};
+            if $filemode and ($filemode == "text") and $has_textaware:
+                # text mode when running on windows: fix line endings
+                s/\r\n/\n/g for @reply;
+                s/\n/\r\n/g for @reply;
+            if $replyattr{'crlf'} or (config.feature["hyper"] and ($keywords{"HTTP"} or $keywords{"HTTPS"})):
+                subnewlines(0, \$_) for @reply;
+
+        if not $replyattr{'nocheck'} and (@reply or $replyattr{'sendzero'}):
+            # verify the received data
+            my @out = getpart.load_array($CURLOUT)
+            $res = self.compare(runner_id, $testnum, $testname, "data", \@out, \@reply);
+            if $res:
+                return -1
+
+            $ok += "d";
+        else:
+            $ok += "-"  # data not checked
+
+        # if this section exists, we verify upload
+        my @upload = getpart.get_part("verify", "upload")
+        if(@upload) {
+            my %hash = getpart.get_partattr("verify", "upload")
+            if $hash{'nonewline'}:
+                # cut off the final newline from the final line of the upload data
+                chomp($upload[-1]);
+
+            # verify uploaded data
+            my @out = getpart.load_array(log_dir/f"upload.{$testnum}")
+            for my $strip in @strippart:
+                chomp $strip;
+                for(@out) {
+                    eval $strip;
+                }
+
+            $res = self.compare(runner_id, $testnum, $testname, "upload", \@out, \@upload);
+            if ($res) {
+                return -1
+            }
+            $ok += "u";
+        }
+        else:
+            $ok += "-"  # upload not checked
+
+        # this is the valid protocol blurb curl should generate to a proxy
+        my @proxyprot = getpart.get_part("verify", "proxy")
+        if @proxyprot:
+            # Verify the sent proxy request
+            # check if there's any attributes on the verify/protocol section
+            my %hash = getpart.get_partattr("verify", "proxy")
+
+            if $hash{'nonewline'}:
+                # Yes, we must cut off the final newline from the final line
+                # of the protocol data
+                chomp($proxyprot[-1]);
+
+            my @out = getpart.load_array(log_dir/config.PROXYIN)
+            for $_ in @strip:
+                # strip off all lines that match the patterns from both arrays
+                chomp $_;
+                @out       = getpart.strip_array($_, @out)
+                @proxyprot = getpart.strip_array($_, @proxyprot)
+
+            for my $strip in @strippart:
+                chomp $strip;
+                for(@out) {
+                    eval $strip;
+                }
+
+            if $hash{'crlf'} or (config.feature["hyper"] and ($keywords{"HTTP"} or $keywords{"HTTPS"})):
+                subnewlines(0, \$_) for @proxyprot;
+
+            $res = self.compare(runner_id, $testnum, $testname, "proxy", \@out, \@proxyprot);
+            if $res:
+                return -1
+
+            $ok += "P";
+        else:
+            $ok += "-"  # proxy not checked
+
+        my $outputok;
+        for my $partsuffix (('', '1', '2', '3', '4')) {
+            my @outfile = getpart.get_part("verify", "file".$partsuffix)
+            if @outfile or getpart.part_exists("verify", "file".$partsuffix):
+            {
+                # we're supposed to verify a dynamically generated file!
+                my %hash = getpart.get_partattr("verify", "file".$partsuffix)
+
+                my $filename=$hash{'name'};
+                if(!$filename) {
+                    log_msg(f" $testnum: IGNORED: section verify=>file$partsuffix ".
+                            f"has no name attribute")
+                    if runner.runnerac_stopservers(runner_id):
+                        self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                    else:
+                        # TODO: this is a blocking call that will stall the controller,
+                        if config.verbose:
+                            self.log_msg("WARNING: blocking call in async function")
+                        # but this error condition should never happen except during
+                        # development.
+                        $rid, $unexpected, $logs = runner.runnerar(runner_id)
+                        if not $rid:
+                            self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                        else:
+                            self.log_msg($logs, end="")
+
+                    # timestamp test result verification end
+                    self.time_verify_end[testnum] = Time::HiRes::time();
+                    return -1
+                }
+                my @generated = getpart.load_array($filename)
+
+                # what parts to cut off from the file
+                my @stripfilepar = getpart.get_part("verify", "stripfile".$partsuffix)
+
+                my $filemode=$hash{'mode'};
+                if($filemode and ($filemode == "text") and $has_textaware) {
+                    # text mode when running on windows: fix line endings
+                    s/\r\n/\n/g for @outfile;
+                    s/\n/\r\n/g for @outfile;
+                }
+                if $hash{'crlf'} or (config.feature["hyper"] and ($keywords{"HTTP"} or $keywords{"HTTPS"})):
+                    subnewlines(0, \$_) for @outfile;
+
+                for my $strip (@stripfilepar) {
+                    chomp $strip;
+                    my @newgen;
+                    for(@generated) {
+                        eval $strip;
+                        if($_) {
+                            @newgen.append($_)
+                        }
+                    }
+                    # this is to get rid of array entries that vanished (zero
+                    # length) because of replacements
+                    @generated = @newgen;
+                }
+
+                if $hash{'nonewline'}:
+                    # cut off the final newline from the final line of the
+                    # output data
+                    chomp($outfile[-1]);
+
+                $res = self.compare(runner_id, $testnum, $testname, "output ($filename)", \@generated, \@outfile);
+                if $res:
+                    return -1
+
+                $outputok = 1; # output checked
+            }
+        }
+        $ok += "o" if $outputok else "-"  # output checked or not
+
+        # verify SOCKS proxy details
+        socks_prot = getpart.get_part("verify", "socks")
+        if socks_prot:
+            # Verify the sent SOCKS proxy details
+            my @out = getpart.load_array(log_dir/"$SOCKSIN")
+            $res = self.compare(runner_id, $testnum, $testname, "socks", \@out, \socks_prot)
+            if $res:
+                return -1
+
+        # accept multiple comma-separated error codes
+        my @splerr = split(/ *, */, $errorcode);
+        my $errok;
+        foreach my $e (@splerr):
+            if $e == $cmdres:
+                # a fine error code
+                $errok = 1;
+                break
+
+        if($errok) {
+            $ok += "e";
+        }
+        else:
+            if not self.short:
+                log_msg(f"\n%s returned $cmdres, when expecting %s" % (
+                        $tool or "curl", $errorcode))
+            self.log_msg(" $testnum: exit FAILED")
+            # timestamp test result verification end
+            self.time_verify_end[testnum] = Time::HiRes::time();
+            return -1
+
+        if config.feature["TrackMemory"]:
+            if(! -f log_dir/config.MEMDUMP) {
+                my %cmdhash = getpart.get_partattr("client", "command")
+                my $cmdtype = ($cmdhash{'type'} or "default")
+                if (!$cmdtype == "perl");
+                    log_msg("\n** ALERT! memory tracking with no output file?")
+                $ok += "-"  # problem with memory checking
+            }
+            else {
+                my @memdata = `$memanalyze $log_dir/{config.MEMDUMP}`
+                my $leak=0;
+                for(@memdata) {
+                    if($_ != "") {
+                        # well it could be other memory problems as well, but
+                        # we call it leak for short here
+                        $leak=1;
+                    }
+                }
+                if($leak) {
+                    self.log_msg("\n** MEMORY FAILURE")
+                    log_msg(@memdata, end="")
+                    # timestamp test result verification end
+                    self.time_verify_end[testnum] = Time::HiRes::time();
+                    return -1
+                }
+                else {
+                    $ok += "m";
+                }
+            }
+        else:
+            $ok += "-"  # memory not checked
+
+        if config.valgrind:
+            if($usedvalgrind) {
+                if(!opendir(DIR, log_dir)) {
+                    self.log_msg(f"ERROR: unable to read {log_dir}")
+                    # timestamp test result verification end
+                    self.time_verify_end[testnum] = Time::HiRes::time();
+                    return -1
+                }
+                my @files = readdir(DIR);
+                closedir(DIR);
+                my $vgfile;
+                foreach my $file (@files):
+                    if($file =~ /^valgrind$testnum(\..*|)$/):
+                        $vgfile = $file;
+                        break
+                if(!$vgfile) {
+                    self.log_msg("ERROR: valgrind log file missing for test $testnum")
+                    # timestamp test result verification end
+                    self.time_verify_end[testnum] = Time::HiRes::time();
+                    return -1
+                }
+                my @e = valgrind_parse(log_dir/"$vgfile")
+                if(@e and $e[0]) {
+                    if($automakestyle) {
+                        self.log_msg("FAIL: $testnum - $testname - valgrind")
+                    }
+                    else {
+                        self.log_msg(" valgrind ERROR ", end="")
+                        log_msg(@e, emd="")
+                    }
+                    # timestamp test result verification end
+                    self.time_verify_end[testnum] = Time::HiRes::time();
+                    return -1
+                }
+                $ok += "v";
+            }
+            else:
+                if config.verbose:
+                    self.log_msg(" valgrind SKIPPED")
+                $ok += "-"  # skipped
+        else:
+            $ok += "-"  # valgrind not checked
+
+        # add 'E' for event-based
+        $ok += $run_event_based ? "E" : "-";
+
+        if not self.short:
+            log_msg("$ok ", end="")
+
+        # timestamp test result verification end
+        self.time_verify_end[testnum] = Time::HiRes::time();
+
+        return 0
+
+    def singletest_success(self, test_num, count, total, error_return_code):
+        """Report a successful test"""
+
+        sofar = time() - $start;
+
+        estim_total = sofar / count * total
+        estim_left  = estim_total - sofar
+        time_left   = "remaining: %02d:%02d" % (estim_left // 60, estim_left % 60)
+        took        = self.time_verify_end[testnum] - $timeprepini[test_num]
+        duration    = "duration: %02d:%02d" % (sofar // 60, sofar % 60)
+        if not $automakestyle:
+            self.log_msg("OK (%-3d out of %-3d, %s, took %.3fs, %s)" %
+                         (count, total, time_left, took, duration))
+        else:
+            test_name = getpart.get_part("client", "name")[0]
+            chomp test_name;
+            self.log_msg(f"PASS: {test_num} - {test_name}")
+
+        if error_return_code == 2:
+            self.log_msg(f"Warning: test{test_num} result is ignored, but passed!")
+
+    def singletest(self, runner_id, $testnum, $count, $total):
+        """
+        Run a single specified test case
+        This is structured as a state machine which changes state after an
+        asynchronous call is made that awaits a response. The function returns with
+        an error code and a flag that indicates if the state machine has completed,
+        which means (if not) the function must be called again once the response has
+        arrived.
+        """
+        # start buffering log_msg; stop it on return
+        log_msg_bufferfortest(runner_id)
+        if runner_id not in self.singletest_state:
+            # First time in singletest() for this test
+            self.singletest_state[runner_id] = ST_INIT
+
+        if self.singletest_state[runner_id] == ST_INIT:
+
+            log_dir = self.get_runner_logdir(runner_id)
+            # first, remove all lingering log & lock files
+            if (not cleardir(log_dir) or not cleardir(log_dir/config.LOCKDIR)) and self.clear_locks:
+                # On Windows, lock files can't be deleted when the process still
+                # has them open, so kill those processes first
+                if runner.runnerac_clearlocks(runner_id, log_dir/config.LOCKDIR):
+                    self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                    self.singletest_state[runner_id] = ST_INIT
+                    return (-1, 0);
+                self.singletest_state[runner_id] = ST_CLEAR_LOCKS
+            else:
+                self.singletest_state[runner_id] = ST_INITED
+                # Recursively call the state machine again because there is no
+                # event expected that would otherwise trigger a new call.
+                return singletest(@_)
+
+        elif self.singletest_state[runner_id] == ST_CLEAR_LOCKS:
+
+            $rid, $logs = runner.runnerar(runner_id)
+            if not $rid:
+                self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                self.singletest_state[runner_id] = ST_INIT
+                return (-1, 0)
+
+            log_msg($logs, end="")
+            log_dir = self.get_runner_logdir(runner_id)
+            cleardir(log_dir)
+            self.singletest_state[runner_id] = ST_INITED
+            # Recursively call the state machine again because there is no
+            # event expected that would otherwise trigger a new call.
+            return singletest(@_);
+
+        elif self.singletest_state[runner_id] == ST_INITED:
+
+            ###################################################################
+            # Restore environment variables that were modified in a previous run.
+            # Test definition may instruct to (un)set environment vars.
+            # This is done this early so that leftover variables don't affect
+            # starting servers or CI registration.
+            # runner.restore_test_env(delete_old_env=True)
+
+            ###################################################################
+            # Load test file so CI registration can get the right data before the
+            # runner is called
+            getpart.load_test(config.TESTDIR/f"test${testnum}")
+
+            ###################################################################
+            # Register the test case with the CI environment
+            citest_starttest($testnum);
+
+            if runner.runnerac_test_preprocess(runner_id, $testnum):
+                self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                self.singletest_state[runner_id] = ST_INIT
+                return (-1, 0)
+
+            self.singletest_state[runner_id] = ST_PREPROCESS
+
+        elif self.singletest_state[runner_id] == ST_PREPROCESS:
+
+            $rid, $why, $error, $logs, $testtimings = runner.runnerar(runner_id)
+            if not $rid:
+                self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                self.singletest_state[runner_id] = ST_INIT
+                return (-1, 0);
+
+            log_msg($logs, end="")
+            updatetesttimings($testnum, %$testtimings);
+            if $error == -2:
+                if self.postmortem:
+                    # Error indicates an actual problem starting the server, so
+                    # display the server logs
+                    self.display_logs($rid, $testnum)
+
+            #######################################################################
+            # Load test file for this test number
+            log_dir = self.get_runner_logdir(runner_id)
+            getpart.load_test(log_dir/f"test{testnum}")
+
+            #######################################################################
+            # Print the test name and count tests
+            $error = singletest_count($testnum, $why);
+            if $error:
+                # Submit the test case result with the CI environment
+                self.citest_finish_test($testnum, $error);
+                self.singletest_state[runner_id] = ST_INIT
+                self.log_msg(self.singletest_dump_logs(), end="")
+                return ($error, 0)
+
+            #######################################################################
+            # Execute this test number
+            my $cmdres;
+            my $CURLOUT;
+            my $tool;
+            my $usedvalgrind;
+
+            if runner.runnerac_test_run(runner_id, $testnum):
+                self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                self.singletest_state[runner_id] = ST_INIT
+                return (-1, 0)
+
+            self.singletest_state[runner_id] = ST_RUN
+
+        elif self.singletest_state[runner_id] == ST_RUN:
+
+            $rid, $error, $logs, $testtimings, $cmdres, $CURLOUT, $tool, $usedvalgrind = runner.runnerar(runner_id)
+            if not $rid:
+                self.log_msg(f"ERROR: runner {runner_id} seems to have died")
+                self.singletest_state[runner_id] = ST_INIT
+                return (-1, 0)
+
+            log_msg($logs, end="")
+            updatetesttimings($testnum, %$testtimings);
+            if $error == -1:
+                # no further verification will occur
+                self.time_verify_end[testnum] = Time::HiRes::time();
+                my $err = self.ignore_resultcode($testnum)
+                # Submit the test case result with the CI environment
+                self.citest_finish_test($testnum, $err);
+                self.singletest_state[runner_id] = ST_INIT
+                self.log_msg(self.singletest_dump_logs(), end="")
+                # return a test failure, either to be reported or to be ignored
+                return ($err, 0)
+            elif $error == -2:
+                # fill in the missing timings on error
+                self.timestamp_skipped_events($testnum)
+                # Submit the test case result with the CI environment
+                self.citest_finish_test($testnum, $error);
+                self.singletest_state[runner_id] = ST_INIT
+                self.log_msg(self.singletest_dump_logs(), end="")
+                return ($error, 0);
+            elif $error > 0:
+                # no further verification will occur
+                self.time_verify_end[testnum] = Time::HiRes::time();
+                # Submit the test case result with the CI environment
+                self.citest_finish_test($testnum, $error);
+                self.singletest_state[runner_id] = ST_INIT
+                self.log_msg(self.singletest_dump_logs(), end="")
+                return ($error, 0);
+
+            #######################################################################
+            # Verify that the test succeeded
+            #
+            # Load test file for this test number
+            log_dir = self.get_runner_logdir(runner_id)
+            getpart.load_test(log_dir/f"test{testnum}")
+            runner.readtestkeywords()
+
+            $error = singletest_check(runner_id, $testnum, $cmdres, $CURLOUT, $tool, $usedvalgrind);
+            if $error == -1:
+                my $err = self.ignore_resultcode($testnum)
+                # Submit the test case result with the CI environment
+                self.citest_finish_test($testnum, $err);
+                self.singletest_state[runner_id] = ST_INIT
+                self.log_msg(self.singletest_dump_logs(), end="")
+                # return a test failure, either to be reported or to be ignored
+                return ($err, 0)
+            elif $error == -2:
+                # torture test; there is no verification, so the run result holds the
+                # test success code
+                # Submit the test case result with the CI environment
+                self.citest_finish_test($testnum, $cmdres);
+                self.singletest_state[runner_id] = ST_INIT
+                self.log_msg(self.singletest_dump_logs(), end="")
+                return ($cmdres, 0)
+
+            #######################################################################
+            # Report a successful test
+            singletest_success($testnum, $count, $total, self.ignore_resultcode($testnum));
+
+            # Submit the test case result with the CI environment
+            self.citest_finish_test($testnum, 0)
+            self.singletest_state[runner_id] = ST_INIT
+
+            self.log_msg(self.singletest_dump_logs(), end="")
+            return (0, 0)  # state machine is finished
+
+        self.singletest_unbuffer_logs()
+        return (0, 1)  # state machine must be called again on event
+
+    def runtimestats(self, $lasttest):
+        """runtimestats displays test-suite run time statistics"""
+
+        if not $timestats:
+            return
+
+        self.log_msg("\nTest suite total running time breakdown per task...\n")
+
+        my @timesrvr;
+        my @timeprep;
+        my @timetool;
+        my @timelock;
+        my @timevrfy;
+        my @timetest;
+        my $timesrvrtot = 0.0;
+        my $timepreptot = 0.0;
+        my $timetooltot = 0.0;
+        my $timelocktot = 0.0;
+        my $timevrfytot = 0.0;
+        my $timetesttot = 0.0;
+        my $counter;
+
+        for test_num in (1 .. $lasttest):
+            if $timesrvrini{test_num}:
+                $timesrvrtot += $timesrvrend{test_num} - $timesrvrini{test_num};
+                $timepreptot +=
+                    (($timetoolini{test_num} - $timeprepini{test_num}) -
+                     ($timesrvrend{test_num} - $timesrvrini{test_num}));
+                $timetooltot += $timetoolend{test_num} - $timetoolini{test_num};
+                $timelocktot += self.time_server_log[testnum] - $timetoolend{test_num};
+                $timevrfytot += self.time_verify_end[testnum] - self.time_server_log[testnum];
+                $timetesttot += self.time_verify_end[testnum] - $timeprepini{test_num};
+                push @timesrvr, sprintf("%06.3f  %04d",
+                    $timesrvrend{test_num} - $timesrvrini{test_num}, test_num);
+                push @timeprep, sprintf("%06.3f  %04d",
+                    ($timetoolini{test_num} - $timeprepini{test_num}) -
+                    ($timesrvrend{test_num} - $timesrvrini{test_num}), test_num);
+                push @timetool, sprintf("%06.3f  %04d",
+                    $timetoolend{test_num} - $timetoolini{test_num}, test_num);
+                push @timelock, sprintf("%06.3f  %04d",
+                    self.time_server_log[testnum] - $timetoolend{test_num}, test_num);
+                push @timevrfy, sprintf("%06.3f  %04d",
+                    self.time_verify_end[testnum] - self.time_server_log[testnum], test_num);
+                push @timetest, sprintf("%06.3f  %04d",
+                    self.time_verify_end[testnum] - $timeprepini{test_num}, test_num);
+
+        {
+            no warnings 'numeric';
+            @timesrvr = sort { $b <=> $a } @timesrvr;
+            @timeprep = sort { $b <=> $a } @timeprep;
+            @timetool = sort { $b <=> $a } @timetool;
+            @timelock = sort { $b <=> $a } @timelock;
+            @timevrfy = sort { $b <=> $a } @timevrfy;
+            @timetest = sort { $b <=> $a } @timetest;
+        }
+
+        log_msg(("Spent "%08.3f " % $timesrvrtot) +
+                "seconds starting and verifying test harness servers.")
+        log_msg(("Spent "%08.3f " % $timepreptot) +
+                "seconds reading definitions and doing test preparations.")
+        log_msg(("Spent "%08.3f " % $timetooltot) +
+                "seconds actually running test tools.")
+        log_msg(("Spent "%08.3f " % $timelocktot) +
+                "seconds awaiting server logs lock removal.")
+        log_msg(("Spent "%08.3f " % $timevrfytot) +
+                "seconds verifying test results.")
+        log_msg(("Spent "%08.3f " % $timetesttot) +
+                "seconds doing all of the above.")
+
+        $counter = 25;
+        log_msg("\nTest server starting and verification time per test (%s)...\n" % f"top {$counter}" if not $fullstats else "full")
+        self.log_msg("-time-  test")
+        self.log_msg("------  ----")
+        for my $txt in @timesrvr:
+            if not $fullstats and not $counter--: break
+            self.log_msg(f"{$txt}")
+
+        $counter = 10;
+        log_msg("\nTest definition reading and preparation time per test (%s)...\n" % f"top {$counter}" if not $fullstats else "full")
+        self.log_msg("-time-  test")
+        self.log_msg("------  ----")
+        for my $txt in @timeprep:
+            if not $fullstats and not $counter--: break
+            self.log_msg(f"{$txt}")
+
+        $counter = 25;
+        log_msg("\nTest tool execution time per test (%s)...\n" % f"top {$counter}" if not $fullstats else "full")
+        self.log_msg("-time-  test")
+        self.log_msg("------  ----")
+        for my $txt in @timetool:
+            if not $fullstats and not $counter--: break
+            self.log_msg(f"{$txt}")
+
+        $counter = 15;
+        log_msg("\nTest server logs lock removal time per test (%s)...\n" % f"top {$counter}" if not $fullstats else "full")
+        self.log_msg("-time-  test")
+        self.log_msg("------  ----")
+        for my $txt in @timelock:
+            if not $fullstats and not $counter--: break
+            self.log_msg(f"{$txt}")
+
+        $counter = 10;
+        log_msg("\nTest results verification time per test (%s)...\n" % f"top {$counter}" if not $fullstats else "full")
+        self.log_msg("-time-  test")
+        self.log_msg("------  ----")
+        for my $txt in @timevrfy:
+            if not $fullstats and not $counter--: break
+            self.log_msg(f"{$txt}")
+
+        $counter = 50;
+        log_msg("\nTotal time per test (%s)...\n" % f"top {$counter}" if not $fullstats else "full")
+        self.log_msg("-time-  test")
+        self.log_msg("------  ----")
+        for my $txt in @timetest:
+            if not $fullstats and not $counter--: break
+            self.log_msg(f"{$txt}")
+
+        self.log_msg("")
+
+    def ignore_resultcode(self, test_num) -> int:
+        """
+        returns code indicating why a test was skipped
+        0=unknown test, 1=use test result, 2=ignore test result
+        """
+        return self.ignore_testcodes.get(test_num, 0)
+
+    # OK
+    def runner_ready(self, runner_id):
+        """Put the given runner ID onto the queue of runners ready for a new task"""
+        self.runners_idle.append(runner_id)
+
+    def create_runners(self, num_runners):
+        """Create test runners"""
+
+        if not num_runners:
+            num_runners += 1
+
+        # create num_runners runners with minimum 1
+        for runner_num in (1..num_runners):
+            log_dir = get_runner_num_log_dir(runner_num)
+            cleardir(log_dir);
+            mkdir(log_dir, 0777);
+            $runnerids{runner_num} = runner.runner_init($dir, self.jobs);
+            self.runner_ready($runnerids{runner_num})
+
+    def pick_runner(self, $testnum):
+        """Pick a test runner for the given test"""
+         if not self.runners_idle:
+             die("No runners available")
+        return self.runners_idle.pop()
+
+    def disabled_tests($file):
+        """Fetch all disabled tests, if there are any"""
+
+        input = []
+        try:
+            disabled_h = $file.open("rt")
+        except:
+            return
+        with disabled_h:
+            for line in disabled_h:
+                if (/^ *\#/):
+                    # allow comments
+                    continue
+                input.append(line)
+
+        # preprocess the input to make conditionally disabled tests depending
+        # on variables
+        @pp = runner.prepro(0, input)
+        for $t in @pp):
+            if ($t =~ /(\d+)/):
+                $n = $1;
+                $disabled{$n} = $n  # disable this test number
+                if (! -f "$srcdir/data/test$n"):
+                    print(f"WARNING! Non-existing test $n in $file!", file=sys.stderr)
+                    # fail hard to make user notice
+                    exit 1;
+                if config.verbose: log_msg(f"DISABLED: test $n")
+            else:
+                print(f"$file: rubbish content: $t", file=sys.stderr)
+                exit 2;
+
+    def check_cli_options(self):
+        """Check options to this test program"""
+
+        # Special case for CMake: replace '$TFLAGS' by the contents of the
+        # environment variable (if any).
+        if (@ARGV and $ARGV[-1] == '$TFLAGS'):
+            pop @ARGV;
+            push(@ARGV, split(' ', $ENV{'TFLAGS'})) if defined($ENV{'TFLAGS'});
+
+        config.valgrind = runner.check_test_cmd("valgrind")
+        number   = 0
+        from_num = -1
+        my @testthis;
+
+        while @ARGV:
+            if $ARGV[0] == "-v":
+                # verbose output
+                config.verbose = True
+            elif $ARGV[0] == "-c":
+                # use this path to curl instead of default
+                $DBGCURL=$CURL=$ARGV[1];
+                shift @ARGV;
+            elif $ARGV[0] == "-vc":
+                # use this path to a curl used to verify servers
+
+                # Particularly useful when you introduce a crashing bug somewhere in
+                # the development version as then it won't be able to run any tests
+                # since it can't verify the servers!
+
+                $VCURL = testutil.shell_quote($ARGV[1]);
+                shift @ARGV;
+            elif $ARGV[0] == "-ac":
+                # use this curl only to talk to APIs (currently only CI test APIs)
+                $ACURL = testutil.shell_quote($ARGV[1]);
+                shift @ARGV;
+            elif $ARGV[0] == "-d":
+                # have the servers display protocol output
+                $debugprotocol=1;
+            elif $ARGV[0] == "-e":
+                # run the tests cases event based if possible
+                $run_event_based=1;
+            elif $ARGV[0] == "-f":
+                # force - run the test case even if listed in DISABLED
+                $run_disabled=1;
+            elif $ARGV[0] == "-E":
+                # load additional reasons to skip tests
+                shift @ARGV;
+                my $exclude_file = $ARGV[0];
+                open(my $fd, "<", $exclude_file) or die "Couldn't open '$exclude_file': $!";
+                while(my $line = <$fd>) {
+                    next if ($line =~ /^#/);
+                    chomp $line;
+                    my ($type, $patterns, $skip_reason) = split(/\s*:\s*/, $line, 3);
+
+                    die "Unsupported type: $type\n" if($type !~ /^keyword|test|tool$/);
+
+                    foreach my $pattern (split(/,/, $patterns)) {
+                        if($type == "test") {
+                            # Strip leading zeros in the test number
+                            $pattern = int($pattern);
+                        }
+                        $custom_skip_reasons{$type}{$pattern} = $skip_reason;
+                    }
+                }
+                close($fd);
+
+            elif $ARGV[0] == "-g":
+                # run this test with gdb
+                $gdbthis=1;
+            elif $ARGV[0] == "-gl":
+                # run this test with lldb
+                $gdbthis=2;
+            elif $ARGV[0] == "-gw":
+                # run this test with windowed gdb
+                $gdbthis=1;
+                $gdbxwin=1;
+            elif $ARGV[0] == "-s":
+                # short output
+                self.short = True
+            elif $ARGV[0] == "-am":
+                # automake-style output
+                self.short = 1
+                $automakestyle=1;
+            elif $ARGV[0] == "-n":
+                # no valgrind
+                undef config.valgrind;
+            elif $ARGV[0] == "--no-debuginfod":
+                # disable the valgrind debuginfod functionality
+                self.no_debuginfod = True
+            elif $ARGV[0] == "-R":
+                # execute in scrambled order
+                $scrambleorder=1;
+            elif $ARGV[0] =~ /^-t(.*)/:
+                # torture
+                config.torture = True
+                my $xtra = $1;
+
+                if($xtra =~ s/(\d+)$//) {
+                    $tortalloc = $1;
+                }
+            elif $ARGV[0] =~ /--shallow=(\d+)/:
+                # Fail no more than this amount per tests when running
+                # torture.
+                my ($num)=($1);
+                $shallow=$num;
+            elif $ARGV[0] =~ /--repeat=(\d+)/:
+                # Repeat-run the given tests this many times
+                $repeat = $1;
+            elif $ARGV[0] =~ /--seed=(\d+)/:
+                # Set a fixed random seed (used for -R and --shallow)
+                $randseed = $1;
+            elif $ARGV[0] == "-a":
+                # continue anyway, even if a test fail
+                $anyway=1;
+            elif $ARGV[0] == "-o":
+                shift @ARGV;
+                if $ARGV[0] =~ /^(\w+)=([\w.:\/\[\]-]+)$/:
+                    my ($variable, $value) = ($1, $2);
+                    eval "\$$variable='$value'" or die "Failed to set \$$variable to $value: $@";
+                else:
+                    die "Failed to parse '-o $ARGV[0]'. May contain unexpected characters.\n";
+            elif $ARGV[0] == "-p":
+                self.postmortem = True
+            elif $ARGV[0] == "-P":
+                shift @ARGV;
+                config.proxy_address = $ARGV[0]
+            elif $ARGV[0] == "-L":
+                # require additional library file
+                shift @ARGV;
+                require $ARGV[0];
+            elif $ARGV[0] == "-l":
+                # lists the test case names only
+                config.listonly = 1;
+            elif $ARGV[0] =~ /^-j(.*)/:
+                # parallel jobs
+                self.jobs = 1
+                my $xtra = $1;
+                if($xtra =~ s/(\d+)$//) {
+                    self.jobs = $1;
+                }
+            elif $ARGV[0] == "-k":
+                # keep stdout and stderr files after tests
+                self.keep_out_files = True
+            elif $ARGV[0] == "-r":
+                # run time statistics needs Time::HiRes
+                if datetime.resolution.microseconds:
+                    # presize hashes appropriately to hold an entire test run
+                    keys(%timeprepini) = 2000;
+                    keys(%timesrvrini) = 2000;
+                    keys(%timesrvrend) = 2000;
+                    keys(%timetoolini) = 2000;
+                    keys(%timetoolend) = 2000;
+                    keys(%time_server_log) = 2000;
+                    keys(%time_verify_end) = 2000;
+                    $timestats=1;
+                    $fullstats=0;
+            elif $ARGV[0] == "-rf":
+                # run time statistics needs Time::HiRes
+                if datetime.resolution.microseconds:
+                    # presize hashes appropriately to hold an entire test run
+                    keys(%timeprepini) = 2000;
+                    keys(%timesrvrini) = 2000;
+                    keys(%timesrvrend) = 2000;
+                    keys(%timetoolini) = 2000;
+                    keys(%timetoolend) = 2000;
+                    keys(%time_server_log) = 2000;
+                    keys(%time_verify_end) = 2000;
+                    $timestats=1;
+                    $fullstats=1;
+            elif $ARGV[0] == "-rm":
+                # force removal of files by killing locking processes
+                self.clear_locks = True
+            elif $ARGV[0] == "-u":
+                # error instead of warning on server unexpectedly alive
+                $err_unexpected=1;
+            elif $ARGV[0] == "-h" or $ARGV[0] == "--help":
+                # show help text
+                print("""\
+                    Usage: runtests.py [options] [test selection(s)]
+                      -a       continue even if a test fails
+                      -ac path use this curl only to talk to APIs (currently only CI test APIs)
+                      -am      automake style output PASS/FAIL: [number] [name]
+                      -c path  use this curl executable
+                      -d       display server debug info
+                      -e       event-based execution
+                      -E file  load the specified file to exclude certain tests
+                      -f       forcibly run even if disabled
+                      -g       run the test case with gdb
+                      -gw      run the test case with gdb as a windowed application
+                      -h       this help text
+                      -j[N]    spawn this number of processes to run tests (default 0)
+                      -k       keep stdout and stderr files present after tests
+                      -L path  require an additional perl library file to replace certain functions
+                      -l       list all test case names/descriptions
+                      -n       no valgrind
+                      --no-debuginfod disable the valgrind debuginfod functionality
+                      -o variable=value set internal variable to the specified value
+                      -P proxy use the specified proxy
+                      -p       print log file contents when a test fails
+                      -R       scrambled order (uses the random seed, see --seed)
+                      -r       run time statistics
+                      -rf      full run time statistics
+                      -rm      force removal of files by killing locking processes (Windows only)
+                      --repeat=[num] run the given tests this many times
+                      -s       short output
+                      --seed=[num] set the random seed to a fixed number
+                      --shallow=[num] randomly makes the torture tests "thinner"
+                      -t[N]    torture (simulate function failures); N means fail Nth function
+                      -u       error instead of warning on server unexpectedly alive
+                      -v       verbose output
+                      -vc path use this curl only to verify the existing servers
+                      [num]    like "5 6 9" or " 5 to 22 " to run those tests only
+                      [!num]   like "!5 !6 !9" to disable those tests
+                      [~num]   like "~5 ~6 ~9" to ignore the result of those tests
+                      [keyword] like "IPv6" to select only tests containing the key word
+                      [!keyword] like "!cookies" to disable any tests containing the key word
+                      [~keyword] like "~cookies" to ignore results of tests containing key word
+                """)
+                exit;
+            elif $ARGV[0] =~ /^(\d+)/:
+                number = $1
+                if from_num >= 0:
+                    for my $n (from_num .. number):
+                        @testthis.append($n)
+                    from_num = -1
+                else:
+                    push @testthis, $1;
+            elif $ARGV[0] =~ /^to$/i:
+                from_num = number + 1
+            elif $ARGV[0] =~ /^!(\d+)/:
+                from_num = -1
+                $disabled{$1}=$1;
+            elif $ARGV[0] =~ /^~(\d+)/:
+                from_num = -1
+                $ignored{$1}=$1;
+            elif $ARGV[0] =~ /^!(.+)/:
+                $disabled_keywords{$1.lower()}=$1;
+            elif $ARGV[0] =~ /^~(.+)/:
+                $ignored_keywords{$1.lower()}=$1;
+            elif $ARGV[0] =~ /^([-[{a-zA-Z].*)/:
+                $enabled_keywords{$1.lower()}=$1;
+            else:
+                print "Unknown option: $ARGV[0]\n";
+                exit;
+
+            shift @ARGV;
+
+
+# Check options to this test program
+self.check_cli_options()
+
+if $ENV{'DEBUGINFOD_URLS'} and self.no_debuginfod;
+    del $ENV{'DEBUGINFOD_URLS'}
+
+if not $randseed:
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+        localtime(time);
+    # seed of the month. December 2019 becomes 201912
+    $randseed = ($year+1900)*100 + $mon+1;
+    print(f"Using curl: {CURL}")
+    try:
+        open(my $curlvh, "-|", testutil.shell_quote($CURL) . f" --version 2>{os.devnull}")
+    except:
+        die("could not get curl version!")
+    my @c = <$curlvh>;
+    close($curlvh) || die("could not get curl version!")
+    # use the first line of output and get the md5 out of it
+    my $str = md5($c[0]);
+    $randseed += unpack('S', $str);  # unsigned 16 bit value
+
+srand $randseed;
+
+if @testthis and $testthis[0] != "":
+    $TESTCASES = @testthis.join(" ")
+
+if config.valgrind:
+    # we have found valgrind on the host, use it
+
+    # verify that we can invoke it fine
+    my $code = testutil.run_client(f"valgrind >{os.devnull} 2>&1")
+
+    if ($code >> 8) != 1:
+        #self.log_msg("Valgrind failure, disable it")
+        config.valgrind = None
+    else:
+        # since valgrind 2.1.x, '--tool' option is mandatory
+        # use it, if it is supported by the version installed on the system
+        # (this happened in 2003, so we could probably don't need to care about
+        # that old version any longer and just delete this check)
+        testutil.run_client(f"valgrind --help 2>&1 | grep -- --tool > {os.devnull} 2>&1")
+        if ($? >> 8):
+            runner.valgrind_tool = "";
+        open(my $curlh, "<", "$CURL");
+        with $curlh
+            my $l = <$curlh>;
+            if ($l =~ /^\#\!/):
+                # A shell script. This is typically when built with libtool,
+                config.valgrind = f"../libtool --mode=execute {config.valgrind}"
+
+        # valgrind 3 renamed the --logfile option to --log-file!!!
+        # (this happened in 2005, so we could probably don't need to care about
+        # that old version any longer and just delete this check)
+        my $ver=join(' ', testutil.run_client_output("valgrind --version"))
+        # cut off all but digits and dots
+        $ver =~ s/[^0-9.]//g;
+
+        if ($ver =~ /^(\d+)/):
+            $ver = $1;
+            if $ver < 3:
+                runner.valgrind_logfile = "--logfile";
+
+if $gdbthis:
+    # open the executable curl and read the first 4 bytes of it
+    open(my $check, "<", "$CURL");
+    my $c;
+    sysread $check, $c, 4;
+    close($check);
+    if $c == "#! /":
+        # A shell script. This is typically when built with libtool,
+        $libtool = 1;
+        $gdb = "../libtool --mode=execute gdb";
+
+# clear and create logging directory:
+
+# TODO: figure how to get around this. This dir is needed for check_system_features()
+# Maybe create & use & delete a temporary directory in that function
+cleardir(config.LOGDIR)
+mkdir(config.LOGDIR, 0777)
+mkdir(config.LOGDIR/config.LOCKDIR, 0777)
+
+# initialize some variables
+
+get_disttests()
+if not self.jobs:
+    # Disable buffered logging with only one test job
+    testutil.set_log_func(log_msg)
+
+# Output curl version and host info being tested
+
+if not config.listonly:
+    self.check_system_features()
+
+#######################################################################
+# initialize configuration needed to set up servers
+# TODO: rearrange things so this can be called only in runner.runner_init()
+#
+servers.initserverconfig()
+
+if not config.listonly:
+    # these can only be displayed after servers.initserverconfig()
+    # has been called
+    display_server_features()
+
+    # globally disabled tests
+    disabled_tests(config.TESTDIR/"DISABLED")
+
+#######################################################################
+# If 'all' tests are requested, find out all test numbers
+#
+
+if ( $TESTCASES == "all")
+{
+    # Get all commands and find out their test numbers
+    try:
+        opendir(DIR, config.TESTDIR)
+    except:
+        die f"can't opendir {config.TESTDIR}: $!";
+    my @cmds = grep { /^test([0-9]+)$/ and -f str(config.TESTDIR/"$_") } readdir(DIR);
+    closedir(DIR);
+
+    $TESTCASES=""; # start with no test cases
+
+    # cut off everything but the digits
+    for(@cmds) {
+        $_ =~ s/[a-z\/\.]*//g;
+    }
+    # sort the numbers from low to high
+    foreach my $n (sort { $a <=> $b } @cmds) {
+        if($disabled{$n}) {
+            # skip disabled test cases
+            my $why = "configured as DISABLED";
+            $skipped{$why} += 1
+            $teststat[$n]=$why; # store reason for this test case
+            continue
+        }
+        $TESTCASES += " $n";
+    }
+}
+else
+{
+    my $verified="";
+    for(split(" ", $TESTCASES)) {
+        if (-e config.TESTDIR/"test$_") {
+            $verified.="$_ ";
+        }
+    }
+    if($verified == "") {
+        print("No existing test cases were specified")
+        exit;
+    }
+    $TESTCASES = $verified;
+}
+if($repeat) {
+    my $s;
+    for(1 .. $repeat) {
+        $s += $TESTCASES;
+    }
+    $TESTCASES = $s;
+}
+
+if($scrambleorder) {
+    # scramble the order of the test cases
+    my @rand;
+    while($TESTCASES) {
+        my @all = split(/ +/, $TESTCASES);
+        if(!$all[0]) {
+            # if the first is blank, shift away it
+            shift @all;
+        }
+        my $r = rand @all;
+        push @rand, $all[$r];
+        $all[$r]="";
+        $TESTCASES = join(" ", @all);
+    }
+    $TESTCASES = join(" ", @rand);
+}
+
+    @classmethod
+    def display_log_content(cls, fpath: Path):
+        """
+        Display the contents of the given file.  Line endings are canonicalized
+        and excessively long files are elided
+        """
+        try:
+            file = fpath.open("rt")
+        except:
+            return
+
+        with file:
+            line_count = 0
+            truncate   = False
+            log_tail   = []
+            for string in file.splitlines():
+                for line in string.split("\x1a"):
+                    line = re.sub(r"\s*\!$", "", line)
+                    if truncate:
+                        log_tail.append(f" {line}\n")
+                    else:
+                        self.log_msg(f" {line}")
+                    line_count += 1
+                    truncate = (line_count > 1200)
+
+        if log_tail:
+            tail_len  = len(log_tail)
+            tail_show = 200
+            tail_skip = 0
+            if tail_len > tail_show:
+                tail_skip = tail_len - tail_show
+                self.log_msg(f"=== File too long: {tail_skip} lines omitted here")
+            for row in range(tail_skip, tail_len):
+                self.log_msg(log_tail[row], end="")
+
+    def display_logs(self, runner_id, test_num):
+
+        log_dir = self.get_runner_logdir(runner_id)
+        try:
+            opendir(DIR, log_dir)
+        except:
+            die(f"can't open dir: $!")
+        logs = readdir(DIR);
+        closedir(DIR);
+
+        self.log_msg(f"== Contents of files in the {log_dir}/ dir after test {test_num}")
+        for log in sorted(logs):
+
+            if (log =~ /\.(\.|)$/):
+                continue  # skip "." and ".."
+
+            if (log =~ /^\.nfs/):
+                continue  # skip ".nfs"
+
+            if ((log == "memdump") or (log == "core")):
+                continue  # skip "memdump" and  "core"
+
+            if ((-d log_dir/log) or (! -s log_dir/log)):
+                continue  # skip directory and empty files
+
+            if ((log =~ /^stdout\d+/) and (log !~ /^stdout$testnum/)):
+                continue  # skip stdoutNnn of other tests
+
+            if ((log =~ /^stderr\d+/) and (log !~ /^stderr$testnum/)):
+                continue  # skip stderrNnn of other tests
+
+            if ((log =~ /^upload\d+/) and (log !~ /^upload$testnum/)):
+                continue  # skip uploadNnn of other tests
+
+            if ((log =~ /^curl\d+\.out/) and (log !~ /^curl$testnum\.out/)):
+                continue  # skip curlNnn.out of other tests
+
+            if ((log =~ /^test\d+\.txt/) and (log !~ /^test$testnum\.txt/)):
+                continue  # skip testNnn.txt of other tests
+
+            if ((log =~ /^file\d+\.txt/) and (log !~ /^file$testnum\.txt/)):
+                continue  # skip fileNnn.txt of other tests
+
+            if ((log =~ /^netrc\d+/) and (log !~ /^netrc$testnum/)):
+                continue  # skip netrcNnn of other tests
+
+            if ((log =~ /^trace\d+/) and (log !~ /^trace$testnum/)):
+                continue  # skip traceNnn of other tests
+
+            if ((log =~ /^valgrind\d+/) and (log !~ /^valgrind$testnum(?:\..*)?$/)):
+                continue  # skip valgrindNnn of other tests
+
+            if ((log =~ /^test$testnum$/)):
+                continue  # skip test$testnum since it can be very big
+
+            self.log_msg(f"=== Start of file {log}")
+            self.display_log_content(log_dir/log)
+            self.log_msg(f"=== End of file {log}")
+
+    def main(self):
+
+        #######################################################################
+        # Scan tests to find suitable candidates
+
+        ok    = 0
+        ign   = 0
+        total = 0
+        failed     = ""
+        failed_ign = ""
+        my $lasttest=0;
+        my @at = split(" ", $TESTCASES);
+        my $count=0;
+        my $endwaitcnt=0;
+
+        $start = time();
+
+        # scan all tests to find ones we should try to run
+        self.ignore_testcodes = {}
+        my @runtests = []
+        for $testnum in @at:
+            if $testnum > $lasttest: $lasttest = $testnum
+            $why, $errorreturncode = self.singletest_shouldrun(testnum)
+            if $why or config.listonly:
+                # Display test name now--test will be completely skipped later
+                my $error = singletest_count($testnum, $why);
+                continue
+            self.ignore_testcodes[$testnum] = $errorreturncode
+            @runtests.append($testnum)
+        totaltests = len(@runtests)
+
+        if config.listonly:
+            exit(0);
+
+        #######################################################################
+        # Setup CI Test Run
+        citest_starttestrun()
+
+        #######################################################################
+        # Start test runners
+        #
+        num_runners = min(self.jobs, len(@runtests))
+        self.create_runners(num_runners)
+
+        #######################################################################
+        # The main test-loop
+        #
+        # Every iteration through the loop consists of these steps:
+        #   - if the global abort flag is set, exit the loop; we are done
+        #   - if a runner is idle, start a new test on it
+        #   - if all runners are idle, exit the loop; we are done
+        #   - if a runner has a response for us, process the response
+
+        # run through each candidate test and execute it
+        while True:
+            # check the abort flag
+            if self.global_abort:
+                self.log_msg(self.singletest_dump_logs(), end="")
+                self.log_msg("Aborting tests")
+                self.log_msg(f"Waiting for {len(self.runners_running)} outstanding test(s) to finish...")
+                # Wait for the last requests to complete and throw them away so
+                # that IPC calls & responses stay in sync
+                # TODO: send a signal to the runners to interrupt a long test
+                for $rid in self.runners_running.keys():
+                    runner.runnerar($rid);
+                    del self.runners_running[$rid]
+                    self.log_msg(".", end="")
+                    $| = 1;
+                self.log_msg("")
+                break
+
+            # Start a new test if possible
+            if self.runners_idle and len(@runtests):
+                # A runner is ready to run a test, and tests are still available to run
+                # so start a new test.
+                $count += 1
+                my $testnum = shift(@runtests);
+
+                # pick a runner for this new test
+                runner_id = self.pick_runner($testnum)
+                self.count_for_runner[runner_id] = $count
+
+                # Start the test
+                $error, $again = singletest(runner_id, $testnum, self.count_for_runner[runner_id], totaltests);
+                if again:
+                    # this runner is busy running a test
+                    self.runners_running[runner_id] = $testnum;
+                else:
+                    self.runner_ready(runner_id)
+                    if $error >= 0:
+                        # We make this simplifying assumption to avoid having to handle
+                        # $error properly here, but we must handle the case of runner
+                        # death without abending here.
+                        die("Internal error: test must not complete on first call")
+
+            # See if we've completed all the tests
+            if not self.runners_running:
+                # No runners are running; we must be done
+                if @runtests:
+                    die("Internal error: still have tests to run")
+                break
+
+            # See if a test runner needs attention
+            # If we could be running more tests, don't wait so we can schedule a new
+            # one immediately. If all runners are busy, wait a fraction of a second
+            # for one to finish so we can still loop around to check the abort flag.
+            runner_wait = 0 if self.runners_idle and @runtests else 0.5
+            $ridready, rid_error = runner.runnerar_ready(runner_wait)
+            if $ridready and $ridready not in self.runners_running:
+                # On Linux, a closed pipe still shows up as ready instead of error.
+                # Detect this here by seeing if we are expecting it to be ready and
+                # treat it as an error if not.
+                self.log_msg(f"ERROR: Runner {$ridready} is unexpectedly ready; "
+                             f"is probably actually dead")
+                rid_error = $ridready
+                undef $ridready
+
+            if $ridready:
+                # This runner is ready to be serviced
+                if $ridready not in self.runners_running:
+                    die(f"Internal error: test for runner {$ridready} unknown")
+                my $testnum = self.runners_running[$ridready]
+                del self.runners_running[$ridready]
+                my ($error, $again) = singletest($ridready, $testnum, self.count_for_runner[$ridready], totaltests);
+                if again:
+                    # this runner is busy running a test
+                    self.runners_running[$ridready] = $testnum
+                else:
+                    # Test is complete
+                    self.runner_ready($ridready)
+
+                    if $error < 0:
+                        # not a test we can run
+                        continue
+
+                    total += 1  # number of tests we've run
+
+                    if $error > 0:
+                        if $error == 2:
+                            # ignored test failures
+                            failed_ign += "$testnum "
+                        else:
+                            failed += "$testnum "
+
+                        if self.postmortem:
+                            # display all files in config.LOGDIR/ in a nice way
+                            self.display_logs($ridready, $testnum)
+
+                        if $error == 2:
+                            ign += 1  # ignored test result counter
+                        elif not $anyway:
+                            # a test failed, abort
+                            self.log_msg("\n - abort tests")
+                            undef @runtests;  # empty out the remaining tests
+                    elif not $error:
+                        ok += 1  # successful test counter
+
+            if rid_error:
+                self.log_msg(f"ERROR: runner {rid_error} is dead! aborting test run")
+                if defined(self.runners_running[rid_error]):
+                    del self.runners_running[rid_error]
+                self.global_abort = True
+
+            if not @runtests and ++$endwaitcnt == (240 + self.jobs):
+                # Once all tests have been scheduled on a runner at the end of a test
+                # run, we just wait for their results to come in. If we're still
+                # waiting after a couple of minutes ($endwaitcnt multiplied by
+                # runner_wait, plus self.jobs because that number won't time out), display
+                # the same test runner status as we give with a SIGUSR1. This will
+                # likely point to a single test that has hung.
+                self.log_msg("Hmmm, the tests are taking a while to finish. Here is the status:")
+                catch_usr1()
+
+        sofar = time() - $start;
+
+        #######################################################################
+        # Finish CI Test Run
+        self.citest_finish_testrun()
+
+        # Tests done, stop the servers
+        for runner_id in %runnerids.values():
+            runner.runnerac_stopservers(runner_id)
+
+        # Wait for servers to stop
+        my $unexpected;
+        for runner_id in %runnerids.values():
+            $rid, $unexpect, $logs = runner.runnerar(runner_id)
+            $unexpected = $unexpected || $unexpect
+            log_msg($logs, end="")
+
+        # Kill the runners
+        # There is a race condition here since we don't know exactly when the runners
+        # have each finished shutting themselves down, but we're about to exit so it
+        # doesn't make much difference.
+        for runner_id in %runnerids.values():
+            runner.runnerac_shutdown(runner_id)
+            sleep 0;  # give runner a context switch so it can shut itself down
+
+        num_skipped = (sum values %skipped) if %skipped else 0
+        my $all = total + num_skipped
+
+        runtimestats($lasttest)
+
+        if all:
+            log_msg(f"TESTDONE: {$all} tests were considered during %.0f seconds." % sofar)
+
+        if %skipped and not self.short:
+            my $s=0;
+            # Temporary hash to print the restraints sorted by the number
+            # of their occurrences
+            my %restraints;
+            self.log_msg(f"TESTINFO: {num_skipped} tests were skipped due to these restraints:")
+
+            for(keys %skipped) {
+                my $r = $_;
+                my $skip_count = $skipped{$r};
+                my $log_line = sprintf("TESTINFO: \"%s\" %d time%s (", $r, $skip_count,
+                                   ($skip_count == 1) ? "" : "s");
+
+                # now gather all test case numbers that had this reason for being
+                # skipped
+                my $c=0;
+                my $max = 9;
+                for(0 .. scalar @teststat) {
+                    my $t = $_;
+                    if($teststat[$t] and ($teststat[$t] == $r)) {
+                        if($c < $max) {
+                            if $c: $log_line += ", "
+                            $log_line += $t
+                        }
+                        $c += 1
+                    }
+                }
+                if($c > $max) {
+                    $log_line += " and ".($c-$max)." more";
+                }
+                $log_line += ")\n";
+                $restraints{$log_line} = $skip_count;
+            }
+            foreach my $log_line (sort {$restraints{$b} <=> $restraints{$a}} keys %restraints) {
+                log_msg($log_line, end="")
+            }
+
+        if total:
+            if failed_ign:
+                self.log_msg(f"IGNORED: failed tests: {failed_ign}")
+            self.log_sg("TESTDONE: %d tests out of %d reported OK: %d%%" %
+                        (ok, total, ok / total * 100))
+
+            if failed and ok != total:
+                self.log_msg(f"\nTESTFAIL: These test cases failed: {failed}")
+                self.log_msg("")
+        else:
+            self.log_msg("\nTESTFAIL: No tests were performed\n")
+            if %enabled_keywords:
+                self.log_msg("TESTFAIL: Nothing matched these keywords: ", end="")
+                for(keys in %enabled_keywords):
+                    self.log_msg(f"$_ ", end="")
+                self.log_msg("")
+
+        if (total and (ok + ign) != total) or not total or $unexpected:
+            exit 1;
+
+
+tests = RunTests()

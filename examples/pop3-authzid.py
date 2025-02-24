@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,17 +20,17 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-POP3 example showing how to retrieve emails from a shared mailbox
+Retrieve emails from a shared POP3 mailbox
 """
 
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 if not lcurl.CURL_AT_LEAST_VERSION(7, 66, 0):
     print("This example requires curl 7.66.0 or later", file=sys.stderr)
@@ -44,7 +44,7 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         # Set the username and password
@@ -54,15 +54,14 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SASL_AUTHZID, b"shared-mailbox");
         # Force PLAIN authentication
         lcurl.easy_setopt(curl, lcurl.CURLOPT_LOGIN_OPTIONS, b"AUTH=PLAIN");
-        # This will retrieve message 1 from the user's mailbox
+        # This retrieves message 1 from the user's mailbox
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, b"pop3://pop.example.com/1")
 
         # Perform the custom request
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
     return int(res)
 

@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 include README.rst
 include CHANGES.rst
@@ -9,19 +8,18 @@ include COPYING
 include pyproject.toml
 include .readthedocs.yml
 
-prune arch
-
 graft docs
 
 graft examples
 prune examples/examples.c
-prune examples/_todo
+global-exclude examples/**/*.nok
 
 graft src
 prune src/libcurl/libcurl.h
 
 graft tests
 prune tests/tests.c
+global-exclude tests/**/*.nok
 
 global-exclude \#* \#*/**
 global-exclude .build .build/** .build.* .build.*/**

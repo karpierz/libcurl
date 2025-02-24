@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,17 +20,17 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-SMTP example showing how to expand an email mailing list
+Expand an SMTP email mailing list
 """
 
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 if not lcurl.CURL_AT_LEAST_VERSION(7, 34, 0):
     print("This example requires curl 7.34.0 or later", file=sys.stderr)
@@ -47,7 +47,7 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         # This is the URL for your mailserver
@@ -63,18 +63,17 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
         # Free the list of recipients
         lcurl.slist_free_all(recipients)
-        # curl will not send the QUIT command until you call cleanup, so you
-        # should be able to re-use this connection for additional requests. It
-        # may not be a good idea to keep the connection open for a very long time
-        # though (more than a few minutes may result in the server timing out the
+        # curl does not send the QUIT command until you call cleanup, so you
+        # should be able to reuse this connection for additional requests. It may
+        # not be a good idea to keep the connection open for a long time though
+        # (more than a few minutes may result in the server timing out the
         # connection) and you do want to clean up in the end.
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,12 +18,14 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
+ * SPDX-License-Identifier: curl
+ *
  ***************************************************************************/
 #include "test.h"
 
 #include "memdebug.h"
 
-static char data[]="this is what we post to the silly web server\n";
+static char testdata[]="this is what we post to the silly web server\n";
 
 struct WriteThis {
   char *readptr;
@@ -51,15 +53,25 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
   return tocopy;
 }
 
-int test(char *URL)
+CURLcode test(char *URL)
 {
   CURL *curl;
   CURLcode res = CURLE_OK;
 
   struct WriteThis pooh;
 
-  pooh.readptr = data;
-  pooh.sizeleft = strlen(data);
+  if(!strcmp(URL, "check")) {
+#if (defined(_WIN32) || defined(__CYGWIN__))
+    printf("Windows TCP does not deliver response data but reports "
+           "CONNABORTED\n");
+    return (CURLcode)1; /* skip since it fails on Windows without workaround */
+#else
+    return CURLE_OK; /* sure, run this! */
+#endif
+  }
+
+  pooh.readptr = testdata;
+  pooh.sizeleft = strlen(testdata);
 
   if(curl_global_init(CURL_GLOBAL_ALL)) {
     fprintf(stderr, "curl_global_init() failed\n");
@@ -78,11 +90,6 @@ int test(char *URL)
 
   /* Now specify we want to POST data */
   test_setopt(curl, CURLOPT_POST, 1L);
-
-#ifdef CURL_DOES_CONVERSIONS
-  /* Convert the POST data to ASCII */
-  test_setopt(curl, CURLOPT_TRANSFERTEXT, 1L);
-#endif
 
   /* Set the expected POST size */
   test_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)pooh.sizeleft);

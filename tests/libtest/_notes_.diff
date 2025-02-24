@@ -1,0 +1,4 @@
+tests/tests.c/libtest/lib582.py: client_pub_key  = "curl_client_key.pub"
+                                 client_priv_key = "curl_client_key"
+tests/tests.c/libtest/lib654.py: mime_file = "log/file654.txt"
+

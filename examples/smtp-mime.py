@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,22 +20,21 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-SMTP example showing how to send mime emails
+Send SMTP mime emails
 """
 
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 if not lcurl.CURL_AT_LEAST_VERSION(7, 56, 0):
     print("This example requires curl 7.56.0 or later", file=sys.stderr)
     sys.exit(-1)
-
 
 # This is a simple example showing how to send mime mail using libcurl's
 # SMTP capabilities. For an example of using the multi interface please
@@ -75,13 +74,13 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         # This is the URL for your mailserver
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, b"smtp://mail.example.com")
-        # Note that this option is not strictly required, omitting it will result
-        # in libcurl sending the MAIL FROM command with empty sender data. All
+        # Note that this option is not strictly required, omitting it results in
+        # libcurl sending the MAIL FROM command with empty sender data. All
         # autoresponses should have an empty reverse-path, and should be directed
         # to the address in the reverse-path which triggered them. Otherwise,
         # they could cause an endless loop. See RFC 5321 Section 4.5.5 for more
@@ -94,6 +93,8 @@ def main(argv=sys.argv[1:]):
         recipients = lcurl.slist_append(recipients, TO_MAIL.encode("utf-8"))
         recipients = lcurl.slist_append(recipients, CC_MAIL.encode("utf-8"))
         lcurl.easy_setopt(curl, lcurl.CURLOPT_MAIL_RCPT, recipients)
+        # allow one of the recipients to fail and still consider it okay
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_MAIL_RCPT_ALLOWFAILS, 1)
         # Build and set the message header list.
         headers = ct.POINTER(lcurl.slist)()
         for header in headers_text.splitlines():
@@ -133,21 +134,20 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
         # Free lists.
         lcurl.slist_free_all(recipients)
         lcurl.slist_free_all(headers)
         # Free multipart message.
         lcurl.mime_free(mime)
-        # curl will not send the QUIT command until you call cleanup, so you
-        # should be able to re-use this connection for additional messages
+        # curl does not send the QUIT command until you call cleanup, so you
+        # should be able to reuse this connection for additional messages
         # (setting CURLOPT_MAIL_FROM and CURLOPT_MAIL_RCPT as required, and
         # calling libcurl.easy_perform() again. It may not be a good idea to keep
-        # the connection open for a very long time though (more than a few
-        # minutes may result in the server timing out the connection), and you do
-        # want to clean up in the end.
+        # the connection open for a long time though (more than a few minutes may
+        # result in the server timing out the connection), and you do want to
+        # clean up in the end.
 
     return int(res)
 

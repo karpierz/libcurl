@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Very simple HTTP/3 GET
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 def main(argv=sys.argv[1:]):
@@ -39,26 +39,22 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
-        # Forcing HTTP/3 will make the connection fail if the server is not
-        # accessible over QUIC + HTTP/3 on the given host and port.
-        # Consider using CURLOPT_ALTSVC instead!
-        #lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION, lcurl.CURL_HTTP_VERSION_3)  # <AK>: commented
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION, lcurl.CURLOPT_ALTSVC)        # <AK>: added
+        # Use HTTP/3 but fallback to earlier HTTP if necessary
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION, lcurl.CURL_HTTP_VERSION_3)
 
-        # Perform the request, res will get the return code
+        # Perform the request, res gets the return code
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

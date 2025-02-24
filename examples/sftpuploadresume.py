@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,22 +20,21 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Upload to SFTP, resuming a previously aborted transfer.
 """
 
 import sys
-import io
 import ctypes as ct
 from pathlib import Path
+import io
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 here = Path(__file__).resolve().parent
-
 
 LOCAL_FILE = here/"input/file"
 
@@ -46,7 +45,8 @@ def read_function(buffer, size, nitems, stream):
     file = lcurl.from_oid(stream)
     #if ferror(file):
     #    return lcurl.CURL_READFUNC_ABORT
-    bread = file.read(size * nitems)
+    buffer_size = nitems * size
+    bread = file.read(buffer_size)
     if not bread: return 0
     nread = len(bread)
     ct.memmove(buffer, bread, nread)
@@ -60,11 +60,11 @@ def get_remote_file_size(url: str) -> int:
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return -1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 1)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOBODY, 1)
@@ -82,7 +82,7 @@ def get_remote_file_size(url: str) -> int:
             if res:
                 return -1
 
-            print("filesize: %u" % file_size.value)
+            print("filesize: %d" % file_size.value)
 
     return file_size.value
 
@@ -104,7 +104,7 @@ def resume_upload(curl: ct.POINTER(lcurl.CURL),
     with local_file:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_UPLOAD, 1)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_function)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_READDATA, id(local_file))
@@ -132,7 +132,7 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         if not resume_upload(curl, url, LOCAL_FILE, 0, 3):

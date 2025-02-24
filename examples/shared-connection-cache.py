@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Connection cache shared between easy handles with the share interface
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 @lcurl.lock_function
@@ -53,28 +53,27 @@ def main(argv=sys.argv[1:]):
     lcurl.share_setopt(share, lcurl.CURLSHOPT_LOCKFUNC,   my_lock)
     lcurl.share_setopt(share, lcurl.CURLSHOPT_UNLOCKFUNC, my_unlock)
 
-    # Loop the transfer and cleanup the handle properly every lap. This will
-    # still reuse connections since the pool is in the shared object!
+    # Loop the transfer and cleanup the handle properly every lap. This still
+    # reuses connections since the pool is in the shared object!
 
     for i in range(3):
 
         curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-        with curl_guard(False, curl):
+        with curl_guard(False, curl) as guard:
             if not curl: continue
 
             lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-            if defined("SKIP_PEER_VERIFICATION"):
+            if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
                 lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
             # use the share object
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SHARE, share)
 
-            # Perform the request, res will get the return code
+            # Perform the request, res gets the return code
             res: int = lcurl.easy_perform(curl)
 
             # Check for errors
-            if res != lcurl.CURLE_OK:
-                handle_easy_perform_error(res)
+            handle_easy_perform_error(res)
 
     lcurl.share_cleanup(share)
 

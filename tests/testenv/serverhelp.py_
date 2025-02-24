@@ -1,0 +1,217 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+from typing import Optional
+import re
+from datetime import datetime
+from pathlib import Path
+
+# This perl module contains functions useful in writing test servers.
+
+__all__ = [
+    'log_msg',
+    'log_file',
+    'server_factors',
+    'server_name_id',
+    'server_name_str',
+    'server_name_canon',
+    'server_pid_file',
+    'server_port_file',
+    'server_logfile',
+    'server_cmd_filepath',
+    'server_input_filepath',
+    'server_output_filepath',
+    'mainsockf_pid_filepath',
+    'mainsockf_log_filepath',
+    'datasockf_pid_filepath',
+    'datasockf_log_filepath',
+]
+
+log_file: Optional[Path] = None  # server log file name, for log_msg
+
+# **************************************************************************
+# Just for convenience, test harness uses 'https' and 'httptls' literals as
+# values for 'proto' variable in order to differentiate different servers.
+# 'https' literal is used for stunnel based https test servers, and 'httptls'
+# is used for non-stunnel https test servers.
+
+
+def log_msg(*args, end=""):
+    """'log_msg' is general message logging subroutine for our test servers."""
+    global log_file
+    # sub second timestamping needs Time::HiRes
+    tm = datetime.now()
+    if datetime.resolution.microseconds:
+        now = "%02d:%02d:%02d.%06d " % (tm.hour, tm.minute, tm.second, tm.microsecond)
+    else:
+        now = "%02d:%02d:%02d " % (tm.hour, tm.minute, tm.second)
+    # we see warnings on Windows run that log_file is used uninitialized
+    # TODO: not found yet where this comes from
+    if not log_file:
+        log_file = Path("serverhelp_uninitialized.log")
+    try:
+        log_fh = log_file.open("wt+")
+    except: pass
+    else:
+        with log_fh:
+            print(now, end="",  file=log_fh)
+            print @_;, end=end, file=log_fh)
+
+
+def server_factors(server: str):
+    """Return server characterization factors given a server id string."""
+
+    if server =~ r"^((ftp|http|imap|pop3|smtp|http-pipe)s?)(\d*)(-ipv6|)$":
+        proto   = $1
+        id_num  = $3 if $3 and $3 > 1        else 1
+        ip_vnum = 6  if $4 and ($4 =~ r"6$") else 4
+    elif server =~ r"^(tftp|sftp|socks|ssh|rtsp|gopher|httptls)(\d*)(-ipv6|)$":
+        proto   = $1;
+        id_num  = $2 if $2 and $2 > 1        else 1
+        ip_vnum = 6  if $3 and ($3 =~ r"6$") else 4
+    else:
+        die(f"invalid server id: '{server}'")
+
+    return proto, ip_vnum, id_num
+
+
+def server_name_str(proto: str, ip_ver: str, id_num: str):
+    """Return server name string formatted for presentation purposes"""
+
+    if proto: proto = proto.upper()
+    if not proto or not (proto =~ (r"^(((FTP|HTTP|HTTP\/2|HTTP\/3|IMAP|POP3|GOPHER|SMTP|HTTP-PIPE)S?)|"
+                                   r"(TFTP|SFTP|SOCKS|SSH|RTSP|HTTPTLS|DICT|SMB|SMBS|TELNET|MQTT))$")):
+        die(f"unsupported protocol: '{proto}'")
+
+    ip_ver = ip_ver.lower() if ip_ver else 'ipv4'
+    if not ip_ver or not (ip_ver =~ r"^(4|6|ipv4|ipv6|-ipv4|-ipv6|unix)$"):
+        die(f"unsupported IP version: '{ip_ver}'")
+    ip_ver = '-IPv6' if ip_ver =~ r"6$" else ('-unix' if ip_ver =~ r"unix$" else '')
+
+    if not id_num: id_num = 1
+    if not id_num or not (str(id_num) =~ r"^(\d+)$"):
+        die(f"unsupported ID number: '{id_num}'")
+    if int(id_num) <= 1: id_num = ""
+
+    return "${proto}${id_num}${ip_ver}"
+
+
+# OK
+def server_name_id(proto: str, ip_ver: str, id_num: str):
+    """Return server name string formatted for identification purposes"""
+    return server_name_str(proto, ip_ver, id_num).lower()
+
+
+def server_name_canon(proto: str, ip_ver: str, id_num: str):
+    """Return server name string formatted for file name purposes"""
+    result = server_name_str(proto, ip_ver, id_num).lower()
+    result =~ tr/-/_/;
+    result =~ s/\//_v/;
+    return result
+
+
+# OK
+def server_pid_file(pid_dir: Path,
+                    proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for server pid file."""
+    trailer = "_server.pid"
+    return pid_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+# OK
+def server_port_file(pid_dir: Path,
+                     proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for server port file."""
+    trailer = "_server.port"
+    return pid_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+# OK
+def server_logfile(log_dir: Path,
+                   proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for server log file."""
+    trailer = ("_stunnel.log"
+               if proto.lower() =~ r"^(ftp|http|imap|pop3|smtp)s$" else
+               "_server.log")
+    return log_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+# OK
+def server_cmd_filepath(log_dir: Path,
+                        proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for server commands file."""
+    trailer = "_server.cmd"
+    return log_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+# OK
+def server_input_filepath(log_dir: Path,
+                          proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for server input file."""
+    trailer = "_server.input"
+    return log_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+# OK
+def server_output_filepath(log_dir: Path,
+                           proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for server output file."""
+    trailer = "_server.output"
+    return log_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+def mainsockf_pid_filepath(pid_dir: Path,
+                           proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for main or primary sockfilter pid file."""
+    if not proto or not (proto.lower() =~ r"^(ftp|imap|pop3|smtp)s?$"):
+        die(f"unsupported protocol: '{proto}'")
+    trailer = "_sockctrl.pid" if proto.lower() =~ r"^ftps?$" else "_sockfilt.pid"
+    return pid_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+def mainsockf_log_filepath(log_dir: Path,
+                           proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for main or primary sockfilter log file."""
+    if not proto or not (proto.lower() =~ r"^(ftp|imap|pop3|smtp)s?$"):
+        die(f"unsupported protocol: '{proto}'")
+    trailer = "_sockctrl.log" if proto.lower() =~ r"^ftps?$" else "_sockfilt.log"
+    return log_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+def datasockf_pid_filepath(pid_dir: Path,
+                           proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for data or secondary sockfilter pid file."""
+    if not proto or not (proto.lower() =~ r"^ftps?$"):
+        die(f"unsupported protocol: '{proto}'")
+    trailer = "_sockdata.pid"
+    return pid_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)
+
+
+def datasockf_log_filepath(log_dir: Path,
+                           proto: str, ip_ver: str, id_num: str) -> Path:
+    """Return file name for data or secondary sockfilter log file."""
+    if not proto or not (proto.lower() =~ r"^ftps?$"):
+        die(f"unsupported protocol: '{proto}'")
+    trailer = "_sockdata.log"
+    return log_dir/(server_name_canon(proto, ip_ver, id_num) + trailer)

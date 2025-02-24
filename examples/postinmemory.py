@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,17 +20,17 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-Make a HTTP POST with data from memory and receive response in memory.
+Make an HTTP POST with data from memory and receive response in memory.
 """
 
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 class MemoryStruct(ct.Structure):
@@ -45,9 +45,9 @@ def init_memory(chunk: MemoryStruct):
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    chunk = ct.cast(stream, ct.POINTER(MemoryStruct)).contents
-    buffer_size = size * nitems
+def write_function(buffer, size, nitems, userp):
+    chunk = ct.cast(userp, ct.POINTER(MemoryStruct)).contents
+    buffer_size = nitems * size
 
     memory = libc.realloc(chunk.memory, chunk.size + buffer_size + 1)
     if not memory:
@@ -75,16 +75,16 @@ def main(argv=sys.argv[1:]):
     # init the curl session
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl:
             libc.free(chunk.memory)
             return 1
 
         # specify URL
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
-        # send all data to this function 
+        # send all data to this function
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
         # we pass our 'chunk' struct to the callback function
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, ct.byref(chunk))
@@ -92,26 +92,27 @@ def main(argv=sys.argv[1:]):
         # field, so we provide one
         lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT, b"libcurl-agent/1.0")
         lcurl.easy_setopt(curl, lcurl.CURLOPT_POSTFIELDS, post_this)
-        # if we do not provide POSTFIELDSIZE, libcurl will len() by itself
+        # if we do not provide POSTFIELDSIZE, libcurl calls strlen() by itself
         lcurl.easy_setopt(curl, lcurl.CURLOPT_POSTFIELDSIZE, len(post_this))
 
-        # Perform the request, res will get the return code
+        # Perform the request, res gets the return code
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
+        handle_easy_perform_error(res)
         if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
-        else:
-            # Now, our chunk.memory points to a memory block that is chunk.size
-            # bytes big and contains the remote file.
-            #
-            # Do something nice with it!
-            print("%s" % ct.cast(chunk.memory, ct.c_char_p).value.decode("utf-8"))
+            raise guard.Break
+
+        # Now, our chunk.memory points to a memory block that is chunk.size
+        # bytes big and contains the remote file.
+        #
+        # Do something nice with it!
+        print("%s" % ct.cast(chunk.memory, ct.c_char_p).value.decode("utf-8"))
 
     # Cleanup
     libc.free(chunk.memory)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

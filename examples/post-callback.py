@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Issue an HTTP POST and provide the data through the read callback.
@@ -30,11 +30,10 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 # USE_CHUNKED    = 1
 # DISABLE_EXPECT = 1
-
 
 # Silly test data to POST
 text: str = (
@@ -58,9 +57,9 @@ class WriteThis(ct.Structure):
 
 
 @lcurl.read_callback
-def read_function(buffer, size, nitems, stream):
-    upload = ct.cast(stream, ct.POINTER(WriteThis)).contents
-    buffer_size = size * nitems
+def read_function(buffer, size, nitems, userp):
+    upload = ct.cast(userp, ct.POINTER(WriteThis)).contents
+    buffer_size = nitems * size
     if upload.sizeleft == 0 or buffer_size == 0:
         return 0  # no more data left to deliver
     # copy as much as possible from the source to the destination
@@ -80,21 +79,21 @@ def main(argv=sys.argv[1:]):
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
-    # In windows, this will init the winsock stuff
+    # In Windows, this inits the Winsock stuff
     res = lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     # Check for errors
+    handle_global_init_error(res)
     if res != lcurl.CURLE_OK:
-        handle_global_init_error(res)
         return 1
     # get a curl handle
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         # First set the URL that is about to receive our POST.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         # Now specify we want to POST data
         lcurl.easy_setopt(curl, lcurl.CURLOPT_POST, 1)
@@ -104,7 +103,7 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_READDATA, ct.byref(upload))
         # get verbose debug output please
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
-        # If you use POST to a HTTP 1.1 server, you can send data without knowing
+        # If you use POST to an HTTP 1.1 server, you can send data without knowing
         # the size before starting the POST if you use chunked encoding. You
         # enable this by adding a header like "Transfer-Encoding: chunked" with
         # CURLOPT_HTTPHEADER. With HTTP 1.0 or without chunked transfer, you must
@@ -133,12 +132,11 @@ def main(argv=sys.argv[1:]):
             # use curl_slist_free_all() after the *perform() call to free
             # this list again
 
-        # Perform the request, res will get the return code
+        # Perform the request, res gets the return code
         res = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
     return 0
 

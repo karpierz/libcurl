@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Uses the CURLINFO_TLS_SESSION data.
@@ -28,12 +28,11 @@ Uses the CURLINFO_TLS_SESSION data.
 
 import sys
 import ctypes as ct
+
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
-
 import libcurl as lcurl
-from curltestutils import *  # noqa
-
+from curl_utils import *  # noqa
 
 # Note that this example currently requires curl to be linked against
 # GnuTLS (and this program must also be linked against -lgnutls).
@@ -57,14 +56,16 @@ CURL_SSL_BACKEND_NAMES = {
 }
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    curl = ct.cast(stream, ct.POINTER(lcurl.CURL)).contents
+def write_function(buffer, size, nitems, userp):
+    curl = ct.cast(userp, ct.POINTER(lcurl.CURL)).contents
 
     info = ct.POINTER(lcurl.tlssessioninfo)()
+    # CURL_IGNORE_DEPRECATION(
     res: lcurl.CURLcode = lcurl.easy_getinfo(curl, lcurl.CURLINFO_TLS_SESSION,
                                              ct.byref(info))
+    # )
     if res != lcurl.CURLE_OK or not info:
-        return size * nitems
+        return nitems * size
     info = info.contents
 
     print("Curl's SLL backend:",
@@ -97,7 +98,8 @@ def write_function(buffer, size, nitems, stream):
                  gnutls_x509_crt_import(cert, &chainp[i], GNUTLS_X509_FMT_DER)) {
                 if(GNUTLS_E_SUCCESS ==
                    gnutls_x509_crt_print(cert, GNUTLS_CRT_PRINT_FULL, &dn)) {
-                  fprintf(stderr, "Certificate #%u: %.*s", i, dn.size, dn.data);
+                   print("Certificate #%u: %.*s" % (i, dn.size, dn.data), end="",
+                         file=sys.stderr)
 
                   gnutls_free(dn.data);
                 }
@@ -111,7 +113,7 @@ def write_function(buffer, size, nitems, stream):
     elif info.backend != lcurl.CURLSSLBACKEND_NONE:
         SSL_backend_not_supported(info.backend)
 
-    return size * nitems
+    return nitems * size
 
 
 def main(argv=sys.argv[1:]):
@@ -121,7 +123,7 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
@@ -135,10 +137,9 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

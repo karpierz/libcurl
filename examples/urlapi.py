@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Set working URL with CURLU *.
@@ -30,7 +30,7 @@ import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 if not lcurl.CURL_AT_LEAST_VERSION(7, 80, 0):
     print("This example requires curl 7.80.0 or later", file=sys.stderr)
@@ -44,7 +44,7 @@ def main(argv=sys.argv[1:]):
     # get a curl handle
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
         if not curl: return 1
 
         # init Curl URL
@@ -61,18 +61,19 @@ def main(argv=sys.argv[1:]):
         # set urlp to use as working URL
         lcurl.easy_setopt(curl, lcurl.CURLOPT_CURLU, urlp)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
+        # only allow HTTP, TFTP and SFTP
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_PROTOCOLS_STR, b"http,tftp,sftp")
 
         # Perform the custom request
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
         # Cleanup
         lcurl.url_cleanup(urlp)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

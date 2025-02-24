@@ -1,16 +1,20 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 [build-system]
 build-backend = 'setuptools.build_meta'
-requires = ['setuptools>=63.2.0', 'wheel>=0.37.1', 'packaging>=21.3.0', 'tox>=3.25.1']
+requires = ['setuptools>=75.8.0', 'packaging>=24.2.0', 'tox>=4.24.1']
 
 [project]
 name        = 'libcurl-ct'
-version     = '7.84.0a2'
+version     = '8.12.1.1b1'
 description = 'Python binding for the libcurl C library.'
-license = { text = 'MIT License ; https://opensource.org/licenses/MIT' }
+urls.Homepage      = 'https://pypi.org/project/libcurl-ct/'
+urls.Documentation = 'https://libcurl.readthedocs.io/'
+urls.Download      = 'https://pypi.org/project/libcurl-ct/'
+urls.Source        = 'https://github.com/karpierz/libcurl'
+urls.Issues        = 'https://github.com/karpierz/libcurl/issues'
+license = { text = 'MIT License ; https://opensource.org/license/mit' }
 authors = [
     { name  = 'Adam Karpierz' },
     { email = 'adam@karpierz.net' },
@@ -21,57 +25,61 @@ maintainers = [
 ]
 keywords = ['curl', 'libcurl']
 classifiers = [
-    'Development Status :: 3 - Alpha',
+    'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
     'License :: OSI Approved :: MIT License',
     'Operating System :: OS Independent',
     'Natural Language :: Polish',
     'Programming Language :: Python',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.7',
-    'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
     'Programming Language :: Python :: 3 :: Only',
     'Programming Language :: Python :: Implementation :: CPython',
     'Programming Language :: Python :: Implementation :: PyPy',
-    'Programming Language :: Python :: Implementation :: Stackless',
     'Topic :: Software Development :: Libraries :: Python Modules',
 ]
-requires-python = '>=3.7.0,<4.0.0'
+requires-python = '>=3.9.0,<4.0.0'
 dependencies = [
     # mandatory
-    'setuptools>=63.2.0',
-    'pkg_about>=1.0.7',
+    'setuptools>=75.8.0',
+    'pkg-about>=1.2.9',
     # others
 ]
 dynamic = ['readme']
-[project.optional-dependencies]
-doc = [
-    'docutils>=0.14,<0.19',
-    'Sphinx>=4.5.0',
-    'sphinx-tabs>=3.4.1',
-    'sphinx_copybutton>=0.5.0',
-    'sphinxcontrib-spelling>=7.6.0',
+optional-dependencies.'doc' = [
+    'Sphinx>=7.4.7',
+    'sphinx-autodoc-typehints>=2.3.0',
+    'sphinx-toolbox>=3.8.2',
+    'sphinx-tabs>=3.4.5', # don't touch! sphinx-toolbox requires <3.4.7
+    'sphinx-copybutton>=0.5.2',
+    'sphinxcontrib-spelling>=8.0.0',
+    'sphinx-lint>=1.0.0',
     'restructuredtext-lint>=1.4.0',
-    'nbsphinx>=0.8.9',
+    'nbsphinx>=0.9.6',
 ]
-test = [
-    'deepdiff>=5.8.1',
+optional-dependencies.'test' = [
+    'deepdiff>=8.2.0',
+    'rich>=13.9.4',
+    'ebcdic>=1.1.1',
+    #
+    #'impacket>=0.12.0', !!! virus !!!
+    # tests/tests.c/http/requirements.txt
+    'pytest>=8.3.4',
+    'cryptography>=44.0.1',
+    'multipart>=1.2.1',
+    'websockets>=14.2',
+    'psutil>=7.0.0',
 ]
-[project.urls]
-Homepage      = 'https://pypi.org/project/libcurl-ct/'
-Documentation = 'https://libcurl.readthedocs.io/'
-Download      = 'https://pypi.org/project/libcurl-ct/'
-Source        = 'https://github.com/karpierz/libcurl'
-Issues        = 'https://github.com/karpierz/libcurl/issues'
 
 [project.scripts]
-#libcurl = 'libcurl.__main__:main'
+#'libcurl' = 'libcurl.__main__:main'
 
 [project.gui-scripts]
-#libcurl-gui = 'libcurl:main_gui'
+#'libcurl-gui' = 'libcurl:main_gui'
 
 #[project.entry-points.'libcurl.magical']
 #epoint = 'libcurl:main_epoint'
@@ -106,36 +114,39 @@ libcurl = [
     '*/*/*/.keep',
 ]
 
-[tool.coverage.run]
-source = [
+[tool.setuptools.exclude-package-data]
+'*' = ['*.c','*.h','*.cpp','*.hpp','*.cxx','*.hxx','*.pyx','*.pxd']
+libcurl = [
+]
+
+[tool.coverage]
+# run
+run.source = [
     'libcurl',
     'tests',
 ]
-omit = [
+run.omit = [
 ]
-data_file = '.tox/coverage/.coverage'
-
-[tool.coverage.report]
-exclude_lines = [
+run.branch = true
+run.data_file = '.tox/coverage/.coverage'
+run.plugins = ['covdefaults']
+# report
+report.exclude_lines = [
     # Regexes
     # Have to re-enable the standard pragma
-    'pragma: no cover',
-    'if\s+self\.debug\s+:',
-    'if\s+__debug__\s+:',
-    'raise (AssertionError|NotImplementedError)',
-    'if\s+(0|False)\s*:',
-    '''if\s+__name__.*\s*==\s*'__main__'\s*:''',
-    'if\s+__name__.*\s*==\s*"__main__"\s*:',
+    '^\s*if\s+self\.debug\s*:',
+    '^\s*if\s+__debug__\s*:',
+    '^\s*if\s+(0|False)\s*:',
+    '''if\s+__name__.*\s*==\s*['"]__main__['"]\s*:''',
     '^\s*@unittest\.skip\(',
     '^\s*@unittest\.skipIf\(sys\.platform\.startswith\("win"\)',
 ]
-omit = [
+report.omit = [
     'tests/run.py',
 ]
-skip_covered = false
-
-[tool.coverage.html]
-directory = '.tox/coverage/.coverage.html'
+report.skip_covered = false
+# html report
+html.directory = '.tox/coverage/.coverage.html'
 
 [tool.flake8]
 filename = ['*.py','*.pyx']
@@ -157,6 +168,7 @@ per-file-ignores = [
     '*/libcurl/_multi.py: E305',
     '*/libcurl/_options.py: E305',
     '*/libcurl/_urlapi.py: E305',
+    '*/libcurl/_websockets.py: E305',
     '*/libcurl/_mprintf.py: E305',
     '*/libcurl/_platform/__init__.py: E305',
     '*/libcurl/_platform/_windows/__init__.py: E305',
@@ -169,3 +181,133 @@ count = true
 #show-source
 #verbose
 #quiet
+
+#
+# Configuration(s) for tox
+#
+
+[tool.tox]  # 
+env_list = [{replace='ref',of=['tool','tox','labels','py'],extend=true}, 'lint', 'docs']
+min_version = '4.24.1'
+skip_missing_interpreters = true
+requires = [
+    {replace='ref',of=['tool','tox','_','base','deps'],extend=true},
+    'virtualenv>=20.29.2',
+    'tox-backtick>=0.5.8',
+]
+[tool.tox.labels]
+py = ['py39','py310','py311','py312','py313', 'pypy39','pypy310']
+prepare  = ['prepare']
+coverage = ['coverage']
+lint = ['lint']
+docs = ['docs']
+build  = [{replace='ref',of=['tool','tox','labels','py'],extend=true}, 'docs', 'build']
+deploy = [{replace='ref',of=['tool','tox','labels','build'],extend=true}, 'publish']
+
+[tool.tox._.base]
+base_python = ['python3.12']
+deps = [
+    'pip>=25.0.1',
+    'setuptools>=75.8.0',
+]
+package_subdir = 'libcurl'
+
+[tool.tox.env_run_base]
+description = "Run tests under {base_python}"
+set_env.PYTHONDONTWRITEBYTECODE = '1'
+set_env.PKG_PVER = "`python -W ignore -c \"import platform ; print(''.join(platform.python_version_tuple()[:2]), end='')\" 2> nul`"
+set_env.PKG_NAME = "`python -W ignore -c \"import setuptools ; setuptools._distutils.core._setup_stop_after='config' ; print(setuptools.setup().metadata.get_name(),     end='')\" 2> nul`"
+set_env.PKG_DIST = "`python -W ignore -c \"import setuptools ; setuptools._distutils.core._setup_stop_after='config' ; print(setuptools.setup().metadata.get_fullname(), end='')\" 2> nul`"
+commands = [
+    ['{env_python}','--version'],
+    ['{env_python}','-m','tests',{replace='posargs',extend=true}],
+]
+extras = ['test']
+deps = [
+    {replace='ref',of=['tool','tox','_','base','deps'],extend=true},
+]
+
+[tool.tox.env.'prepare']
+base_python = {replace='ref',of=['tool','tox','_','base','base_python']}
+skip_install = true
+allowlist_externals = [
+    'cmd',
+    '.build',
+]
+commands = [
+    ['cmd','/C','if','exist','.build.cmd','.build.cmd'],
+]
+extras = []
+deps = []
+
+[tool.tox.env.'coverage']
+base_python = {replace='ref',of=['tool','tox','_','base','base_python']}
+commands = [
+    ['{env_python}','-m','coverage','erase'],
+    ['-','{env_python}','-m','coverage','run','-m','tests',{replace="posargs",extend=true}],
+    ['-','{env_python}','-m','coverage','html'],
+    ['{env_python}','-m','coverage','report'],
+]
+deps = [
+    {replace='ref',of=['tool','tox','env_run_base','deps'],extend=true},
+    'coverage>=7.6.12',
+    'covdefaults>=2.3.0',
+    'diff-cover>=9.2.0',
+]
+
+[tool.tox.env.'docs']
+base_python = {replace='ref',of=['tool','tox','_','base','base_python']}
+commands = [
+    ['{env_python}','-m','sphinxlint','--ignore','.tox','--ignore','build','--ignore','dist'],
+   #['{env_python}','-m','sphinx.apidoc','-f','{envsitepackagesdir}/{[tool.tox._.base]package_subdir}'],
+    ['{env_python}','-m','sphinx.cmd.build','-W','-a','-b','html','-E','./docs','./build/docs/html'],
+    ['{env_python}','-m','sphinx.cmd.build','-W','-a','-b','linkcheck','./docs','./build/docs/html'],
+    ['{env_python}','-m','sphinx.cmd.build','-W','-a','-b','doctest',  './docs','./build/docs/html'],
+]
+extras = ['doc']
+deps = [
+    {replace='ref',of=['tool','tox','_','base','deps'],extend=true},
+]
+
+[tool.tox.env.'build']
+depends = [{replace='ref',of=['tool','tox','labels','py'],extend=true}, 'docs']
+base_python = {replace='ref',of=['tool','tox','_','base','base_python']}
+commands = [
+    ['{env_python}','-W','ignore','-c','from setuptools import setup ; setup()','--quiet','sdist','--formats=gztar'],
+    ['{env_python}','-W','ignore','-c','from setuptools import setup ; setup()','--quiet','bdist_wheel'],
+    # check out for PyPi
+    ['{env_python}','-m','twine','check','dist/*'],
+]
+deps = [
+    {replace='ref',of=['tool','tox','env_run_base','deps'],extend=true},
+    'twine>=6.1.0',
+]
+
+[tool.tox.env.'publish']
+depends = ['build']
+base_python = {replace='ref',of=['tool','tox','_','base','base_python']}
+skip_install = true
+commands = [
+    # publish on PyPi
+    ['{env_python}','-m','twine','upload','dist/*'],
+]
+extras = []
+deps = [
+    'twine>=6.1.0',
+]
+
+[tool.tox.env.'lint']
+base_python = {replace='ref',of=['tool','tox','_','base','base_python']}
+commands = [
+    ['{env_python}','-m','flake8','{envsitepackagesdir}/{[tool.tox._.base]package_subdir}/'],
+]
+extras = []
+deps = [
+    {replace='ref',of=['tool','tox','env_run_base','deps'],extend=true},
+    'flake8>=7.1.1',
+    'flake8-pyproject>=1.2.3',
+    'flake8-docstrings>=1.7.0',
+    'pep8-naming>=0.14.1',
+    'flake8-builtins>=2.5.0',
+    'flake8-deprecated>=2.2.1',
+]

@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,17 +20,20 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Using the multi interface to do a multipart formpost without blocking
 """
 
+# Warning: this example uses the deprecated form api. See "multi-post.c"
+#          for a similar example using the mime api.
+
 import sys
 import ctypes as ct
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 def main(argv=sys.argv[1:]):
@@ -41,7 +44,7 @@ def main(argv=sys.argv[1:]):
     mcurl: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
     curl:  ct.POINTER(lcurl.CURL)  = lcurl.easy_init()
 
-    with curl_guard(False, curl, mcurl):
+    with curl_guard(False, curl, mcurl) as guard:
         if not curl:  return 1
         if not mcurl: return 2
 
@@ -49,6 +52,7 @@ def main(argv=sys.argv[1:]):
         formpost = ct.POINTER(lcurl.httppost)()
         lastptr  = ct.POINTER(lcurl.httppost)()
 
+        # CURL_IGNORE_DEPRECATION(
         # Fill in the file upload field. This makes libcurl load data
         # from the given file name when libcurl.multi_perform() is called.
         fields1 = (lcurl.forms * 3)()
@@ -76,10 +80,11 @@ def main(argv=sys.argv[1:]):
         fields3[1].value  = b"send"
         fields3[2].option = lcurl.CURLFORM_END
         lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields3)
+        # )
 
         # what URL that receives this POST
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         # initialize custom header list (stating that Expect: 100-continue
         # is not wanted
@@ -88,22 +93,26 @@ def main(argv=sys.argv[1:]):
         if no_expect_header:
             # only disable 100-continue header if explicitly requested
             lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTPHEADER, headerlist)
+        # CURL_IGNORE_DEPRECATION(
         lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTPPOST, formpost)
+        # )
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
         lcurl.multi_add_handle(mcurl, curl)
 
         still_running = ct.c_int(1)
         while still_running.value:
+
             mc: int = lcurl.multi_perform(mcurl, ct.byref(still_running))
-            if still_running.value:
-                # wait for activity, timeout or "nothing"
-                mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
+            # wait for activity, timeout or "nothing"
+            if still_running.value: mc = lcurl.multi_poll(mcurl, None, 0, 1000, None)
             if mc:
                 break
 
+        # CURL_IGNORE_DEPRECATION(
         # then cleanup the formpost chain
         lcurl.formfree(formpost)
+        # )
         # free slist
         lcurl.slist_free_all(headerlist)
 

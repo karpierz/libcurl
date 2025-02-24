@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Stream-parse a document using the streaming Expat parser.
@@ -36,7 +36,7 @@ import ctypes as ct
 from xml.parsers import expat
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 class MemoryStruct(ct.Structure):
@@ -44,6 +44,7 @@ class MemoryStruct(ct.Structure):
     ("memory", ct.c_void_p),  # ??? char *
     ("size",   ct.c_size_t),
 ]
+
 
 def init_memory(chunk: MemoryStruct):
     chunk.memory = None
@@ -98,9 +99,9 @@ def character_data(data):
 
 
 @lcurl.write_callback
-def parse_stream_callback(buffer, size, nitems, stream):
-    parser = lcurl.from_oid(stream)
-    buffer_size = size * nitems
+def parse_stream_callback(buffer, size, nitems, userp):
+    parser = lcurl.from_oid(userp)
+    buffer_size = nitems * size
 
     global state
 
@@ -111,7 +112,7 @@ def parse_stream_callback(buffer, size, nitems, stream):
     try:
         parser.Parse(bytes(buffer[:buffer_size]), False)
     except expat.ExpatError as exc:
-        print("Parsing response buffer of length %u failed with "
+        print("Parsing response buffer of length %d failed with "
               "error code %d (%s)." %
               (buffer_size, exc.code, expat.ErrorString(exc.code)),
               file=sys.stderr)
@@ -142,11 +143,11 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, parse_stream_callback)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, id(parser))
@@ -157,25 +158,26 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
-        elif state.ok:
-            # Expat requires one final call to finalize parsing.
-            try:
-                parser.Parse(b"", True)
-            except expat.ExpatError as exc:
-                print("Finalizing parsing failed with error code %d (%s)." %
-                      (exc.code, expat.ErrorString(exc.code)),
-                      file=sys.stderr)
-            else:
-                print("                     --------------")
-                print("                     %u tags total" % state.tags)
+        handle_easy_perform_error(res)
+        if res != lcurl.CURLE_OK or not state.ok:
+            raise guard.Break
+
+        # Expat requires one final call to finalize parsing.
+        try:
+            parser.Parse(b"", True)
+        except expat.ExpatError as exc:
+            print("Finalizing parsing failed with error code %d (%s)." %
+                  (exc.code, expat.ErrorString(exc.code)),
+                  file=sys.stderr)
+        else:
+            print("                     --------------")
+            print("                     %d tags total" % state.tags)
 
     # Clean up.
     del parser
     libc.free(state.characters.memory)
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

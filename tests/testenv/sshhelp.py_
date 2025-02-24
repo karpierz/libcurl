@@ -1,0 +1,341 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+from typing import Optional
+from pathlib import Path
+
+from pathhelp import exe_ext
+
+__all__ = (
+    'sshdexe',
+    'sshexe',
+    'sftpsrvexe',
+    'sftpexe',
+    'sshkeygenexe',
+    'sshdconfig',
+    'sshconfig',
+    'sftpconfig',
+    'knownhosts',
+    'sshdlog',
+    'sshlog',
+    'sftplog',
+    'sftpcmds',
+    '$hstprvkeyf',
+    '$hstpubkeyf',
+    '$hstpubmd5f',
+    '$hstpubsha256f',
+    '$cliprvkeyf',
+    '$clipubkeyf',
+    'display_sshdconfig',
+    'display_sshconfig',
+    'display_sftpconfig',
+    'display_sshdlog',
+    'display_sshlog',
+    'display_sftplog',
+    'dump_array',
+    'find_sshd',
+    'find_ssh',
+    'find_sftpsrv',
+    'find_sftp',
+    'find_sshkeygen',
+    'find_httptlssrv',
+    'sshversioninfo',
+)
+
+use File::Spec;
+
+# Global variables initialization
+#
+sshdexe        = f"sshd{exe_ext('SSH')}"         # base name and ext of ssh daemon
+sshexe         = f"ssh{exe_ext('SSH')}"          # base name and ext of ssh client
+sftpsrvexe     = f"sftp-server{exe_ext('SSH')}"  # base name and ext of sftp-server
+sftpexe        = f"sftp{exe_ext('SSH')}"         # base name and ext of sftp client
+sshkeygenexe   = f"ssh-keygen{exe_ext('SSH')}"   # base name and ext of ssh-keygen
+httptlssrvexe  = f"gnutls-serv{exe_ext('SSH')}"  # base name and ext of gnutls-serv
+sshdconfig     = "curl_sshd_config"              # ssh daemon config file
+sshconfig      = "curl_ssh_config"               # ssh client config file
+sftpconfig     = "curl_sftp_config"              # sftp client config file
+sshdlog        = None                            # ssh daemon log file
+sshlog         = None                            # ssh client log file
+sftplog        = None                            # sftp client log file
+sftpcmds       = "curl_sftp_cmds"                # sftp client commands batch file
+knownhosts     = "curl_client_knownhosts"        # ssh knownhosts file
+hstprvkeyf     = "curl_host_rsa_key"             # host private key file
+hstpubkeyf     = "curl_host_rsa_key.pub"         # host public key file
+hstpubmd5f     = "curl_host_rsa_key.pub_md5"     # md5 hash of host public key
+hstpubsha256f  = "curl_host_rsa_key.pub_sha256"  # sha256 hash of host public key
+cliprvkeyf     = "curl_client_key"               # client private key file
+clipubkeyf     = "curl_client_key.pub"           # client public key file
+
+# Absolute paths where to look for sftp-server plugin,
+# when not in PATH
+#
+sftp_paths = [
+    Path("/usr/lib/openssh"),
+    Path("/usr/libexec/openssh"),
+    Path("/usr/libexec"),
+    Path("/usr/local/libexec"),
+    Path("/opt/local/libexec"),
+    Path("/usr/lib/ssh"),
+    Path("/usr/libexec/ssh"),
+    Path("/usr/sbin"),
+    Path("/usr/lib"),
+    Path("/usr/lib/ssh/openssh"),
+    Path("/usr/lib64/ssh"),
+    Path("/usr/lib64/misc"),
+    Path("/usr/lib/misc"),
+    Path("/usr/local/sbin"),
+    Path("/usr/freeware/bin"),
+    Path("/usr/freeware/sbin"),
+    Path("/usr/freeware/libexec"),
+    Path("/opt/ssh/sbin"),
+    Path("/opt/ssh/libexec"),
+]
+
+# Absolute paths where to look for httptlssrv (gnutls-serv),
+# when not in PATH
+#
+httptls_srv_paths = [
+    Path("/usr/sbin"),
+    Path("/usr/libexec"),
+    Path("/usr/lib"),
+    Path("/usr/lib/misc"),
+    Path("/usr/lib64/misc"),
+    Path("/usr/local/bin"),
+    Path("/usr/local/sbin"),
+    Path("/usr/local/libexec"),
+    Path("/opt/local/bin"),
+    Path("/opt/local/sbin"),
+    Path("/opt/local/libexec"),
+    Path("/usr/freeware/bin"),
+    Path("/usr/freeware/sbin"),
+    Path("/usr/freeware/libexec"),
+    Path("/opt/gnutls/bin"),
+    Path("/opt/gnutls/sbin"),
+    Path("/opt/gnutls/libexec"),
+]
+
+# **************************************************************************
+#
+def dump_array(filename, array: List[str]) -> Optional[str]:
+    """Create or overwrite the given file with lines from an array of strings"""
+    if not filename:
+        return "Error: Missing argument 1 for dump_array()"
+    try:
+       fh = open(filename, "wt", newline="")
+    except:
+        return f"Error: cannot write file {filename}"
+    try:
+        for line in array:
+            if not line.endswith("\n"): line += "\n"
+            fh.write(line)
+    except:
+        return f"Error: cannot write file {filename}"
+    finally:
+        try:
+            fh.close()
+        except:
+            return f"Error: cannot close file {filename}"
+    return None
+
+# **************************************************************************
+
+def display_file(filename)
+    """Display contents of the given file"""
+    print(f"=== Start of file {filename}")
+    try:
+        fh = open(filename , "rt")
+    except: pass
+    else:
+        with fh:
+            for line in fh:
+                print(line, end="")
+    print(f"=== End of file {filename}")
+
+
+def display_sshdconfig():
+    """Display contents of the ssh daemon config file"""
+    display_file(sshdconfig)
+
+
+def display_sshconfig():
+    """Display contents of the ssh client config file"""
+    display_file(sshconfig)
+
+
+def display_sftpconfig():
+    """Display contents of the sftp client config file"""
+    display_file(sftpconfig)
+
+
+def display_sshdlog():
+    """Display contents of the ssh daemon log file"""
+    if sshdlog is None:
+        die "error: sshhelp.sshdlog uninitialized"
+    display_file(sshdlog)
+
+
+def display_sshlog():
+    """Display contents of the ssh client log file"""
+    if sshlog is None:
+        die "error: sshhelp.sshlog uninitialized"
+    display_file(sshlog)
+
+
+def display_sftplog():
+    """Display contents of the sftp client log file"""
+    if sftplog is None:
+        die "error: sshhelp.sftplog uninitialized"
+    display_file(sftplog)
+
+# **************************************************************************
+
+def find_file($fn, paths: List[Path]):
+    """Find a file somewhere in the given path"""
+    for path in paths:
+        $file = File::Spec->catfile(path, $fn)
+        if $file.exists() and not $file.is_dir():
+            return $file
+    else:
+        return ""
+
+
+def find_exe_file($fn,  paths: List[Path]):
+    """Find an executable file somewhere in the given path"""
+    $xext = exe_ext("SSH")
+    for path in paths:
+        $file = File::Spec->catfile(path, $fn)
+        if $file.exists() and not $file.is_dir():
+            if -x $file:
+                return $file
+            if $xext and ($file.lower() =~ /\Q$xext\E$/):
+                return $file
+    else:
+        return ""
+
+
+def find_file_spath(filename):
+    """Find a file in environment path or in our sftp_paths"""
+    global sftp_paths
+    paths = []
+    paths.append(File::Spec->path())
+    paths.extend(sftp_paths)
+    return find_file(filename, paths)
+
+
+def find_exe_file_hpath(filename):
+    """Find an executable file in environment path or in our httptls_srv_paths"""
+    global httptls_srv_paths
+    paths = []
+    paths.append(File::Spec->path())
+    paths.extend(httptls_srv_paths)
+    return find_exe_file(filename, paths)
+
+
+def find_sshd():
+    """Find ssh daemon and return canonical filename"""
+    return find_file_spath(sshdexe)
+
+
+def find_ssh():
+    """Find ssh client and return canonical filename"""
+    return find_file_spath(sshexe)
+
+
+def find_sftpsrv():
+    """Find sftp-server plugin and return canonical filename"""
+    return find_file_spath(sftpsrvexe)
+
+
+def find_sftp():
+    """Find sftp client and return canonical filename"""
+    return find_file_spath(sftpexe)
+
+
+def find_sshkeygen():
+    """Find ssh-keygen and return canonical filename"""
+    return find_file_spath(sshkeygenexe)
+
+
+def find_httptlssrv():
+    """Find httptlssrv (gnutls-serv) and return canonical filename"""
+    $p = find_exe_file_hpath($httptlssrvexe)
+    if not $p:
+        return ""
+    my @o = `"$p" -l`
+    for (@o):
+        if (/Key exchange: SRP/):
+            return $p
+    else:
+        return ""
+
+# **************************************************************************
+
+def sshversioninfo(ssh_bin):  # canonical filename
+    """Return version info for the given ssh client or server binaries"""
+
+    ssh_id  = None
+    ver_num = None
+    ver_str = None
+    error   = None
+
+    if not ssh_bin:
+        error = "Error: Missing argument 1 for sshversioninfo()"
+    elif not -x ssh_bin:
+        error = f"Error: cannot read or execute {ssh_bin}"
+    else:
+        cmd = f"\"{$sshbin}\" -?" if ($sshbin =~ /{sshdexe}$/) else f"\"{$sshbin}\" -V"
+        error = f"{cmd}\n"
+        for $tmpstr in qx($cmd 2>&1):
+            if ($tmpstr =~ /OpenSSH[_-](\d+)\.(\d+)(\.(\d+))*/i):
+                major = $1
+                minor = $2
+                patch = $4 or 0
+                ssh_id = "OpenSSH"
+                ver_num = 100 * major + 10 * minor + patch
+                ver_str = f"{ssh_id} {major}.{minor}.{patch}"
+                error = None
+                break
+            if ($tmpstr =~ /OpenSSH[_-]for[_-]Windows[_-](\d+)\.(\d+)(\.(\d+))*/i):
+                major = $1
+                minor = $2
+                patch = $4 or 0
+                ssh_id = "OpenSSH-Windows"
+                ver_num = 100 * major + 10 * minor + patch
+                ver_str = f"{ssh_id} {major}.{minor}.{patch}"
+                error = None
+                break
+            if ($tmpstr =~ /Sun[_-]SSH[_-](\d+)\.(\d+)(\.(\d+))*/i):
+                major = $1
+                minor = $2
+                patch = $4 or 0
+                ssh_id = "SunSSH"
+                ver_num = 100 * major + 10 * minor + patch
+                ver_str = f"{ssh_id} {major}.{minor}.{patch}"
+                error = None
+                break
+            $error .= $tmpstr;
+        if $error: chomp $error
+
+    return (ssh_id, ver_num, ver_str, error)

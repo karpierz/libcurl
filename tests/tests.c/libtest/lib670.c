@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,18 +18,19 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
+ * SPDX-License-Identifier: curl
+ *
  ***************************************************************************/
+#include "test.h"
 
 #include <time.h>
 
-#include "test.h"
-
 #include "memdebug.h"
 
-#define PAUSE_TIME      2
+#define PAUSE_TIME      5
 
 
-static const char name[] = "field";
+static const char testname[] = "field";
 
 struct ReadThis {
   CURL *easy;
@@ -55,7 +56,7 @@ static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *userp)
     return CURL_READFUNC_PAUSE;
   case 2:
     delta = time(NULL) - pooh->origin;
-    *ptr = delta >= PAUSE_TIME? '\x42': '\x41'; /* ASCII A or B. */
+    *ptr = delta >= PAUSE_TIME ? '\x42' : '\x41'; /* ASCII A or B. */
     return 1;
   case 3:
     return 0;
@@ -91,7 +92,7 @@ static int xferinfo(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
 }
 #endif
 
-int test(char *URL)
+CURLcode test(char *URL)
 {
 #if defined(LIB670) || defined(LIB671)
   curl_mime *mime = NULL;
@@ -110,8 +111,7 @@ int test(char *URL)
 #endif
 
   struct ReadThis pooh;
-  CURLcode result;
-  int res = TEST_ERR_FAILURE;
+  CURLcode res = TEST_ERR_FAILURE;
 
   /*
    * Check proper pausing/unpausing from a mime or form read callback.
@@ -139,28 +139,29 @@ int test(char *URL)
   /* Build the mime tree. */
   mime = curl_mime_init(pooh.easy);
   part = curl_mime_addpart(mime);
-  result = curl_mime_name(part, name);
-  if(!result)
-    res = curl_mime_data_cb(part, (curl_off_t) 2, read_callback,
-                            NULL, NULL, &pooh);
-
-  if(result) {
+  res = curl_mime_name(part, testname);
+  if(res != CURLE_OK) {
     fprintf(stderr,
             "Something went wrong when building the mime structure: %d\n",
-            (int) result);
+            res);
     goto test_cleanup;
   }
 
+  res = curl_mime_data_cb(part, (curl_off_t) 2, read_callback,
+                          NULL, NULL, &pooh);
+
   /* Bind mime data to its easy handle. */
-  if(!res)
+  if(res == CURLE_OK)
     test_setopt(pooh.easy, CURLOPT_MIMEPOST, mime);
 #else
-  /* Build the form. */
-  formrc = curl_formadd(&formpost, &lastptr,
-                        CURLFORM_COPYNAME, name,
-                        CURLFORM_STREAM, &pooh,
-                        CURLFORM_CONTENTLEN, (curl_off_t) 2,
-                        CURLFORM_END);
+  CURL_IGNORE_DEPRECATION(
+    /* Build the form. */
+    formrc = curl_formadd(&formpost, &lastptr,
+                          CURLFORM_COPYNAME, testname,
+                          CURLFORM_STREAM, &pooh,
+                          CURLFORM_CONTENTLEN, (curl_off_t) 2,
+                          CURLFORM_END);
+  )
   if(formrc) {
     fprintf(stderr, "curl_formadd() = %d\n", (int) formrc);
     goto test_cleanup;
@@ -169,8 +170,10 @@ int test(char *URL)
   /* We want to use our own read function. */
   test_setopt(pooh.easy, CURLOPT_READFUNCTION, read_callback);
 
-  /* Send a multi-part formpost. */
-  test_setopt(pooh.easy, CURLOPT_HTTPPOST, formpost);
+  CURL_IGNORE_DEPRECATION(
+    /* Send a multi-part formpost. */
+    test_setopt(pooh.easy, CURLOPT_HTTPPOST, formpost);
+  )
 #endif
 
 #if defined(LIB670) || defined(LIB672)
@@ -210,7 +213,7 @@ int test(char *URL)
     mres = curl_multi_fdset(multi, &fdread, &fdwrite, &fdexcept, &maxfd);
     if(mres)
       break;
-#if defined(WIN32) || defined(_WIN32)
+#if defined(_WIN32)
     if(maxfd == -1)
       Sleep(100);
     else
@@ -228,8 +231,7 @@ int test(char *URL)
       if(!msg)
         break;
       if(msg->msg == CURLMSG_DONE) {
-        result = msg->data.result;
-        res = (int) result;
+        res = msg->data.result;
       }
     }
 
@@ -241,8 +243,7 @@ int test(char *URL)
   test_setopt(pooh.easy, CURLOPT_XFERINFODATA, &pooh);
   test_setopt(pooh.easy, CURLOPT_XFERINFOFUNCTION, xferinfo);
   test_setopt(pooh.easy, CURLOPT_NOPROGRESS, 0L);
-  result = curl_easy_perform(pooh.easy);
-  res = (int) result;
+  res = curl_easy_perform(pooh.easy);
 #endif
 
 
@@ -251,7 +252,9 @@ test_cleanup:
 #if defined(LIB670) || defined(LIB671)
   curl_mime_free(mime);
 #else
-  curl_formfree(formpost);
+  CURL_IGNORE_DEPRECATION(
+    curl_formfree(formpost);
+  )
 #endif
 
   curl_global_cleanup();

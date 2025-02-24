@@ -5,8 +5,8 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
- * Copyright (C) 2014, Vijay Panghal, <vpanghal@maginatics.com>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Vijay Panghal, <vpanghal@maginatics.com>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -19,6 +19,8 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
+ * SPDX-License-Identifier: curl
+ *
  ***************************************************************************/
 
 /*
@@ -30,25 +32,25 @@
 
 #include "memdebug.h"
 
-static char data [] = "Hello Cloud!\n";
+static char testdata[] = "Hello Cloud!\n";
 
 static size_t read_callback(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   size_t  amount = nmemb * size; /* Total bytes curl wants */
-  if(amount < strlen(data)) {
-    return strlen(data);
+  if(amount < strlen(testdata)) {
+    return strlen(testdata);
   }
   (void)stream;
-  memcpy(ptr, data, strlen(data));
-  return strlen(data);
+  memcpy(ptr, testdata, strlen(testdata));
+  return strlen(testdata);
 }
 
 
-int test(char *URL)
+CURLcode test(char *URL)
 {
   CURL *curl = NULL;
   CURLcode res = CURLE_FAILED_INIT;
-  /* http and proxy header list*/
+  /* http and proxy header list */
   struct curl_slist *hhl = NULL;
 
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
@@ -82,7 +84,7 @@ int test(char *URL)
   test_setopt(curl, CURLOPT_WRITEFUNCTION, fwrite);
   test_setopt(curl, CURLOPT_READFUNCTION, read_callback);
   test_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 1L);
-  test_setopt(curl, CURLOPT_INFILESIZE, (long)strlen(data));
+  test_setopt(curl, CURLOPT_INFILESIZE, (long)strlen(testdata));
 
   res = curl_easy_perform(curl);
 
@@ -94,5 +96,5 @@ test_cleanup:
 
   curl_global_cleanup();
 
-  return (int)res;
+  return res;
 }

@@ -1,0 +1,958 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+# Starts sshd for use in the SCP and SFTP curl test harness tests.
+# Also creates the ssh configuration files needed for these tests.
+
+from typing import Optional
+import argparse
+from pathlib import Path
+
+from serverhelp import log_msg
+import sshhelp
+
+use strict;
+use warnings;
+use Cwd;
+use Cwd 'abs_path'
+use Digest::MD5;
+use Digest::MD5 'md5_hex'
+use Digest::SHA;
+use Digest::SHA 'sha256_base64'
+use MIME::Base64;
+use File::Basename;
+
+# **************************************************************************
+# Variables and subs imported from sshhelp module
+#
+use sshhelp qw(
+    $hstprvkeyf
+    $hstpubkeyf
+    $hstpubmd5f
+    $hstpubsha256f
+    $cliprvkeyf
+    $clipubkeyf
+    );
+
+use pathhelp;
+
+curr_dir: Path = Path(getcwd())   # current working directory
+
+# **************************************************************************
+
+my $verbose = 0;              # set to 1 for debugging
+debug_protocol: bool = False        # set to 1 for protocol debugging
+listen_addr:    str  = "127.0.0.1"  # default address on which to listen
+my $ipvnum = 4;               # default IP version of listener address
+my $idnum = 1;                # default ssh daemon instance number
+my $logdir = curr_dir/"log"   # directory for log files
+user_name:      str  = $ENV{USER}   # default user
+my pid_file:  Optional[Path] = None                  # ssh daemon pid file
+my $identity = "curl_client_key" # default identity file
+
+my $error;
+my cfg_arr;
+
+# **************************************************************************
+# Returns a path of the given file name in the log directory (PiddirPath)
+#
+#sub pp($file):
+#    my  = $_[0];
+#    return pid_dir/$file
+#    # TODO: do Windows path conversion here
+
+
+def sshd_supports_opt($option, $value):
+    """Verifies at run time if sshd supports a given configuration file option"""
+    my $err;
+    #
+    if (((sshd_id =~ /OpenSSH/) and sshd_ver_num >= 310) ||
+         (sshd_id =~ /SunSSH/)):
+        # ssh daemon supports command line options -t -f and -o
+        $err = grep /((Unsupported)|(Bad configuration)|(Deprecated)) option.*$option/,
+                    `\"$sshd\" -t -f $sshdconfig_abs -o \"$option=$value\" 2>&1`;
+        return !$err;
+    if ((sshd_id =~ /OpenSSH/) and sshd_ver_num >= 299):
+        # ssh daemon supports command line options -t and -f
+        $err = sshhelp.dump_array(pid_dir/sshhelp.sshdconfig, (@cfgarr, f"$option $value"))
+        if $err:
+            log_msg(f"{$err}")
+            return 0
+        $err = grep /((Unsupported)|(Bad configuration)|(Deprecated)) option.*$option/,
+                    `\"$sshd\" -t -f $sshdconfig_abs 2>&1`;
+        (pid_dir/sshhelp.sshdconfig).unlink()
+        return !$err;
+    return 0
+
+
+def get_options(argv=sys.argv[1:]):
+    """Process command line options"""
+    app_name = sys.argv[0].rpartition("/")[2].rpartition("\\")[2]
+
+    parser = argparse.ArgumentParser(prog=f"python {app_name}")
+
+    parser.add_argument("--sshport", action="store", type=int, default=8999,
+                        help="SCP/SFTP server port to listen on")
+
+    parser.add_argument("--ipv4", action="store_true", default=False,
+                        help="IPv4 flag")
+    parser.add_argument("--ipv6", action="store_true", default=False,
+                        help="IPv6 flag")
+    parser.add_argument("--pidfile", action="store", type=Path,
+                        help="file name for the PID")
+    parser.add_argument("--logdir", action="store", type=Path,
+                        help="logs directory")
+    parser.add_argument("--verbose", action="store", type=int, default=0,
+                        help="verbose output")
+
+    options = parser.parse_args(argv)
+    options._app_name   = app_name
+    options._arg_parser = parser
+
+    return options
+
+    while(@ARGV) {
+        elsif($ARGV[0] == "--debugprotocol") {
+            $verbose = 1;
+            debug_protocol = True
+        }
+        elsif($ARGV[0] == "--user") {
+            if($ARGV[1]) {
+                user_name = $ARGV[1];
+                shift @ARGV;
+            }
+        }
+        elsif($ARGV[0] == "--id") {
+            if($ARGV[1]) {
+                if($ARGV[1] =~ /^(\d+)$/) {
+                    $idnum = $1 if($1 > 0);
+                    shift @ARGV;
+                }
+            }
+        }
+        elsif($ARGV[0] == "--ipv4") {
+            $ipvnum = 4;
+            if listen_addr == "::1": listen_addr = "127.0.0.1"
+        }
+        elsif($ARGV[0] == "--ipv6") {
+            $ipvnum = 6;
+            if listen_addr == "127.0.0.1": listen_addr = "::1"
+        }
+        elsif($ARGV[0] == "--addr") {
+            if($ARGV[1]) {
+                my $tmpstr = $ARGV[1];
+                if($tmpstr =~ /^(\d\d?\d?)\.(\d\d?\d?)\.(\d\d?\d?)\.(\d\d?\d?)$/) {
+                    if $ipvnum == 4: listen_addr = f"$1.$2.$3.$4"
+                    shift @ARGV;
+                }
+                elsif($ipvnum == 6) {
+                    listen_addr = $tmpstr
+                    listen_addr =~ s/^\[(.*)\]$/$1/
+                    shift @ARGV;
+                }
+            }
+        }
+    }
+
+
+def main(argv=sys.argv[1:]) -> int:
+
+    # Get the options from the user.
+    options = get_options(argv)
+
+    proto          = "ssh"  # protocol the ssh daemon speaks
+    port:     int  = options.sshport
+    ip_vnum:  int  = 6 if options.ipv6 else 4 if options.ipv4 else 4
+    pid_file: Path = curr_dir/options.pidfile if options.pidfile else options.pidfile
+    log_dir:  Path = curr_dir/options.logdir  if options.logdir  else options.logdir
+    verbose:  int  = options.verbos
+
+    # Initialize command line option dependent variables
+
+    # Default ssh daemon pid file name & directory
+    #
+    # Use our pidfile directory or  current directory to store server config files
+    pid_dir = pid_file.parent if pid_file else curr_dir
+    if not pid_file: pid_file = serverhelp.server_pid_file(pid_dir, $proto, $ipvnum, $idnum)
+
+    # ssh and sftp server log file names
+    sshhelp.sshdlog = serverhelp.server_log_file($logdir, "ssh",  $ipvnum, $idnum)
+    sshhelp.sftplog = serverhelp.server_log_file($logdir, "sftp", $ipvnum, $idnum)
+    serverhelp.logfile = $logdir/"sshserver.log"  # used by log_msg()
+
+    # Logging level for ssh server and client
+    log_level: str = "DEBUG3" if debug_protocol else "DEBUG2"
+
+    # Validate user name
+    error = None
+    if not user_name:
+        error = "Will not run ssh server without a user name"
+    elif user_name == "root":
+        error = "Will not run ssh server as root to mitigate security risks"
+    if error:
+        log_msg(f"{error}")
+        exit 1;
+
+    # Find out ssh daemon canonical file name
+    sshd = sshhelp.find_sshd()
+    if not sshd:
+        log_msg(f"cannot find {sshhelp.sshdexe}")
+        exit 1;
+
+    # Find out ssh daemon version info
+    sshd_id, sshd_ver_num, sshd_ver_str, sshd_error = sshhelp.sshversioninfo({sshd})
+    if not sshd_id:
+        # Not an OpenSSH or SunSSH ssh daemon
+        if $verbose: log_msg(f"{sshd_error}")
+        log_msg(f"SCP and SFTP tests require OpenSSH 2.9.9 or later")
+        exit 1;
+    if $verbose: log_msg(f"ssh server found {sshd} is {sshd_ver_str}")
+
+    # **************************************************************************
+    #  ssh daemon command line options we might use and version support
+    #
+    #  -e:  log stderr           : OpenSSH 2.9.0 and later
+    #  -f:  sshd config file     : OpenSSH 1.2.1 and later
+    #  -D:  no daemon forking    : OpenSSH 2.5.0 and later
+    #  -o:  command-line option  : OpenSSH 3.1.0 and later
+    #  -t:  test config file     : OpenSSH 2.9.9 and later
+    #  -?:  sshd version info    : OpenSSH 1.2.1 and later
+    #
+    #  -e:  log stderr           : SunSSH 1.0.0 and later
+    #  -f:  sshd config file     : SunSSH 1.0.0 and later
+    #  -D:  no daemon forking    : SunSSH 1.0.0 and later
+    #  -o:  command-line option  : SunSSH 1.0.0 and later
+    #  -t:  test config file     : SunSSH 1.0.0 and later
+    #  -?:  sshd version info    : SunSSH 1.0.0 and later
+
+    # Verify minimum ssh daemon version
+    #
+    if (((sshd_id =~ /OpenSSH/) and sshd_ver_num < 299) or
+        ((sshd_id =~ /SunSSH/)  and sshd_ver_num < 100)):
+        log_msg(f"SCP and SFTP tests require OpenSSH 2.9.9 or later")
+        exit 1;
+
+    # Find out sftp server plugin canonical file name
+    #
+    my $sftpsrv = sshhelp.find_sftpsrv()
+    if not $sftpsrv:
+        log_msg(f"cannot find {sshhelp.sftpsrvexe}")
+        exit 1;
+    if $verbose: log_msg(f"sftp server plugin found {$sftpsrv}")
+
+    # Find out sftp client canonical file name
+    #
+    my $sftp = sshhelp.find_sftp()
+    if not $sftp:
+        log_msg(f"cannot find {sshhelp.sftpexe}")
+        exit 1;
+    if $verbose: log_msg(f"sftp client found {$sftp}")
+
+    # Find out ssh keygen canonical file name
+    #
+    sshkeygen = sshhelp.find_sshkeygen()
+    if not sshkeygen:
+        log_msg(f"cannot find {sshhelp.sshkeygenexe}")
+        exit 1;
+    if $verbose: log_msg(f"ssh keygen found {sshkeygen}")
+
+    # Find out ssh client canonical file name
+    #
+    $ssh = sshhelp.find_ssh()
+    if not $ssh:
+        log_msg(f"cannot find {sshhelp.sshexe}")
+        exit 1;
+
+    # Find out ssh client version info
+    #
+    ssh_id, ssh_ver_num, ssh_ver_str, ssh_error = sshhelp.sshversioninfo($ssh)
+    if not ssh_id:
+        # Not an OpenSSH or SunSSH ssh client
+        if $verbose; log_msg(f"{ssh_error}")
+        log_msg(f"SCP and SFTP tests require OpenSSH 2.9.9 or later")
+        exit 1;
+    if $verbose: log_msg(f"ssh client found {$ssh} is {ssh_ver_str}")
+
+    # **************************************************************************
+    #  ssh client command line options we might use and version support
+    #
+    #  -D:  dynamic app port forwarding  : OpenSSH 2.9.9 and later
+    #  -F:  ssh config file              : OpenSSH 2.9.9 and later
+    #  -N:  no shell/command             : OpenSSH 2.1.0 and later
+    #  -p:  connection port              : OpenSSH 1.2.1 and later
+    #  -v:  verbose messages             : OpenSSH 1.2.1 and later
+    # -vv:  increase verbosity           : OpenSSH 2.3.0 and later
+    #  -V:  ssh version info             : OpenSSH 1.2.1 and later
+    #
+    #  -D:  dynamic app port forwarding  : SunSSH 1.0.0 and later
+    #  -F:  ssh config file              : SunSSH 1.0.0 and later
+    #  -N:  no shell/command             : SunSSH 1.0.0 and later
+    #  -p:  connection port              : SunSSH 1.0.0 and later
+    #  -v:  verbose messages             : SunSSH 1.0.0 and later
+    # -vv:  increase verbosity           : SunSSH 1.0.0 and later
+    #  -V:  ssh version info             : SunSSH 1.0.0 and later
+    # **************************************************************************
+
+    # Verify minimum ssh client version
+    #
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num < 299) or
+        ((ssh_id =~ /SunSSH/)  and ssh_ver_num < 100)):
+        log_msg(f"SCP and SFTP tests require OpenSSH 2.9.9 or later")
+        exit 1;
+
+    # **************************************************************************
+    #  ssh keygen command line options we actually use and version support
+    #
+    #  -C:  identity comment : OpenSSH 1.2.1 and later
+    #  -f:  key filename     : OpenSSH 1.2.1 and later
+    #  -N:  new passphrase   : OpenSSH 1.2.1 and later
+    #  -q:  quiet keygen     : OpenSSH 1.2.1 and later
+    #  -t:  key type         : OpenSSH 2.5.0 and later
+    #
+    #  -C:  identity comment : SunSSH 1.0.0 and later
+    #  -f:  key filename     : SunSSH 1.0.0 and later
+    #  -N:  new passphrase   : SunSSH 1.0.0 and later
+    #  -q:  quiet keygen     : SunSSH 1.0.0 and later
+    #  -t:  key type         : SunSSH 1.0.0 and later
+    # **************************************************************************
+
+    # Generate host and client key files for curl's tests
+    #
+    if ((! -e pid_dir/$hstprvkeyf)    or (! -s pid_dir/$hstprvkeyf) or
+        (! -e pid_dir/$hstpubkeyf)    or (! -s pid_dir/$hstpubkeyf) or
+        (! -e pid_dir/$hstpubmd5f)    or (! -s pid_dir/$hstpubmd5f) or
+        (! -e pid_dir/$hstpubsha256f) or (! -s pid_dir/$hstpubsha256f) or
+        (! -e pid_dir/$cliprvkeyf)    or (! -s pid_dir/$cliprvkeyf) or
+        (! -e pid_dir/$clipubkeyf)    or (! -s pid_dir/$clipubkeyf)):
+        # Make sure all files are gone so ssh-keygen doesn't complain
+        unlink(pid_dir/$hstprvkeyf,    pid_dir/$hstpubkeyf, pid_dir/$hstpubmd5f,
+               pid_dir/$hstpubsha256f, pid_dir/$cliprvkeyf, pid_dir/$clipubkeyf);
+        if $verbose: log_msg("generating host keys...")
+        if(system f"\"{sshkeygen}\" -q -t rsa -f " . pid_dir/$hstprvkeyf . " -C 'curl test server' -N ''") {
+            log_msg("Could not generate host key")
+            exit 1;
+        }
+        if $verbose: log_msg("generating client keys...")
+        if(system f"\"{sshkeygen}\" -q -t rsa -f " . pid_dir/$cliprvkeyf . " -C 'curl test client' -N ''") {
+            log_msg("Could not generate client key")
+            exit 1;
+        }
+        # Make sure that permissions are restricted so openssh doesn't complain
+        system "chmod 600 " . pid_dir/$hstprvkeyf;
+        system "chmod 600 " . pid_dir/$cliprvkeyf;
+        # Save md5 and sha256 hashes of public host key
+        open(my $rsakeyfile, "<", pid_dir/$hstpubkeyf);
+        my @rsahostkey = do { local $/ = ' '; <$rsakeyfile> };
+        close($rsakeyfile);
+        if not $rsahostkey[1]:
+            log_msg("Failed parsing base64 encoded RSA host key")
+            exit 1;
+        open(my $pubmd5file, ">", pid_dir/$hstpubmd5f);
+        print $pubmd5file md5_hex(decode_base64($rsahostkey[1]));
+        close($pubmd5file);
+        if not -e pid_dir/$hstpubmd5f or not -s pid_dir/$hstpubmd5f:
+            log_msg("Failed writing md5 hash of RSA host key")
+            exit 1;
+        open(my $pubsha256file, ">", pid_dir/$hstpubsha256f);
+        print $pubsha256file sha256_base64(decode_base64($rsahostkey[1]));
+        close($pubsha256file);
+        if not -e pid_dir/$hstpubsha256f or not -s pid_dir/$hstpubsha256f:
+            log_msg("Failed writing sha256 hash of RSA host key")
+            exit 1;
+
+    # Convert paths for curl's tests running on Windows with Cygwin/Msys OpenSSH
+    if (sshd_id =~ /OpenSSH-Windows/):
+        # Ensure to use native Windows paths with OpenSSH for Windows
+        $clipubkeyf_config = pathhelp::sys_native_abs_path(pid_dir/$clipubkeyf);
+        $hstprvkeyf_config = pathhelp::sys_native_abs_path(pid_dir/$hstprvkeyf);
+        pid_file_config    = pathhelp::sys_native_abs_path(pid_file);
+        $sftpsrv_config    = pathhelp::sys_native_abs_path($sftpsrv);
+    elif pathhelp::os_is_win():
+        # Ensure to use MinGW/Cygwin paths
+        $clipubkeyf_config = pathhelp::build_sys_abs_path($clipubkeyf_config);
+        $hstprvkeyf_config = pathhelp::build_sys_abs_path($hstprvkeyf_config);
+        pid_file_config    = pathhelp::build_sys_abs_path($pid_file_config);
+        $sftpsrv_config    = "internal-sftp"
+    else:
+        $clipubkeyf_config = abs_path(pid_dir/$clipubkeyf);
+        $hstprvkeyf_config = abs_path(pid_dir/$hstprvkeyf);
+        pid_file_config    = pid_file
+        $sftpsrv_config    = $sftpsrv
+    my $sshdconfig_abs = pathhelp::sys_native_abs_path(pid_dir/sshhelp.sshdconfig)
+
+    # **************************************************************************
+    #  ssh daemon configuration file options we might use and version support
+    #
+    #  AFSTokenPassing                  : OpenSSH 1.2.1 and later [1]
+    #  AddressFamily                    : OpenSSH 4.0.0 and later
+    #  AllowTcpForwarding               : OpenSSH 2.3.0 and later
+    #  AllowUsers                       : OpenSSH 1.2.1 and later
+    #  AuthorizedKeysFile               : OpenSSH 2.9.9 and later
+    #  AuthorizedKeysFile2              : OpenSSH 2.9.9 and later
+    #  Banner                           : OpenSSH 2.5.0 and later
+    #  ChallengeResponseAuthentication  : OpenSSH 2.5.0 and later
+    #  Ciphers                          : OpenSSH 2.1.0 and later [3]
+    #  ClientAliveCountMax              : OpenSSH 2.9.0 and later
+    #  ClientAliveInterval              : OpenSSH 2.9.0 and later
+    #  Compression                      : OpenSSH 3.3.0 and later
+    #  DenyUsers                        : OpenSSH 1.2.1 and later
+    #  ForceCommand                     : OpenSSH 4.4.0 and later [3]
+    #  GatewayPorts                     : OpenSSH 2.1.0 and later
+    #  GSSAPIAuthentication             : OpenSSH 3.7.0 and later [1]
+    #  GSSAPICleanupCredentials         : OpenSSH 3.8.0 and later [1]
+    #  GSSAPIKeyExchange                :  SunSSH 1.0.0 and later [1]
+    #  GSSAPIStoreDelegatedCredentials  :  SunSSH 1.0.0 and later [1]
+    #  GSSCleanupCreds                  :  SunSSH 1.0.0 and later [1]
+    #  GSSUseSessionCredCache           :  SunSSH 1.0.0 and later [1]
+    #  HostbasedAuthentication          : OpenSSH 2.9.0 and later
+    #  HostbasedUsesNameFromPacketOnly  : OpenSSH 2.9.0 and later
+    #  HostKey                          : OpenSSH 1.2.1 and later
+    #  IgnoreRhosts                     : OpenSSH 1.2.1 and later
+    #  IgnoreUserKnownHosts             : OpenSSH 1.2.1 and later
+    #  KbdInteractiveAuthentication     : OpenSSH 2.3.0 and later
+    #  KeepAlive                        : OpenSSH 1.2.1 and later
+    #  KerberosAuthentication           : OpenSSH 1.2.1 and later [1]
+    #  KerberosGetAFSToken              : OpenSSH 3.8.0 and later [1]
+    #  KerberosOrLocalPasswd            : OpenSSH 1.2.1 and later [1]
+    #  KerberosTgtPassing               : OpenSSH 1.2.1 and later [1]
+    #  KerberosTicketCleanup            : OpenSSH 1.2.1 and later [1]
+    #  KeyRegenerationInterval          : OpenSSH 1.2.1 and later
+    #  ListenAddress                    : OpenSSH 1.2.1 and later
+    #  LoginGraceTime                   : OpenSSH 1.2.1 and later
+    #  LogLevel                         : OpenSSH 1.2.1 and later
+    #  LookupClientHostnames            :  SunSSH 1.0.0 and later
+    #  MACs                             : OpenSSH 2.5.0 and later [3]
+    #  Match                            : OpenSSH 4.4.0 and later [3]
+    #  MaxAuthTries                     : OpenSSH 3.9.0 and later
+    #  MaxStartups                      : OpenSSH 2.2.0 and later
+    #  PAMAuthenticationViaKbdInt       : OpenSSH 2.9.0 and later [2]
+    #  PasswordAuthentication           : OpenSSH 1.2.1 and later
+    #  PermitEmptyPasswords             : OpenSSH 1.2.1 and later
+    #  PermitOpen                       : OpenSSH 4.4.0 and later [3]
+    #  PermitRootLogin                  : OpenSSH 1.2.1 and later
+    #  PermitTunnel                     : OpenSSH 4.3.0 and later
+    #  PermitUserEnvironment            : OpenSSH 3.5.0 and later
+    #  PidFile                          : OpenSSH 2.1.0 and later
+    #  Port                             : OpenSSH 1.2.1 and later
+    #  PrintLastLog                     : OpenSSH 2.9.0 and later
+    #  PrintMotd                        : OpenSSH 1.2.1 and later
+    #  Protocol                         : OpenSSH 2.1.0 and later
+    #  PubkeyAuthentication             : OpenSSH 2.5.0 and later
+    #  RhostsAuthentication             : OpenSSH 1.2.1 and later
+    #  RhostsRSAAuthentication          : OpenSSH 1.2.1 and later
+    #  RSAAuthentication                : OpenSSH 1.2.1 and later
+    #  ServerKeyBits                    : OpenSSH 1.2.1 and later
+    #  SkeyAuthentication               : OpenSSH 1.2.1 and later [1]
+    #  StrictModes                      : OpenSSH 1.2.1 and later
+    #  Subsystem                        : OpenSSH 2.2.0 and later
+    #  SyslogFacility                   : OpenSSH 1.2.1 and later
+    #  TCPKeepAlive                     : OpenSSH 3.8.0 and later
+    #  UseDNS                           : OpenSSH 3.7.0 and later
+    #  UseLogin                         : OpenSSH 1.2.1 and later
+    #  UsePAM                           : OpenSSH 3.7.0 and later [1][2]
+    #  UsePrivilegeSeparation           : OpenSSH 3.2.2 and later
+    #  VerifyReverseMapping             : OpenSSH 3.1.0 and later
+    #  X11DisplayOffset                 : OpenSSH 1.2.1 and later [3]
+    #  X11Forwarding                    : OpenSSH 1.2.1 and later
+    #  X11UseLocalhost                  : OpenSSH 3.1.0 and later
+    #  XAuthLocation                    : OpenSSH 2.1.1 and later [3]
+    #
+    #  [1] Option only available if activated at compile time
+    #  [2] Option specific for portable versions
+    #  [3] Option not used in our ssh server config file
+    # **************************************************************************
+
+    # Initialize sshd config with options actually supported in OpenSSH 2.9.9
+    #
+    if $verbose: log_msg("generating ssh server config file...")
+    cfg_arr = []
+    cfg_arr.append("# This is a generated file.  Do not edit.")
+    cfg_arr.append(f"# {sshd_ver_str} sshd configuration file for curl testing")
+    cfg_arr.append("#")
+    # AllowUsers and DenyUsers options should use lowercase on Windows
+    # and do not support quotes around values for some unknown reason.
+    if (sshd_id =~ /OpenSSH-Windows/):
+        user_name_lcase = user_name.lower()
+        if (exists $ENV{USERDOMAIN}):
+            user_domain_lcase = $ENV{USERDOMAIN}.lower()
+            user_name_lcase = f"{user_domain_lcase}\\{user_name_lcase}"
+        user_name_lcase =~ s/ /\?/g; # replace space with ?
+        cfg_arr.append(f"DenyUsers !{user_name_lcase}")
+        cfg_arr.append(f"AllowUsers {user_name_lcase}")
+    else:
+        cfg_arr.append(f"DenyUsers !{user_name}")
+        cfg_arr.append(f"AllowUsers {user_name}")
+    cfg_arr.append(f"AuthorizedKeysFile $clipubkeyf_config")
+    cfg_arr.append(f"AuthorizedKeysFile2 $clipubkeyf_config")
+    cfg_arr.append(f"HostKey $hstprvkeyf_config")
+    if (sshd_id !~ /OpenSSH-Windows/):
+        cfg_arr.append(f"PidFile {pid_file_config}")
+        cfg_arr.append("#")
+    if (sshd_id =~ /OpenSSH/) and sshd_ver_num >= 880:
+        cfg_arr.append("HostKeyAlgorithms +ssh-rsa")
+        cfg_arr.append("PubkeyAcceptedKeyTypes +ssh-rsa")
+    cfg_arr.append("#")
+    cfg_arr.append(f"Port {port}")
+    cfg_arr.append(f"ListenAddress {listen_addr}")
+    cfg_arr.append("Protocol 2")
+    cfg_arr.append("#")
+    cfg_arr.append("AllowTcpForwarding yes")
+    cfg_arr.append("Banner none")
+    cfg_arr.append("ChallengeResponseAuthentication no")
+    cfg_arr.append("ClientAliveCountMax 3")
+    cfg_arr.append("ClientAliveInterval 0")
+    cfg_arr.append("GatewayPorts no")
+    cfg_arr.append("HostbasedAuthentication no")
+    cfg_arr.append("HostbasedUsesNameFromPacketOnly no")
+    cfg_arr.append("IgnoreRhosts yes")
+    cfg_arr.append("IgnoreUserKnownHosts yes")
+    cfg_arr.append("KeyRegenerationInterval 0")
+    cfg_arr.append("LoginGraceTime 30")
+    cfg_arr.append(f"LogLevel {log_level}")
+    cfg_arr.append("MaxStartups 5")
+    cfg_arr.append("PasswordAuthentication no")
+    cfg_arr.append("PermitEmptyPasswords no")
+    cfg_arr.append("PermitRootLogin no")
+    cfg_arr.append("PrintLastLog no")
+    cfg_arr.append("PrintMotd no")
+    cfg_arr.append("PubkeyAuthentication yes")
+    cfg_arr.append("RhostsRSAAuthentication no")
+    cfg_arr.append("RSAAuthentication no")
+    cfg_arr.append("ServerKeyBits 768")
+    cfg_arr.append("StrictModes no")
+    cfg_arr.append(f"Subsystem sftp \"{$sftpsrv_config}\"")
+    cfg_arr.append("SyslogFacility AUTH")
+    cfg_arr.append("UseLogin no")
+    cfg_arr.append("X11Forwarding no")
+    cfg_arr.append("#")
+
+    # Write out initial sshd configuration file for curl's tests
+    error = sshhelp.dump_array(pid_dir/sshhelp.sshdconfig, cfg_arr)
+    if error:
+        log_msg(f"{error}")
+        exit 1;
+
+    # Kerberos Authentication support may have not been built into sshd
+    if sshd_supports_opt("KerberosAuthentication", "no"):
+        cfg_arr.append("KerberosAuthentication no")
+    if sshd_supports_opt("KerberosGetAFSToken", "no"):
+        cfg_arr.append("KerberosGetAFSToken no")
+    if sshd_supports_opt("KerberosOrLocalPasswd", "no"):
+        cfg_arr.append("KerberosOrLocalPasswd no")
+    if sshd_supports_opt("KerberosTgtPassing", "no"):
+        cfg_arr.append("KerberosTgtPassing no")
+    if sshd_supports_opt("KerberosTicketCleanup", "yes"):
+        cfg_arr.append("KerberosTicketCleanup yes")
+    # Andrew File System support may have not been built into sshd
+    if sshd_supports_opt("AFSTokenPassing", "no"):
+        cfg_arr.append("AFSTokenPassing no")
+    # S/Key authentication support may have not been built into sshd
+    if sshd_supports_opt("SkeyAuthentication", "no"):
+        cfg_arr.append("SkeyAuthentication no")
+    # GSSAPI Authentication support may have not been built into sshd
+    sshd_builtwith_GSSAPI = False
+    if sshd_supports_opt("GSSAPIAuthentication", "no"):
+        cfg_arr.append("GSSAPIAuthentication no")
+        sshd_builtwith_GSSAPI = True
+    if sshd_supports_opt("GSSAPICleanupCredentials", "yes"):
+        cfg_arr.append("GSSAPICleanupCredentials yes")
+    if sshd_supports_opt("GSSAPIKeyExchange", "no"):
+        cfg_arr.append("GSSAPIKeyExchange no")
+    if sshd_supports_opt("GSSAPIStoreDelegatedCredentials", "no"):
+        cfg_arr.append("GSSAPIStoreDelegatedCredentials no")
+    if sshd_supports_opt("GSSCleanupCreds", "yes"):
+        cfg_arr.append("GSSCleanupCreds yes")
+    if sshd_supports_opt("GSSUseSessionCredCache", "no"):
+        cfg_arr.append("GSSUseSessionCredCache no")
+    cfg_arr.append("#")
+
+    # Options that might be supported or not in sshd OpenSSH 2.9.9 and later
+    if sshd_supports_opt("AddressFamily", "any"):
+        # Address family must be specified before ListenAddress
+        splice @cfgarr, 11, 0, "AddressFamily any";
+    if sshd_supports_opt("Compression", "no"):
+        cfg_arr.append("Compression no")
+    if sshd_supports_opt("KbdInteractiveAuthentication", "no"):
+        cfg_arr.append("KbdInteractiveAuthentication no")
+    if sshd_supports_opt("KeepAlive", "no"):
+        cfg_arr.append("KeepAlive no")
+    if sshd_supports_opt("LookupClientHostnames", "no"):
+        cfg_arr.append("LookupClientHostnames no")
+    if sshd_supports_opt("MaxAuthTries", "10"):
+        cfg_arr.append("MaxAuthTries 10")
+    if sshd_supports_opt("PAMAuthenticationViaKbdInt", "no"):
+        cfg_arr.append("PAMAuthenticationViaKbdInt no")
+    if sshd_supports_opt("PermitTunnel", "no"):
+        cfg_arr.append("PermitTunnel no")
+    if sshd_supports_opt("PermitUserEnvironment", "no"):
+        cfg_arr.append("PermitUserEnvironment no")
+    if sshd_supports_opt("RhostsAuthentication", "no"):
+        cfg_arr.append("RhostsAuthentication no")
+    if sshd_supports_opt("TCPKeepAlive", "no"):
+        cfg_arr.append("TCPKeepAlive no")
+    if sshd_supports_opt("UseDNS", "no"):
+        cfg_arr.append("UseDNS no")
+    if sshd_supports_opt("UsePAM", "no"):
+        cfg_arr.append("UsePAM no")
+    if (sshd_id =~ /OpenSSH/):
+        # http://bugs.opensolaris.org/bugdatabase/view_bug.do?bug_id=6492415
+        if sshd_supports_opt("UsePrivilegeSeparation", "no"):
+            cfg_arr.append("UsePrivilegeSeparation no")
+    if sshd_supports_opt("VerifyReverseMapping", "no"):
+        cfg_arr.append("VerifyReverseMapping no")
+    if sshd_supports_opt("X11UseLocalhost", "yes"):
+        cfg_arr.append("X11UseLocalhost yes")
+    cfg_arr.append("#")
+
+    # Write out resulting sshd configuration file for curl's tests
+    error = sshhelp.dump_array(pid_dir/sshhelp.sshdconfig, cfg_arr)
+    if error:
+        log_msg(f"{error}")
+        exit 1;
+    cfg_arr = []
+
+    # **************************************************************************
+    # Verify that sshd actually supports our generated configuration file
+    #
+    if(system f"\"$sshd\" -t -f {$sshdconfig_abs} > {sshhelp.sshdlog} 2>&1") {
+        log_msg(f"sshd configuration file {sshhelp.sshdconfig} failed verification")
+        sshhelp.display_sshdlog()
+        sshhelp.display_sshdconfig()
+        exit 1;
+    }
+
+    # **************************************************************************
+    # Generate ssh client host key database file for curl's tests
+    #
+    if (not -e pid_dir/sshhelp.knownhosts) or (not -s pid_dir/sshhelp.knownhosts):
+        if $verbose: log_msg("generating ssh client known hosts file...")
+        (pid_dir/sshhelp.knownhosts).unlink()
+        if (open(my $rsakeyfile, "<", pid_dir/$hstpubkeyf)):
+            my @rsahostkey = do { local $/ = ' '; <$rsakeyfile> };
+            if close($rsakeyfile):
+                if (open(my $knownhostsh, ">", pid_dir/sshhelp.knownhosts)):
+                    print $knownhostsh f"{listen_addr} ssh-rsa $rsahostkey[1]\n";
+                    if not close($knownhostsh):
+                        $error = f"Error: cannot close file {sshhelp.knownhosts}"
+                else:
+                    $error = f"Error: cannot write file {sshhelp.knownhosts}"
+            else:
+                $error = f"Error: cannot close file {$hstpubkeyf}"
+        else:
+            $error = f"Error: cannot read file {$hstpubkeyf}"
+        if error:
+            log_msg(f"{error}")
+            exit 1;
+
+    # Convert paths for curl's tests running on Windows using Cygwin OpenSSH
+    #
+    if sshd_id =~ /OpenSSH-Windows/:
+        # Ensure to use native Windows paths with OpenSSH for Windows
+        $identity_config   = pathhelp::sys_native_abs_path(pid_dir/$identity)
+        $knownhosts_config = pathhelp::sys_native_abs_path(pid_dir/sshhelp.knownhosts)
+    elif pathhelp::os_is_win():
+        # Ensure to use MinGW/Cygwin paths
+        $identity_config   = pathhelp::build_sys_abs_path(pid_dir/$identity)
+        $knownhosts_config = pathhelp::build_sys_abs_path(pid_dir/sshhelp.knownhosts)
+    else:
+        $identity_config   = abs_path(pid_dir/$identity)
+        $knownhosts_config = abs_path(pid_dir/sshhelp.knownhosts)
+
+    # **************************************************************************
+    #  ssh client configuration file options we might use and version support
+    #
+    #  AddressFamily                     : OpenSSH 3.7.0 and later
+    #  BatchMode                         : OpenSSH 1.2.1 and later
+    #  BindAddress                       : OpenSSH 2.9.9 and later
+    #  ChallengeResponseAuthentication   : OpenSSH 2.5.0 and later
+    #  CheckHostIP                       : OpenSSH 1.2.1 and later
+    #  Cipher                            : OpenSSH 1.2.1 and later [3]
+    #  Ciphers                           : OpenSSH 2.1.0 and later [3]
+    #  ClearAllForwardings               : OpenSSH 2.9.9 and later
+    #  Compression                       : OpenSSH 1.2.1 and later
+    #  CompressionLevel                  : OpenSSH 1.2.1 and later [3]
+    #  ConnectionAttempts                : OpenSSH 1.2.1 and later
+    #  ConnectTimeout                    : OpenSSH 3.7.0 and later
+    #  ControlMaster                     : OpenSSH 3.9.0 and later
+    #  ControlPath                       : OpenSSH 3.9.0 and later
+    #  DisableBanner                     :  SunSSH 1.2.0 and later
+    #  DynamicForward                    : OpenSSH 2.9.0 and later
+    #  EnableSSHKeysign                  : OpenSSH 3.6.0 and later
+    #  EscapeChar                        : OpenSSH 1.2.1 and later [3]
+    #  ExitOnForwardFailure              : OpenSSH 4.4.0 and later
+    #  ForwardAgent                      : OpenSSH 1.2.1 and later
+    #  ForwardX11                        : OpenSSH 1.2.1 and later
+    #  ForwardX11Trusted                 : OpenSSH 3.8.0 and later
+    #  GatewayPorts                      : OpenSSH 1.2.1 and later
+    #  GlobalKnownHostsFile              : OpenSSH 1.2.1 and later
+    #  GSSAPIAuthentication              : OpenSSH 3.7.0 and later [1]
+    #  GSSAPIDelegateCredentials         : OpenSSH 3.7.0 and later [1]
+    #  HashKnownHosts                    : OpenSSH 4.0.0 and later
+    #  Host                              : OpenSSH 1.2.1 and later
+    #  HostbasedAuthentication           : OpenSSH 2.9.0 and later
+    #  HostKeyAlgorithms                 : OpenSSH 2.9.0 and later [3]
+    #  HostKeyAlias                      : OpenSSH 2.5.0 and later [3]
+    #  HostName                          : OpenSSH 1.2.1 and later
+    #  IdentitiesOnly                    : OpenSSH 3.9.0 and later
+    #  IdentityFile                      : OpenSSH 1.2.1 and later
+    #  IgnoreIfUnknown                   :  SunSSH 1.2.0 and later
+    #  KeepAlive                         : OpenSSH 1.2.1 and later
+    #  KbdInteractiveAuthentication      : OpenSSH 2.3.0 and later
+    #  KbdInteractiveDevices             : OpenSSH 2.3.0 and later [3]
+    #  LocalCommand                      : OpenSSH 4.3.0 and later [3]
+    #  LocalForward                      : OpenSSH 1.2.1 and later [3]
+    #  LogLevel                          : OpenSSH 1.2.1 and later
+    #  MACs                              : OpenSSH 2.5.0 and later [3]
+    #  NoHostAuthenticationForLocalhost  : OpenSSH 3.0.0 and later
+    #  NumberOfPasswordPrompts           : OpenSSH 1.2.1 and later
+    #  PasswordAuthentication            : OpenSSH 1.2.1 and later
+    #  PermitLocalCommand                : OpenSSH 4.3.0 and later
+    #  Port                              : OpenSSH 1.2.1 and later
+    #  PreferredAuthentications          : OpenSSH 2.5.2 and later
+    #  Protocol                          : OpenSSH 2.1.0 and later
+    #  ProxyCommand                      : OpenSSH 1.2.1 and later [3]
+    #  PubkeyAuthentication              : OpenSSH 2.5.0 and later
+    #  RekeyLimit                        : OpenSSH 3.7.0 and later
+    #  RemoteForward                     : OpenSSH 1.2.1 and later [3]
+    #  RhostsRSAAuthentication           : OpenSSH 1.2.1 and later
+    #  RSAAuthentication                 : OpenSSH 1.2.1 and later
+    #  ServerAliveCountMax               : OpenSSH 3.8.0 and later
+    #  ServerAliveInterval               : OpenSSH 3.8.0 and later
+    #  SmartcardDevice                   : OpenSSH 2.9.9 and later [1][3]
+    #  StrictHostKeyChecking             : OpenSSH 1.2.1 and later
+    #  TCPKeepAlive                      : OpenSSH 3.8.0 and later
+    #  Tunnel                            : OpenSSH 4.3.0 and later
+    #  TunnelDevice                      : OpenSSH 4.3.0 and later [3]
+    #  UsePAM                            : OpenSSH 3.7.0 and later [1][2][3]
+    #  UsePrivilegedPort                 : OpenSSH 1.2.1 and later
+    #  User                              : OpenSSH 1.2.1 and later
+    #  UserKnownHostsFile                : OpenSSH 1.2.1 and later
+    #  VerifyHostKeyDNS                  : OpenSSH 3.8.0 and later
+    #  XAuthLocation                     : OpenSSH 2.1.1 and later [3]
+    #
+    #  [1] Option only available if activated at compile time
+    #  [2] Option specific for portable versions
+    #  [3] Option not used in our ssh client config file
+    # **************************************************************************
+
+    # Initialize ssh config with options actually supported in OpenSSH 2.9.9
+    #
+    if $verbose: log_msg("generating ssh client config file...")
+    cfg_arr = []
+    cfg_arr.append("# This is a generated file.  Do not edit.")
+    cfg_arr.append(f"# {ssh_ver_str} ssh client configuration file for curl testing")
+    cfg_arr.append("#")
+    cfg_arr.append("Host *")
+    cfg_arr.append("#")
+    cfg_arr.append(f"Port {port}")
+    cfg_arr.append(f"HostName {listen_addr}")
+    cfg_arr.append(f"User {user_name}")
+    cfg_arr.append("Protocol 2")
+    cfg_arr.append("#")
+    # BindAddress option is not supported by OpenSSH for Windows
+    if not (sshd_id =~ /OpenSSH-Windows/):
+        cfg_arr.append(f"BindAddress {listen_addr}")
+    cfg_arr.append("#")
+    cfg_arr.append(f"IdentityFile {$identity_config}")
+    cfg_arr.append(f"UserKnownHostsFile {$knownhosts_config}")
+    cfg_arr.append("#")
+    cfg_arr.append("BatchMode yes")
+    cfg_arr.append("ChallengeResponseAuthentication no")
+    cfg_arr.append("CheckHostIP no")
+    cfg_arr.append("ClearAllForwardings no")
+    cfg_arr.append("Compression no")
+    cfg_arr.append("ConnectionAttempts 3")
+    cfg_arr.append("ForwardAgent no")
+    cfg_arr.append("ForwardX11 no")
+    cfg_arr.append("GatewayPorts no")
+    cfg_arr.append("GlobalKnownHostsFile /dev/null")
+    cfg_arr.append("HostbasedAuthentication no")
+    cfg_arr.append("KbdInteractiveAuthentication no")
+    cfg_arr.append(f"LogLevel {log_level}")
+    cfg_arr.append("NumberOfPasswordPrompts 0")
+    cfg_arr.append("PasswordAuthentication no")
+    cfg_arr.append("PreferredAuthentications publickey")
+    cfg_arr.append("PubkeyAuthentication yes")
+    # RSA authentication options are not supported by OpenSSH for Windows
+    if not (sshd_id =~ /OpenSSH-Windows/):
+        cfg_arr.append("RhostsRSAAuthentication no")
+        cfg_arr.append("RSAAuthentication no")
+    # Disabled StrictHostKeyChecking since it makes the tests fail on my
+    # OpenSSH_6.0p1 on Debian Linux / Daniel
+    cfg_arr.append("StrictHostKeyChecking no")
+    cfg_arr.append("UsePrivilegedPort no")
+    cfg_arr.append("#")
+    # Options supported in ssh client newer than OpenSSH 2.9.9
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 370:
+        cfg_arr.append("AddressFamily any")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num >= 370) ||
+        ((ssh_id =~ /SunSSH/)  and ssh_ver_num >= 120)):
+        cfg_arr.append("ConnectTimeout 30")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 390:
+        cfg_arr.append("ControlMaster no")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 420:
+        cfg_arr.append("ControlPath none")
+    if (ssh_id =~ /SunSSH/) and ssh_ver_num >= 120:
+        cfg_arr.append("DisableBanner yes")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 360:
+        cfg_arr.append("EnableSSHKeysign no")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 440:
+        cfg_arr.append("ExitOnForwardFailure yes")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num >= 380) ||
+        ((ssh_id =~ /SunSSH/)  and ssh_ver_num >= 120)):
+        cfg_arr.append("ForwardX11Trusted no")
+    if (sshd_builtwith_GSSAPI and sshd_id == ssh_id &&
+        sshd_ver_num == ssh_ver_num):
+        cfg_arr.append("GSSAPIAuthentication no")
+        cfg_arr.append("GSSAPIDelegateCredentials no")
+        if (ssh_id =~ /SunSSH/):
+            cfg_arr.append("GSSAPIKeyExchange no")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num >= 400) ||
+        ((ssh_id =~ /SunSSH/)  and ssh_ver_num >= 120)):
+        cfg_arr.append("HashKnownHosts no")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 390:
+        cfg_arr.append("IdentitiesOnly yes")
+    if (ssh_id =~ /SunSSH/) and ssh_ver_num >= 120:
+        cfg_arr.append("IgnoreIfUnknown no")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num < 380) ||
+        (ssh_id =~ /SunSSH/)):
+        cfg_arr.append("KeepAlive no")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num >= 300) ||
+         (ssh_id =~ /SunSSH/)):
+        cfg_arr.append("NoHostAuthenticationForLocalhost no")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 430:
+        cfg_arr.append("PermitLocalCommand no")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num >= 370) ||
+        ((ssh_id =~ /SunSSH/)  and ssh_ver_num >= 120)):
+        cfg_arr.append("RekeyLimit 1G")
+    if (((ssh_id =~ /OpenSSH/) and ssh_ver_num >= 380) ||
+        ((ssh_id =~ /SunSSH/)  and ssh_ver_num >= 120)):
+        cfg_arr.append("ServerAliveCountMax 3")
+        cfg_arr.append("ServerAliveInterval 0")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 380:
+        cfg_arr.append("TCPKeepAlive no")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 430:
+        cfg_arr.append("Tunnel no")
+    if (ssh_id =~ /OpenSSH/) and ssh_ver_num >= 380:
+        cfg_arr.append("VerifyHostKeyDNS no")
+    cfg_arr.append("#")
+
+    # Write out resulting ssh client configuration file for curl's tests
+    error = sshhelp.dump_array(pid_dir/sshhelp.sshconfig, cfg_arr)
+    if error:
+        log_msg(f"{error}")
+        exit 1;
+
+    # **************************************************************************
+    # Initialize client sftp config with options actually supported.
+    #
+    if $verbose: log_msg("generating sftp client config file...")
+    splice @cfgarr, 1, 1, f"# {ssh_ver_str} sftp client configuration file for curl testing";
+    #
+    for (my $i = len(cfg_arr) - 1; $i > 0; $i--):
+        if ($cfgarr[$i] =~ /^DynamicForward/):
+            splice @cfgarr, $i, 1;
+            continue
+        if ($cfgarr[$i] =~ /^ClearAllForwardings/):
+            splice @cfgarr, $i, 1, "ClearAllForwardings yes";
+            continue
+
+    # Write out resulting sftp client configuration file for curl's tests
+    error = sshhelp.dump_array(pid_dir/sshhelp.sftpconfig, cfg_arr)
+    if error:
+        log_msg(f"{error}")
+        exit 1;
+    cfg_arr = []
+
+    # **************************************************************************
+    # Generate client sftp commands batch file for sftp server verification
+    #
+    if $verbose: log_msg("generating sftp client commands file...")
+    cfg_arr = []
+    cfg_arr.append("pwd")
+    cfg_arr.append("quit")
+
+    error = sshhelp.dump_array(pid_dir/sshhelp.sftpcmds, cfg_arr)
+    if error:
+        log_msg(f"{error}")
+        exit 1;
+    cfg_arr = []
+
+    # **************************************************************************
+    # Prepare command line of ssh server daemon
+    #
+    cmd = f"\"$sshd\" -e -D -f {$sshdconfig_abs} > {sshhelp.sshdlog} 2>&1"
+    if $verbose: log_msg(f"SCP/SFTP server listening on port {port}")
+    if $verbose: log_msg(f"RUN: {cmd}")
+
+    # **************************************************************************
+    # Start the ssh server daemon on Windows without forking it
+    #
+    if (sshd_id =~ /OpenSSH-Windows/):
+        # Fake pidfile for ssh server on Windows.
+        if (pid_file = open(my $out, ">", )):
+            print $out $$ . "\n";
+            close($out);
+
+        # Flush output.
+        sys.stdout.reconfigure(line_buffering=False)
+        sys.stderr.reconfigure(line_buffering=False)
+
+        # Put an "exec" in front of the command so that the child process
+        # keeps this child's process ID by being tied to the spawned shell.
+        try:
+            exec(f"exec {cmd}")
+        except Exception as exc:
+            die(f"Can't exec() {cmd}: {exc.errno}!")
+        # exec() will create a new process, but ties the existence of the
+        # new process to the parent waiting perl.exe and sh.exe processes.
+
+        # exec() should never return back here to this process. We protect
+        # ourselves by calling die() just in case something goes really bad.
+        die("error: exec() has returned")
+
+    # **************************************************************************
+    # Start the ssh server daemon without forking it
+    #
+    # "exec" avoids the shell process sticking around
+    rc = os.system(f"exec {cmd}")
+    if rc == -1:
+        log_msg(f"\"{sshd}\" failed with: $!")
+    elif rc & 127:
+        log_msg(f"\"{sshd}\" died with signal %d, and %s coredump" %
+                (rc & 127, "a" if rc & 128 else "no"))
+    elif $verbose and (rc >> 8):
+        log_msg(f"\"{sshd}\" exited with %d" % (rc >> 8))
+
+    # Clean up once the server has stopped
+    for fpath in (pid_dir/$hstprvkeyf, pid_dir/$hstpubkeyf, pid_dir/$hstpubmd5f, pid_dir/$hstpubsha256f,
+                  pid_dir/$cliprvkeyf, pid_dir/$clipubkeyf, pid_dir/sshhelp.knownhosts,
+                  pid_dir/sshhelp.sshdconfig, pid_dir/sshhelp.sshconfig, pid_dir/sshhelp.sftpconfig)
+        fpath.unlink()
+
+    exit 0;
+
+
+if __name__ == "__main__":
+    sys.exit(main())

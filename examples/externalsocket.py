@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,31 +20,26 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-An example demonstrating how an application can pass in a custom
-socket to libcurl to use. This example also handles the connect itself.
+Pass in a custom socket for libcurl to use.
 """
 
 import sys
-import socket
 import ctypes as ct
+import socket
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
+if is_windows:
+    if not defined("_WINSOCK_DEPRECATED_NO_WARNINGS"):
+        _WINSOCK_DEPRECATED_NO_WARNINGS = 1  # for inet_addr()
 
 # The IP address and port number to connect to
 IPADDR  = "127.0.0.1"
 PORTNUM = 80
-
-
-@lcurl.sockopt_callback
-def sockopt_function(clientp, curlfd, purpose):
-    sock = lcurl.from_oid(clientp)
-    # This return code was added in libcurl 7.21.5
-    return lcurl.CURL_SOCKOPT_ALREADY_CONNECTED
 
 
 @lcurl.opensocket_callback
@@ -62,15 +57,11 @@ def close_socket(clientp, item):
     return 0
 
 
-@lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    sock = lcurl.from_oid(stream)
-    buffer_size = size * nitems
-    if buffer_size == 0: return 0
-    bwritten = bytes(buffer[:buffer_size])
-    nwritten = len(bwritten)
-    sock.sendall(bwritten)
-    return nwritten
+@lcurl.sockopt_callback
+def sockopt_function(clientp, curlfd, purpose):
+    sock = lcurl.from_oid(clientp)
+    # This return code was added in libcurl 7.21.5
+    return lcurl.CURL_SOCKOPT_ALREADY_CONNECTED
 
 
 def main(argv=sys.argv[1:]):
@@ -86,9 +77,8 @@ def main(argv=sys.argv[1:]):
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with sock, curl_guard(False, curl):
-        if not curl:
-            return 1
+    with sock, curl_guard(False, curl) as guard:
+        if not curl: return 1
 
         try:
             sock.connect((IPADDR, PORTNUM))
@@ -96,15 +86,15 @@ def main(argv=sys.argv[1:]):
             print("client error: connect: %s" % exc)
             return 1
 
-        # Note that libcurl will internally think that you connect to the host
-        # and port that you specify in the URL option.
+        # Note that libcurl internally thinks that you connect to the host and
+        # port that you specify in the URL option.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         # no progress meter please
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 1)
-        # send all data to this function 
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
+        # send all data to this function
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, lcurl.write_to_socket)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, id(sock))
         # call this function to get a socket
         lcurl.easy_setopt(curl, lcurl.CURLOPT_OPENSOCKETFUNCTION, open_socket)
@@ -125,7 +115,7 @@ def main(argv=sys.argv[1:]):
             print("libcurl error: %d" % res)
             return 4
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

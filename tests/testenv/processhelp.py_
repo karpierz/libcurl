@@ -1,0 +1,290 @@
+#***************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+###########################################################################
+
+from datetime import datetime
+
+import serverhelp
+use pathhelp qw( os_is_win );
+
+__all__ = ('portable_sleep',
+           'pid_from_file', 'pid_exists', 'pid_wait', 'process_exists',
+           'kill_pid', 'kill_sockfilters', 'kill_all_sockfilters',
+           'set_advisor_read_lock', 'clear_advisor_read_lock')
+
+
+def portable_sleep(seconds):
+    # 'portable_sleep' uses Time::HiRes::sleep if available and falls back
+    # to the classic approach of using select(undef, undef, undef, ...).
+    # even though that one is not portable due to being implemented using
+    # select on Windows: https://perldoc.perl.org/perlport.html#select
+    # Therefore it uses Win32::Sleep on Windows systems instead.
+    if datetime.resolution.microseconds:
+        Time::HiRes::sleep(seconds)
+    elif os_is_win():
+        Win32::Sleep(seconds * 1000)
+    else:
+        select(undef, undef, undef, seconds)
+
+
+def pid_from_file($pid_file: Path) -> int:
+    # 'pid_from_file' returns the pid stored in the given 'pid_file'. The value
+    # of the returned pid will never be a negative value. It will be zero
+    # on any file related error or if a pid can not be extracted from the
+    # given file.
+    pid = 0
+    if (-f $pid_file && -s $pid_file && open(my $pid_fh, "<", "$pid_file")):
+        with $pid_fh:
+            pid = int(<$pid_fh>)
+        if pid < 0: pid = 0
+    return pid
+
+
+def pid_exists(pid: int):
+    # pid_exists() checks if a process with a given pid exists and is alive.
+    # This will return the positive pid if the process exists and is alive.
+    # This will return the negative pid if the process exists differently.
+    # This will return 0 if the process could not be found.
+    if pid > 0:
+        # verify if currently existing Windows process
+        if pid > 65536 and os_is_win():
+            pid -= 65536
+            if $^O != 'MSWin32':
+                my $filter = f"PID == {pid}"
+                my $result = `tasklist -fi \"$filter\" 2>nul`;
+                if index($result, f"{pid}") != -1:
+                    return -pid
+                return 0
+        # verify if currently existing and alive
+        if kill(0, pid):
+            return pid
+    return 0
+
+
+def pidterm(pid: int):
+    # pidterm asks the process with a given pid to terminate gracefully.
+    if pid > 0:
+        # request the process to quit
+        if pid > 65536 and os_is_win():
+            pid -= 65536
+            if $^O != 'MSWin32':
+                my $filter = f"PID == {pid}";
+                my $result = `tasklist -fi \"$filter\" 2>nul`;
+                if index($result, f"{pid}") != -1:
+                    system(f"taskkill -fi \"{$filter}\" >nul 2>&1")
+                return;
+        # signal the process to terminate
+        kill("TERM", pid)
+
+
+def pid_kill(pid):
+    # 'pid_kill' kills the process with a given pid mercilessly and forcefully.
+    if pid > 0:
+        # request the process to quit
+        if pid > 65536 and os_is_win():
+            pid -= 65536
+            if $^O != 'MSWin32':
+                my $filter = f"PID == {pid}";
+                my $result = `tasklist -fi \"$filter\" 2>nul`;
+                if index($result, f"pid") != -1:
+                    system("taskkill -f -fi \"$filter\" >nul 2>&1");
+                    # Windows XP Home compatibility
+                    system(f"tskill {pid} >nul 2>&1");
+                return;
+        # signal the process to terminate
+        kill("KILL", pid)
+
+
+def pid_wait(pid, flags):
+    """
+    'pid_wait' waits for the process with a given pid to be terminated.
+    check if the process exists
+    """
+    if pid > 65536 and os_is_win():
+        if flags == &WNOHANG:
+            return 0 if pid_exists(pid) else pid
+        while pid_exists(pid):
+            portable_sleep(0.01)
+        return pid
+    # wait on the process to terminate
+    return waitpid(pid, flags)
+
+
+def process_exists(pid_file: Path):
+    # 'process_exists' checks if a process with the pid stored in the given
+    # pidfile exists and is alive. This will return 0 on any file related
+    # error or if a pid can not be extracted from the given file. When a
+    # process with the same pid as the one extracted from the given file
+    # is currently alive this returns that positive pid. Otherwise, when
+    # the process is not alive, will return the negative value of the pid.
+    use POSIX ":sys_wait_h";
+    # fetch pid from pidfile
+    pid: int = pid_from_file(pid_file)
+    if pid > 0:
+        # verify if currently alive
+        if pid_exists(pid):
+            return pid
+        else:
+            # get rid of the certainly invalid pidfile
+            if pid == pid_from_file(pid_file):
+                pid_file.unlink()
+            # reap its dead children, if not done yet
+            pid_wait(pid, &WNOHANG)
+            # negative return value means dead process
+            return -pid
+    return 0
+
+
+def kill_pid($verbose, pid_list: str):
+    # 'kill_pid' attempts to gracefully stop processes in the given pid list
+    # with a SIGTERM signal and SIGKILLs those which haven't died on time.
+    use POSIX ":sys_wait_h";
+
+    # The 'pid_list' argument is a string of whitespace separated pids.
+    if not defined(pid_list):
+        return
+
+     # Make 'requested' hold the non-duplicate pids from 'pid_list'.
+    requested = pid_list.split(' ')
+    if not requested:
+        return
+
+    if len(requested) > 2:
+        requested = sort({$a <=> $b} requested);
+
+    for(my $i = len(requested) - 2; $i >= 0; $i--) {
+        if($requested[$i] == $requested[$i+1]) {
+            splice requested, $i+1, 1;
+        }
+    }
+
+    # Send a SIGTERM to processes which are alive to gracefully stop them.
+    signalled = []
+    reapchild = []
+    for $tmp in requested:
+        chomp $tmp;
+        if $tmp =~ /^(\d+)$/:
+            pid = $1
+            if pid > 0:
+                if pid_exists(pid):
+                    if $verbose: print(f"RUN: Process with pid {pid} signalled to die")
+                    pidterm(pid)
+                    signalled.append(pid)
+                else:
+                    if $verbose: print(f"RUN: Process with pid {pid} already dead")
+                    # if possible reap its dead children
+                    pid_wait(pid, &WNOHANG);
+                    reapchild.append(pid)
+
+    # Allow all signalled processes five seconds to gracefully die.
+    if signalled:
+        my $twentieths = 5 * 20;
+        while($twentieths--) {
+            for(my $i = len(signalled) - 1; $i >= 0; $i--):
+                pid = $signalled[$i];
+                if not pid_exists(pid):
+                    if $verbose: print(f"RUN: Process with pid {pid} gracefully died")
+                    splice signalled, $i, 1;
+                    # if possible reap its dead children
+                    pid_wait(pid, &WNOHANG)
+                    reapchild.append(pid)
+            if not signalled:
+                break
+            portable_sleep(0.05)
+        }
+
+    # Mercilessly SIGKILL processes still alive.
+    for pid in signalled:
+        if pid > 0:
+            if $verbose:
+                print(f"RUN: Process with pid {pid} forced to die with SIGKILL")
+            pid_kill(pid)
+            # if possible reap its dead children
+            pid_wait(pid, &WNOHANG)
+            reapchild.append(pid)
+
+    # Reap processes dead children for sure.
+    for pid in reapchild:
+        if pid > 0:
+            pid_wait(pid, 0)
+
+
+def kill_sockfilters(pid_dir: Path, proto, ip_vnum, id_num, verbose: bool = False, which: str = None):
+    """kill_sockfilters kills sockfilter processes for a given server."""
+
+    if proto !~ /^(ftp|imap|pop3|smtp)$/:
+        return
+
+    if which and (which !~ /^(main|data)$/):
+        die(f"unsupported sockfilter: {which}")
+
+    if verbose:
+        server = serverhelp.server_name_id(proto, ip_vnum, id_num)
+
+    if not which or which == "main":
+        pid_file = serverhelp.mainsockf_pid_filepath(pid_dir, proto, ip_vnum, id_num)
+        pid = process_exists(pid_file)
+        if pid > 0:
+            if verbose:
+                print("* kill pid for %s-%s => %d" %
+                      (server, "ctrl" if proto == "ftp" else "filt", pid))
+            pid_kill(pid)
+            pid_wait(pid, 0)
+        if pid_file.is_file(): pid_file.unlink()
+
+    if proto != "ftp":
+        return
+
+    if not which or which == "data":
+        pid_file = serverhelp.datasockf_pid_filepath(pid_dir, proto, ip_vnum, id_num)
+        pid = process_exists(pid_file)
+        if pid > 0:
+            if verbose:
+                print("* kill pid for %s-data => %d" % (server, pid))
+            pid_kill(pid)
+            pid_wait(pid, 0)
+        if pid_file.is_file(): pid_file.unlink()
+
+
+# OK
+def kill_all_sockfilters(pid_dir: Path, verbose: bool = False):
+    """kill_all_sockfilters kills sockfilter processes for all servers."""
+    for proto in ("ftp", "imap", "pop3", "smtp"):
+        for ip_vnum in ("4", "6"):
+            for id_num in ("1", "2"):
+                kill_sockfilters(pid_dir, proto, ip_vnum, id_num, verbose)
+
+
+# OK
+def set_advisor_read_lock(fpath: Path):
+    try:
+        with fpath.open("wb"):
+            pass
+    except Exception as exc:
+        print(f"Error creating lock file {fpath} error: {exc.errno}!")
+
+
+# OK
+def clear_advisor_read_lock(fpath: Path) -> bool:
+    if fpath.is_file():
+        fpath.unlink()

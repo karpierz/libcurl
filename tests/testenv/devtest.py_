@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Fandrich, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+###########################################################################
+
+# This script is intended for developers to test some internals of the
+# runtests.pl harness. Don't try to use this unless you know what you're
+# doing!
+
+# An example command-line that starts a test http server for test 11 and waits
+# for the user before stopping it:
+#   ./devtest.pl --verbose serverfortest https echo "Started https" protoport https preprocess 11 pause echo Stopping stopservers echo Done
+# curl can connect to the server while it's running like this:
+#   curl -vkL https://localhost:<protoport>/11
+
+import sys
+import os
+import pathlib
+import time
+
+from .. import globalconfig as config
+from .  import getpart, runner, servers, testutil
+
+# Define srcdir to the location of the tests source directory. This is
+# usually set by the Makefile, but for out-of-tree builds with direct
+# invocation of runtests.pl, it may not be set.
+if "srcdir" not in os.environ:
+    os.environ["srcdir"] = str(pathlib.Path(__file__).resolve().parent)
+@INC.append(os.environ["srcdir"])
+
+uname_release = `uname -r`
+is_wsl: bool = (uname_release =~ /Microsoft$/)
+
+
+def log_msg(*args):
+    """'log_msg' is our general message logging subroutine."""
+    # This function is currently required to be here by servers.pm
+    # This is copied from runtests.pl
+    for line in args:
+        if is_wsl:
+            # use \r\n for WSL shell
+            $line =~ s/\r?\n$/\r\n/g;
+        print(f"{line}", end="")
+
+
+def init_protocols():
+    """Initialize config.protocols from the curl binary under test"""
+    for line in (`$CURL -V 2>${os.devnull}`):
+        if m/^Protocols: (.*)$/:
+            config.protocols = testutil.parse_protocols(line)
+
+
+# OK
+def init_tests():
+    """Initialize the test harness to run tests"""
+    global log_msg
+    testutil.set_log_func(log_msg)
+    init_protocols()
+    servers.initserverconfig()
+
+
+# OK
+def main(argv=sys.argv[1:]):
+    """Main test loop"""
+
+    init_tests()
+
+    # Parse command-line options and commands
+    idx = 0
+    while argv[idx:]:
+        arg  = argv[idx]
+        arg1 = argv[idx + 1] if argv[idx + 1:] else None
+
+        if arg == "-h":
+            print("""\
+            Usage: devtest.pl [--verbose] [command [arg]...]
+            command is one of:
+              echo X
+              pause
+              preprocess
+              protocols *|X[,Y...]
+              protoport X
+              serverfortest X[,Y...]
+              stopservers
+              sleep N
+            """)
+            return 0
+
+        elif arg == "--verbose":
+
+            config.verbose = True
+
+        elif arg == "sleep":
+
+            idx += 1
+            time.sleep(arg1)
+
+        elif arg == "echo":
+
+            idx += 1
+            print(arg1)
+
+        elif arg == "pause":
+
+            input("Press Enter to continue: ")
+
+        elif arg == "protocols":
+
+            idx += 1
+            if arg1 == "*":
+                init_protocols()
+            else:
+                config.protocols = arg1.split(",")
+            print(f"Set {len(config.protocols)} protocols")
+
+        elif arg == "preprocess":
+
+            idx += 1
+            getpart.load_test(config.TESTDIR/f"test{arg}")
+            runner.readtestkeywords()
+            runner.singletest_preprocess(arg1)
+
+        elif arg == "protoport":
+
+            idx += 1
+            port = servers.protoport(arg1)
+            print(f"protoport: {port}")
+
+        elif arg == "serverfortest":
+
+            idx += 1
+            why, err = servers.server_for_test(arg1.split(","))
+            print(f"serverfortest: {err} {why}")
+
+        elif arg == "stopservers":
+
+            err = servers.stopservers()
+            print(f"stopservers: {err}")
+
+        else:
+            print(f"Error: Unknown command: {arg}")
+            print("Continuing anyway")
+
+        idx += 1
+
+
+if __name__.rpartition(".")[-1] == "__main__":
+    sys.exit(main())

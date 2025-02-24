@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2012 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Uses the "Streaming HTML parser" to extract the href pieces in a streaming
@@ -32,7 +32,7 @@ import ctypes as ct
 from html.parser import HTMLParser
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 class HTML_Parser(HTMLParser):
@@ -49,9 +49,9 @@ class HTML_Parser(HTMLParser):
 
 
 @lcurl.write_callback
-def write_function(buffer, size, nitems, stream):
-    html_parser = lcurl.from_oid(stream)
-    buffer_size = size * nitems
+def write_function(buffer, size, nitems, userp):
+    html_parser = lcurl.from_oid(userp)
+    buffer_size = nitems * size
     #if buffer_size == 0: return 0
     bwritten = bytes(buffer[:buffer_size])
     html_parser.feed(bwritten.decode("utf-8"))
@@ -62,19 +62,19 @@ def main(argv=sys.argv[1:]):
     app_name = sys.argv[0].rpartition("/")[2].rpartition("\\")[2]
 
     if len(argv) < 1:
-        print("Usage: %s <URL>" % app_name)
+        print("Usage: python %s <URL>" % app_name)
         return 1
 
     url: str = argv[0]
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(False, curl):
+    with curl_guard(False, curl) as guard:
 
         html_parser = HTML_Parser()
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEDATA, id(html_parser))
@@ -84,12 +84,11 @@ def main(argv=sys.argv[1:]):
         res: int = lcurl.easy_perform(curl)
 
         # Check for errors
-        if res != lcurl.CURLE_OK:
-            handle_easy_perform_error(res)
+        handle_easy_perform_error(res)
 
         html_parser.close()
 
-    return 0
+    return int(res)
 
 
 sys.exit(main())

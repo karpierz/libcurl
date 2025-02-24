@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2020, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -17,6 +17,8 @@
  *
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
+ *
+ * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
 
@@ -53,9 +55,9 @@ static size_t myreadfunc(char *ptr, size_t size, size_t nmemb, void *stream)
 #define NUM_HEADERS 8
 #define SIZE_HEADERS 5000
 
-static char buf[SIZE_HEADERS + 100];
+static char testbuf[SIZE_HEADERS + 100];
 
-int test(char *URL)
+CURLcode test(char *URL)
 {
   CURL *curl;
   CURLcode res = CURLE_FAILED_INIT;
@@ -75,10 +77,10 @@ int test(char *URL)
   }
 
   for(i = 0; i < NUM_HEADERS; i++) {
-    int len = msnprintf(buf, sizeof(buf), "Header%d: ", i);
-    memset(&buf[len], 'A', SIZE_HEADERS);
-    buf[len + SIZE_HEADERS] = 0; /* null-terminate */
-    hl = curl_slist_append(headerlist,  buf);
+    int len = msnprintf(testbuf, sizeof(testbuf), "Header%d: ", i);
+    memset(&testbuf[len], 'A', SIZE_HEADERS);
+    testbuf[len + SIZE_HEADERS] = 0; /* null-terminate */
+    hl = curl_slist_append(headerlist, testbuf);
     if(!hl)
       goto test_cleanup;
     headerlist = hl;
@@ -92,10 +94,6 @@ int test(char *URL)
   test_setopt(curl, CURLOPT_URL, URL);
   test_setopt(curl, CURLOPT_HTTPHEADER, headerlist);
   test_setopt(curl, CURLOPT_POST, 1L);
-#ifdef CURL_DOES_CONVERSIONS
-  /* Convert the POST data to ASCII */
-  test_setopt(curl, CURLOPT_TRANSFERTEXT, 1L);
-#endif
   test_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)POSTLEN);
   test_setopt(curl, CURLOPT_VERBOSE, 1L);
   test_setopt(curl, CURLOPT_HEADER, 1L);
@@ -111,5 +109,5 @@ test_cleanup:
 
   curl_global_cleanup();
 
-  return (int)res;
+  return res;
 }

@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2013 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
 Use an in-memory user certificate and RSA key and retrieve an https page.
@@ -28,12 +28,16 @@ Use an in-memory user certificate and RSA key and retrieve an https page.
 
 import sys
 import ctypes as ct
+
+#ifndef OPENSSL_SUPPRESS_DEPRECATED
+#define OPENSSL_SUPPRESS_DEPRECATED
+#endif
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/pem.h>
 
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 # Written by Ishan SinghLevett, based on Theo Borm's cacertinmem.c.
@@ -44,7 +48,7 @@ from curltestutils import *  # noqa
 @lcurl.write_callback
 def write_function(buffer, size, nitems, stream):
     file = lcurl.from_oid(stream)
-    buffer_size = size * nitems
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     bwritten = bytes(buffer[:buffer_size])
     nwritten = file.write(bwritten.decode("utf-8"))
@@ -95,7 +99,7 @@ my_pem: bytes = (  # www.cacert.org
     b"-----END CERTIFICATE-----\n"
 )
 
-  # replace the XXX with the actual RSA key
+# replace the XXX with the actual RSA key
 my_key: bytes = (
     b"-----BEGIN RSA PRIVATE KEY-----\n"\
     b"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"
@@ -155,7 +159,7 @@ def sslctx_function(curl, ssl_ctx, userptr):
     if ret != 1:
         print("Use Key failed")
 
-    # free resources that have been allocated by openssl functions
+    # free resources that have been allocated by OpenSSL functions
     if bio:  BIO_free(bio)
     if kbio: BIO_free(kbio)
     if rsa:  RSA_free(rsa)
@@ -172,7 +176,7 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         res: lcurl.CURLcode = lcurl.CURLE_OK
@@ -193,25 +197,27 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSLKEYTYPE, b"PEM")
 
-        # first try: retrieve page without user certificate and key -> will fail
+        # first try: retrieve page without user certificate and key -> fails
         res = lcurl.easy_perform(curl)
+
         if res == lcurl.CURLE_OK:
             print("*** transfer succeeded ***")
         else:
             print("*** transfer failed ***")
 
-        # second try: retrieve page using user certificate and key -> will succeed
+        # second try: retrieve page using user certificate and key -> succeeds
         # load the certificate and key by installing a function doing the necessary
         # "modifications" to the SSL CONTEXT just before link init
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_CTX_FUNCTION, sslctx_function)
 
         res = lcurl.easy_perform(curl)
+
         if res == lcurl.CURLE_OK:
             print("*** transfer succeeded ***")
         else:
             print("*** transfer failed ***")
 
-    return res
+    return int(res)
 
 
 sys.exit(main())

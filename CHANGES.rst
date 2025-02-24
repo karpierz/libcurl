@@ -1,9 +1,28 @@
 Changelog
 =========
 
+8.12.1.1b1 (2025-02-14)
+-----------------------
+- Add support for Python 3.12 and 3.13
+- Drop support for Python 3.7 and 3.8
+- Add support for PyPy 3.10
+- Drop support for PyPy 3.7 and 3.8
+- Upgrade: libcurl v.7.84.0 -> v.8.12.1
+- Bugfix for type of version_info_data.feature_names.
+- Bugfix for write_to_fd.
+- | Previously unavailable obsoleted strequal() and strnequal()
+  | are curently available.
+- | Previously unavailable deprecated escape() and unescape()
+  | are curently available.
+- | Tox configuration has been moved to pyproject.toml
+  | and now based on tox >= 4.0
+- Copyright year update.
+- Cleanup.
+- Setup (dependencies) update.
+
 7.84.0a2 (2022-08-27)
 ---------------------
-- Upgrade: libusb v.7.81.0 -> v.7.84.0
+- Upgrade: libcurl v.7.81.0 -> v.7.84.0
 - Add support for Linux.
 - Add support for Python 3.10 and 3.11
 - Add support for PyPy 3.7, 3.8 and 3.9

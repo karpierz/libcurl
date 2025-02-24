@@ -1,0 +1,288 @@
+# **************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+# **************************************************************************
+
+"""
+Show how CURLOPT_OPENSOCKETFUNCTION can be used to block IP addresses.
+"""
+import sys
+import ctypes as ct
+import enum
+import socket
+
+import libcurl as lcurl
+from libcurl._platform import in_addr, sockaddr_in, in6_addr, sockaddr_in6
+from curl_utils import *  # noqa
+
+# This is an advanced example that defines a whitelist or a blacklist to
+# filter IP addresses.
+
+
+class ip_struct(ct.Structure):
+    class _netaddr(ct.Union):
+        _fields_ = [
+            ("ipv4", in_addr)]
+        if hasattr(socket, "AF_INET6"):
+            _fields_.extend([
+            ("ipv6", in6_addr)])
+ip_struct._fields_ = [
+    # The user-provided IP address or network (use CIDR) to filter
+    ("str",      ct.c_char_p),
+    # IP address family AF_INET (IPv4) or AF_INET6 (IPv6)
+    ("family",   ct.c_int),
+    # IP in network byte format
+    ("netaddr",  ip_struct._netaddr),
+    # IP bits to match against.
+    # This is equal to the CIDR notation or max bits if no CIDR.
+    # For example if ip->str is 127.0.0.0/8 then ip->maskbits is 8.
+    ("maskbits", ct.c_int),
+    ("next",     ct.POINTER(ip_struct)),
+]
+
+class CONNECTION_FILTER(enum.IntEnum):
+    BLACKLIST = 0
+    WHITELIST = 1
+
+class connection_filter(ct.Structure):
+    _fields_ = [
+        ("list",    ct.POINTER(ip_struct)),
+        ("type",    ct.c_int),  # CONNECTION_FILTER
+        ("verbose", ct.c_int)]
+    if hasattr(socket, "AF_INET6"):
+        _fields_.extend([
+        # If the address being filtered is an IPv4-mapped IPv6 address
+        # then it is checked against IPv4 list entries as well, unless
+        # ipv6_v6only is set True.
+        ("ipv6_v6only", ct.c_int)])
+
+
+def ip_list_append(list: ct.POINTER(ip_struct),
+                   data: bytes) -> ct.POINTER(ip_struct):
+
+    ip_obj = ip_struct()
+
+    if b":" in data:
+        if hasattr(socket, "AF_INET6"):
+            ip_obj.family = socket.AF_INET6
+        else:
+            return ct.POINTER(ip_struct)()
+    else:
+        ip_obj.family = socket.AF_INET
+
+    ip_obj.str = data
+    if data is None:
+        return ct.POINTER(ip_struct)()
+
+    # determine the number of bits that this IP will match against
+
+    ip_str, delim , cidr = ip_obj.str.partition(b"/")
+    if delim:
+        ip_obj.maskbits = int(cidr)
+        if (ip_obj.maskbits <= 0 or
+            (hasattr(socket, "AF_INET6") and
+             ip_obj.family == socket.AF_INET6 and ip_obj.maskbits > 128) or
+            (ip_obj.family == socket.AF_INET  and ip_obj.maskbits > 32)):
+            ip_obj.str = None
+            return ct.POINTER(ip_struct)()
+        # ignore the CIDR notation when converting ip->str to ip->netaddr
+    elif ip_obj.family == socket.AF_INET:
+        ip_obj.maskbits = 32
+    elif hasattr(socket, "AF_INET6") and ip_obj.family == socket.AF_INET6:
+        ip_obj.maskbits = 128
+
+    try:
+        print("################", type(ip_str), ip_str)  # !!!
+        address = socket.inet_pton(ip_obj.family, ip_str.decode("utf-8"))
+        ct.memmove(ct.byref(ip_obj.netaddr), address, len(address))
+        print("###### 00 ######", ip_obj.netaddr)
+        print("######    ######")
+    except:  # socket.error:
+        ip_obj.str = None
+        return ct.POINTER(ip_struct)()
+
+    if not list:
+        return ct.pointer(ip_obj)
+
+    last: ct.POINTER(ip_struct) = list
+    while last.contents.next:
+        last = last.contents.next
+    last.contents.next = ct.pointer(ip_obj)
+
+    return list
+
+
+def free_connection_filter(filter: connection_filter):
+    if filter:
+        ip_list_free_all(filter.list)
+
+
+def ip_list_free_all(ip_list: ct.POINTER(ip_struct)):
+    while ip_list:
+        next_item = ip_list.contents.next
+        ip_list.contents.str = None
+        free(ip_list)
+        ip_list = next_item
+
+
+def ip_match(ip: ip_struct, netaddr: ct.c_void_p) -> bool:
+    x = ct.cast(ct.byref(ip.netaddr), ct.POINTER(ct.c_ubyte))
+    y = ct.cast(netaddr, ct.POINTER(ct.c_ubyte))
+    i: int = 0
+    bytes: int = ip.maskbits // 8
+    while bytes:
+        i += 1
+        if x[i - 1] != y[i - 1]:
+            return False
+        bytes -= 1
+    tailbits: int = ip.maskbits % 8
+    if tailbits:
+        tailmask = ct.c_ubyte((0xFF << (8 - tailbits)) & 0xFF).value
+        if (x[i] & tailmask) != (y[i] & tailmask):
+            return False
+    return True
+
+
+def is_ipv4_mapped_ipv6_address(family: int, netaddr: ct.c_void_p) -> bool:
+    if hasattr(socket, "AF_INET6") and family == socket.AF_INET6:
+        x = ct.cast(netaddr, ct.POINTER(ct.c_ubyte))
+        for i in range(12):
+            if x[i]:
+                break
+        # support formats ::x.x.x.x (deprecated) and ::ffff:x.x.x.x
+        if ((i == 12 and (x[i] or x[i + 1] or x[i + 2] or x[i + 3])) or
+            (i == 10 and (x[i] == 0xFF and x[i + 1] == 0xFF))):
+            return True
+    return False
+
+
+py_sockets = {}
+
+@lcurl.opensocket_callback
+def open_socket(clientp, purpose, address) -> lcurl.socket_t:
+    global py_sockets
+    filter: connection_filter = ct.cast(clientp, ct.POINTER(connection_filter)).contents
+    address: lcurl.sockaddr   = address.contents
+    # filter the address
+    if purpose == lcurl.CURLSOCKTYPE_IPCXN:
+        cinaddr = ct.c_void_p(None)
+        if address.family == socket.AF_INET:
+            cinaddr = ct.cast(ct.byref(ct.cast(ct.byref(address.addr),
+                                               ct.POINTER(sockaddr_in)).contents.sin_addr), ct.c_void_p)
+        elif hasattr(socket, "AF_INET6") and address.family == socket.AF_INET6:
+            cinaddr = ct.cast(ct.byref(ct.cast(ct.byref(address.addr),
+                                               ct.POINTER(sockaddr_in6)).contents.sin6_addr), ct.c_void_p)
+        if cinaddr:
+            mapped = (hasattr(socket, "AF_INET6") and not filter.ipv6_v6only
+                      and is_ipv4_mapped_ipv6_address(address.family, cinaddr))
+            ip: ct.POINTER(ip_struct) = filter.list
+            while ip:
+                ip = ip.contents
+                if ip.family == address.family and ip_match(ip, cinaddr):
+                    break
+                if (hasattr(socket, "AF_INET6") and  mapped and
+                    ip.family == socket.AF_INET and
+                    address.family == socket.AF_INET6 and
+                    ip_match(ip, ct.cast(cinaddr, ct.POINTER(ct.c_ubyte)) + 12)):
+                    break
+                ip = ip.next
+
+            if ip and filter.type == CONNECTION_FILTER.BLACKLIST:
+                if filter.verbose:
+                    cinaddr_str = socket.inet_ntop(address.family, ct.cast(cinaddr, ct.c_char_p).value)
+                    print("* Rejecting IP %s due to blacklist entry %s." %
+                          (cinaddr_str, ip.str.decode("utf-8")), file=sys.stderr)
+                return lcurl.CURL_SOCKET_BAD
+            elif not ip and filter.type == CONNECTION_FILTER.WHITELIST:
+                if filter.verbose:
+                    cinaddr_str = socket.inet_ntop(address.family, ct.cast(cinaddr, ct.c_char_p).value)
+                    print("* Rejecting IP %s due to missing whitelist entry." %
+                          cinaddr_str, file=sys.stderr)
+                return lcurl.CURL_SOCKET_BAD
+
+    sock_obj = socket.socket(address.family, address.socktype, address.protocol)
+    sock_fd  = sock_obj.fileno()
+    py_sockets[sock_fd] = sock_obj
+    return sock_fd
+
+
+@lcurl.closesocket_callback
+def close_socket(clientp, sock):
+    global py_sockets
+    if sock in py_sockets:
+        sock_obj = py_sockets[sock]
+        sock_obj.close()
+        del py_sockets[sock]
+    return 0
+
+
+def main(argv=sys.argv[1:]):
+
+    url: str = argv[0] if len(argv) >= 1 else "http://localhost"
+
+    filter = connection_filter()
+
+    if lcurl.global_init(lcurl.CURL_GLOBAL_DEFAULT) != lcurl.CURLE_OK:
+        return 1
+
+    curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
+
+    with curl_guard(False, curl) as guard:
+        if not curl: return 1
+
+        # Set the target URL
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
+
+        # Define an IP connection filter.
+        # If an address has CIDR notation then it matches the network.
+        # For example 74.6.143.25/24 matches 74.6.143.0 - 74.6.143.255.
+        filter.type = CONNECTION_FILTER.BLACKLIST
+        filter.list = ip_list_append(filter.list, b"98.137.11.164")
+        filter.list = ip_list_append(filter.list, b"127.0.0.0/8")
+        if hasattr(socket, "AF_INET6"):
+            filter.list = ip_list_append(filter.list, b"::1")
+        # endif
+
+        # Set the socket function which does the filtering
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_OPENSOCKETFUNCTION, open_socket)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_OPENSOCKETDATA, ct.byref(filter))
+
+        # Verbose mode
+        filter.verbose = True
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
+
+        # Perform the request
+        res: int = lcurl.easy_perform(curl)
+        # Check for errors
+        handle_easy_perform_error(res)
+
+    # Clean up
+    free_connection_filter(filter)
+    del filter
+
+    # Clean up libcurl
+    lcurl.global_cleanup()
+
+    return int(res)
+
+
+sys.exit(main())

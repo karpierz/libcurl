@@ -1,6 +1,5 @@
-# Copyright (c) 2021-2022 Adam Karpierz
-# Licensed under the MIT License
-# https://opensource.org/licenses/MIT
+# Copyright (c) 2021 Adam Karpierz
+# SPDX-License-Identifier: MIT
 
 # **************************************************************************
 #                                  _   _ ____  _
@@ -9,7 +8,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -30,19 +29,19 @@
 # a script at release-time. This was made its own header file in 7.11.2
 
 # This is the global package copyright
-LIBCURL_COPYRIGHT = "1996 - 2022 Daniel Stenberg, <daniel@haxx.se>."
+LIBCURL_COPYRIGHT = "Daniel Stenberg, <daniel@haxx.se>."
 
 # The numeric version number is also available "in parts" by using these
 # defines:
-LIBCURL_VERSION_MAJOR = 7
-LIBCURL_VERSION_MINOR = 84
-LIBCURL_VERSION_PATCH = 0
+LIBCURL_VERSION_MAJOR = 8
+LIBCURL_VERSION_MINOR = 12
+LIBCURL_VERSION_PATCH = 1
 
 # This is the version number of the libcurl package from which this header
 # file origins:
-LIBCURL_VERSION = "%d.%d.%d" % (LIBCURL_VERSION_MAJOR,
-                                LIBCURL_VERSION_MINOR,
-                                LIBCURL_VERSION_PATCH)
+LIBCURL_VERSION = "{:d}.{:d}.{:d}".format(LIBCURL_VERSION_MAJOR,
+                                          LIBCURL_VERSION_MINOR,
+                                          LIBCURL_VERSION_PATCH)
 
 CURL_VERSION_BITS = lambda x, y, z: (x << 16 | y << 8 | z)
 
@@ -54,7 +53,7 @@ CURL_VERSION_BITS = lambda x, y, z: (x << 16 | y << 8 | z)
 #
 # Where XX, YY and ZZ are the main version, release and patch numbers in
 # hexadecimal (using 8 bits each). All three numbers are always represented
-# using two digits.  1.2 would appear as "0x010200" while version 9.11.7
+# using two digits. 1.2 would appear as "0x010200" while version 9.11.7
 # appears as "0x090b07".
 
 # This 6-digit (24 bits) hexadecimal number does not show pre-release number,
@@ -71,7 +70,7 @@ LIBCURL_VERSION_NUM = CURL_VERSION_BITS(LIBCURL_VERSION_MAJOR,
 # The format of the date follows this template:
 #
 # "2007-11-23"
-LIBCURL_TIMESTAMP = "2022-06-27"
+LIBCURL_TIMESTAMP = "2025-02-13"
 
 def CURL_AT_LEAST_VERSION(x, y, z):
     return (LIBCURL_VERSION_NUM >= CURL_VERSION_BITS(x, y, z))

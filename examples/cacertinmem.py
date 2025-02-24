@@ -1,11 +1,11 @@
-#***************************************************************************
+# **************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -20,25 +20,25 @@
 #
 # SPDX-License-Identifier: curl
 #
-#***************************************************************************
+# **************************************************************************
 
 """
-CA cert in memory with OpenSSL to get a HTTPS page.
+CA cert in memory with OpenSSL to get an HTTPS page.
 """
 
 import sys
 import ctypes as ct
+
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-
 import libcurl as lcurl
-from curltestutils import *  # noqa
+from curl_utils import *  # noqa
 
 
 @lcurl.write_callback
 def write_function(buffer, size, nitems, stream):
     file = lcurl.from_oid(stream)
-    buffer_size = size * nitems
+    buffer_size = nitems * size
     if buffer_size == 0: return 0
     bwritten = bytes(buffer[:buffer_size])
     nwritten = file.write(bwritten.decode("utf-8"))
@@ -126,7 +126,7 @@ def main(argv=sys.argv[1:]):
     lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
-    with curl_guard(True, curl):
+    with curl_guard(True, curl) as guard:
         if not curl: return 1
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 0)
@@ -140,9 +140,9 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSLCERTTYPE, b"PEM")
         #lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 1)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        if defined("SKIP_PEER_VERIFICATION"):
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
-        # Turn off the default CA locations, otherwise libcurl will load CA
+        # Turn off the default CA locations, otherwise libcurl loads CA
         # certificates from the locations that were detected/specified at
         # build-time
         lcurl.easy_setopt(curl, lcurl.CURLOPT_CAINFO, None)
@@ -151,32 +151,33 @@ def main(argv=sys.argv[1:]):
         # first try: retrieve page without ca certificates -> should fail
         # unless libcurl was built --with-ca-fallback enabled at build-time
         res = lcurl.easy_perform(curl)
+
         if res == lcurl.CURLE_OK:
             print("*** transfer succeeded ***")
         else:
             print("*** transfer failed ***")
 
-        # use a fresh connection (optional)
-        # this option seriously impacts performance of multiple transfers but
-        # it is necessary order to demonstrate this example. recall that the
-        # ssl ctx callback is only called _before_ an SSL connection is
-        # established, therefore it will not affect existing verified SSL
-        # connections already in the connection cache associated with this
-        # handle. normally you would set the ssl ctx function before making
-        # any transfers, and not use this option.
+        # use a fresh connection (optional) this option seriously impacts
+        # performance of multiple transfers but it is necessary order to
+        # demonstrate this example. recall that the ssl ctx callback is only called
+        # _before_ an SSL connection is established, therefore it does not affect
+        # existing verified SSL connections already in the connection cache
+        # associated with this handle. normally you would set the ssl ctx function
+        # before making any transfers, and not use this option.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_FRESH_CONNECT, 1)
-        # second try: retrieve page using cacerts' certificate -> will succeed
-        # load the certificate by installing a function doing the necessary
+        # second try: retrieve page using cacerts' certificate -> succeeds to load
+        # the certificate by installing a function doing the necessary
         # "modifications" to the SSL CONTEXT just before link init
         lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_CTX_FUNCTION, sslctx_function)
 
         res = lcurl.easy_perform(curl)
+
         if res == lcurl.CURLE_OK:
             print("*** transfer succeeded ***")
         else:
             print("*** transfer failed ***")
 
-    return res
+    return int(res)
 
 
 sys.exit(main())
