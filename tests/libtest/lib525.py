@@ -31,6 +31,7 @@ from curl_test import *  # noqa
 
 @curl_test_decorator
 def test(URL: str, filename: str = None) -> lcurl.CURLcode:
+    if filename: filename = str(filename)
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
@@ -118,9 +119,9 @@ def test(URL: str, filename: str = None) -> lcurl.CURLcode:
             # At this point, max_fd is guaranteed to be greater or equal than -1.
 
             timeout = lcurl.timeval(tv_sec=1, tv_usec=0)  # 1 sec
-            select_test(max_fd + 1,
-                        ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
-                        ct.byref(timeout))
+            res = select_test(max_fd + 1,
+                              ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                              ct.byref(timeout))
 
             abort_on_test_timeout()
 

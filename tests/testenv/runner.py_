@@ -205,8 +205,8 @@ def runner_init($logdir: Path, $jobs):
 
             # Set this directory as ours
             config.LOGDIR = $logdir
-            (config.LOGDIR/config.PIDDIR).mkdir(0777)
-            (config.LOGDIR/config.LOCKDIR).mkdir(0777)
+            (config.LOGDIR/config.PIDDIR).mkdir(0o777)
+            (config.LOGDIR/config.LOCKDIR).mkdir(0o777)
 
             # Initialize various server variables
             initserverconfig();
@@ -232,7 +232,7 @@ def runner_init($logdir: Path, $jobs):
 
     else:
         # Create our pid directory
-        (config.LOGDIR/config.PIDDIR).mkdir(0777)
+        (config.LOGDIR/config.PIDDIR).mkdir(0o777)
 
         # Don't create a separate process
         $thisrunnerid = "integrated"

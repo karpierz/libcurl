@@ -97,9 +97,9 @@ def test(URL: str) -> lcurl.CURLcode:
             else:
                 timeout = lcurl.timeval(tv_sec=TEST_HANG_TIMEOUT // 1000 - 1,
                                         tv_usec=0)
-            select_test(max_fd + 1,
-                        ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
-                        ct.byref(timeout))
+            res = select_test(max_fd + 1,
+                              ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                              ct.byref(timeout))
 
             abort_on_test_timeout(TEST_HANG_TIMEOUT)
 

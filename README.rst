@@ -76,7 +76,7 @@ Prerequisites:
 + Python 3.9 or higher
 
   * https://www.python.org/
-  * with C libcurl 8.10.1 is a primary test environment.
+  * with C libcurl 8.12.1 is a primary test environment.
 
 + pip and setuptools
 

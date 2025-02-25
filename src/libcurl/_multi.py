@@ -49,11 +49,11 @@
 # include "curl.h"
 
 import ctypes as ct
-import time   as _time
-import select as _select
+import time as _time
+from select import select as _py_select
 
 from ._platform import CFUNC, defined, is_windows
-from ._platform import FD_ISSET as _FD_ISSET
+from ._platform import FD_ISSET as _FD_ISSET, select as _select
 from ._dll      import dll
 from ._curl     import timeval
 from ._curl     import CURL, CURLcode, socket_t, fd_set, CURL_SOCKET_BAD
@@ -597,6 +597,33 @@ except: pass  # noqa: E722
        ct.POINTER(timeval))
 def select(nfds, readfds, writefds, exceptfds, timeout):
 
+    print("&&&&&&&& nfds:", nfds)
+    if nfds < 0:
+        #SET_SOCKERRNO(EINVAL) # !!!
+        return -1
+
+    if is_windows and (nfds == 0 or
+        ((not readfds   or readfds.contents.fd_count   == 0) and
+         (not writefds  or writefds.contents.fd_count  == 0) and
+         (not exceptfds or exceptfds.contents.fd_count == 0))):
+        # Winsock select() requires that at least one of the three fd_set
+        # pointers is not NULL and points to a non-empty fdset. IOW Winsock
+        # select() can not be used to sleep without a single fd_set.
+        if not timeout:
+            timeout_sec = None
+        else:
+            timeout_sec = (timeout.contents.tv_sec +
+                           timeout.contents.tv_usec * 1000)
+        _time.sleep(timeout_sec or 0)
+        return 0
+
+    return _select(nfds, readfds, writefds, exceptfds, timeout)
+
+@CFUNC(ct.c_int, ct.c_int,
+       ct.POINTER(fd_set), ct.POINTER(fd_set), ct.POINTER(fd_set),
+       ct.POINTER(timeval))
+def py_select(nfds, readfds, writefds, exceptfds, timeout):
+
     if nfds < 0:
         #SET_SOCKERRNO(EINVAL) # !!!
         return -1
@@ -618,10 +645,10 @@ def select(nfds, readfds, writefds, exceptfds, timeout):
         return 0
 
     try:
-        infd, outfd, errfd = _select.select(_extract_sockets_from_fd_set(readfds),
-                                            _extract_sockets_from_fd_set(writefds),
-                                            _extract_sockets_from_fd_set(exceptfds),
-                                            timeout)
+        infd, outfd, errfd = _py_select(_extract_sockets_from_fd_set(readfds),
+                                        _extract_sockets_from_fd_set(writefds),
+                                        _extract_sockets_from_fd_set(exceptfds),
+                                        timeout)
     except OSError as exc:
         return -1
     return len(infd) + len(outfd) + len(errfd)

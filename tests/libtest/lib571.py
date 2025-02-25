@@ -82,14 +82,15 @@ def suburl(base: str, i: int) -> str:
 
 
 @curl_test_decorator
-def test(URL: str, file_name: str) -> lcurl.CURLcode:
+def test(URL: str, filename: str) -> lcurl.CURLcode:
+    filename = str(filename)
 
     global rtp_packet_count
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
     try:
-        protofile = open(file_name, "wb")
+        protofile = open(filename, "wb")
     except OSError as exc:
         print("Couldn't open the protocol dump file", file=sys.stderr)
         return TEST_ERR_MAJOR_BAD

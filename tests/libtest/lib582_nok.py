@@ -300,9 +300,9 @@ def test(URL: str, filename: str = None, user_login: str = None,
                     timeout = lcurl.timeval(tv_sec=0, tv_usec=100_000)  # 100 ms
                 else:
                     timeout = lcurl.timeval(tv_sec=10, tv_usec=0)  # 10 sec
-                select_test(max_fd,
-                            ct.byref(fd_read), ct.byref(fd_write), None,
-                            ct.byref(timeout))
+                res = select_test(max_fd,
+                                  ct.byref(fd_read), ct.byref(fd_write), None,
+                                  ct.byref(timeout))
 
                 # Check the sockets for reading / writing
                 check_fd_set(multi, sockets.read,  fd_read,  lcurl.CURL_CSELECT_IN,  "read")

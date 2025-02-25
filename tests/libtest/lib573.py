@@ -89,9 +89,9 @@ def test(URL: str) -> lcurl.CURLcode:
             # At this point, max_fd is guaranteed to be greater or equal than -1.
 
             timeout = lcurl.timeval(tv_sec=0, tv_usec=100_000)  # 100 ms
-            select_test(max_fd + 1,
-                        ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
-                        ct.byref(timeout))
+            res = select_test(max_fd + 1,
+                              ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                              ct.byref(timeout))
 
             abort_on_test_timeout()
 

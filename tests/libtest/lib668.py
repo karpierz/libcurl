@@ -52,6 +52,7 @@ def read_callback(buffer, size, nitems, userp):
 
 @curl_test_decorator
 def test(URL: str, mime_file: str) -> lcurl.CURLcode:
+    mime_file = str(mime_file)
 
     res: lcurl.CURLcode = TEST_ERR_FAILURE
 

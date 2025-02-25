@@ -22,7 +22,8 @@ if is_windows:  # noqa: F405
                            SOCKET, INVALID_SOCKET, sockaddr,
                            in_addr, sockaddr_in,
                            in6_addr, sockaddr_in6,  # noqa: F401
-                           FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR)
+                           FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR,
+                           select)
 elif is_linux:  # noqa: F405
     from ._linux   import (DLL_PATH, DLL, dlclose, CFUNC,
                            time_t, timeval,
@@ -36,7 +37,6 @@ elif is_macos:  # noqa: F405
                            SOCKET, INVALID_SOCKET, sockaddr,
                            in_addr, sockaddr_in,
                            in6_addr, sockaddr_in6,  # noqa: F401
-                           FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR,
-                           select)
+                           FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR)
 else:
     raise ImportError("unsupported platform")

@@ -65,7 +65,8 @@ from .. import globalconfig as config
 from .  import getpart, runner, servers, testutil
 from valgrind import valgrind_parse
 
-use strict;
+cur_dir = Path(__file__).resolve().parent
+
 # Promote all warnings to fatal
 use warnings FATAL => 'all';
 use 5.006;
@@ -79,7 +80,7 @@ BEGIN {
     # invocation of runtests.py, it may not be set.
     if(!defined $ENV{'srcdir'}) {
         use File::Basename;
-        $ENV{'srcdir'} = dirname(__FILE__);
+        $ENV{'srcdir'} = cur_dir
     }
     push(@INC, $ENV{'srcdir'});
     # run time statistics needs Time::HiRes
@@ -329,7 +330,7 @@ if (!$ENV{"NGHTTPX"}) {
     $ENV{"NGHTTPX"} = runner.check_test_cmd("nghttpx")
 }
 if ($ENV{"NGHTTPX"}) {
-    my $cmd = "\"$ENV{'NGHTTPX'}\" -v 2>$dev_null";
+    my $cmd = f"\"$ENV{'NGHTTPX'}\" -v 2>{os.devnull}";
     my $nghttpx_version=join(' ', `$cmd`);
     $nghttpx_h3 = $nghttpx_version =~ /nghttp3\//;
     chomp $nghttpx_h3;
@@ -415,10 +416,10 @@ def showdiff($logdir, $firstref, $secondref):
         print $temp "\n";
     }
     close($temp) || die "Failure writing diff file";
-    my @out = `diff -u $file2 $file1 2>$dev_null`;
+    my @out = `diff -u $file2 $file1 2>${os.devnull}`;
 
     if(!$out[0]) {
-        @out = `diff -c $file2 $file1 2>$dev_null`;
+        @out = `diff -c $file2 $file1 2>${os.devnull}`;
     }
 
     return @out;
@@ -2456,7 +2457,7 @@ if(!$randseed) {
     # seed of the month. December 2019 becomes 201912
     $randseed = ($year+1900)*100 + $mon+1;
     print "Using curl: $CURL\n";
-    open(my $curlvh, "-|", shell_quote($CURL) . " --version 2>$dev_null") ||
+    open(my $curlvh, "-|", shell_quote($CURL) . f" --version 2>{os.devnull}") ||
         die "could not get curl version!";
     my @c = <$curlvh>;
     close($curlvh) || die "could not get curl version!";
@@ -2474,7 +2475,7 @@ if($valgrind) {
     # we have found valgrind on the host, use it
 
     # verify that we can invoke it fine
-    my $code = runclient("valgrind >$dev_null 2>&1");
+    my $code = runclient(f"valgrind >{os.devnull} 2>&1");
 
     if(($code>>8) != 1) {
         #log_msg("Valgrind failure, disable it")
@@ -2485,7 +2486,7 @@ if($valgrind) {
         # use it, if it is supported by the version installed on the system
         # (this happened in 2003, so we could probably don't need to care about
         # that old version any longer and just delete this check)
-        runclient("valgrind --help 2>&1 | grep -- --tool >$dev_null 2>&1");
+        runclient(f"valgrind --help 2>&1 | grep -- --tool >{os.devnull} 2>&1");
         if (($? >> 8)) {
             $valgrind_tool="";
         }

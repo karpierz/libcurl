@@ -40,6 +40,7 @@ def suburl(base: str, i: int) -> str:
 
 @curl_test_decorator
 def test(URL: str, filename: str) -> lcurl.CURLcode:
+    filename = str(filename)
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 

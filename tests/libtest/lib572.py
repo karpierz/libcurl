@@ -39,7 +39,8 @@ def suburl(base: str, i: int) -> str:
 
 
 @curl_test_decorator
-def test(URL: str, filename: str = "log/file572.txt") -> lcurl.CURLcode:
+def test(URL: str, filename: str) -> lcurl.CURLcode:
+    filename = str(filename)
 
     res: lcurl.CURLcode
 
@@ -111,7 +112,6 @@ def test(URL: str, filename: str = "log/file572.txt") -> lcurl.CURLcode:
             if res != lcurl.CURLE_OK: raise guard.Break
 
             # POST GET_PARAMETERS
-
             stream_uri = suburl(URL, request)
             request += 1
             test_setopt(curl, lcurl.CURLOPT_RTSP_STREAM_URI, stream_uri.encode("utf-8"))

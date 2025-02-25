@@ -102,9 +102,9 @@ def progress_callback(clientp, dltotal, dlnow, ultotal, ulnow):
 
 
 @curl_test_decorator
-def test(URL: str,
-    raportfile: str = None,
-    user_login: str = "foo:bar") -> lcurl.CURLcode:
+def test(URL: str, raportfile: str,
+         user_login: str = "foo:bar") -> lcurl.CURLcode:
+    raportfile = str(raportfile)
 
     global raport_file
     raport_file = raportfile

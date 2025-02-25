@@ -35,6 +35,7 @@ from curl_test import *  # noqa
 
 @curl_test_decorator
 def test(URL: str, filename: str, accept_timeout: str) -> lcurl.CURLcode:
+    filename = str(filename)
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
@@ -110,9 +111,9 @@ def test(URL: str, filename: str, accept_timeout: str) -> lcurl.CURLcode:
                                             tv_usec=(tv_usec % 1000) * 1000)
                 else:
                     timeout = lcurl.timeval(tv_sec=0, tv_usec=100_000)  # 100 ms
-                select_test(max_fd + 1,
-                            ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
-                            ct.byref(timeout))
+                res = select_test(max_fd + 1,
+                                  ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                                  ct.byref(timeout))
 
                 abort_on_test_timeout()
 

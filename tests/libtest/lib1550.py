@@ -52,7 +52,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
     multi: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
 
-    with curl_guard(True, mcurl=multi):
+    with curl_guard(True, mcurl=multi) as guard:
 
         lcurl.multi_setopt(multi, lcurl.CURLMOPT_PIPELINING_SERVER_BL, bl_servers)
         lcurl.multi_setopt(multi, lcurl.CURLMOPT_PIPELINING_SITE_BL,   bl_sites)

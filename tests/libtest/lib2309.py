@@ -36,6 +36,7 @@ def cb_ignore(buffer, size, nitems, userp):
 
 @curl_test_decorator
 def test(URL: str, netrc_file: str, proxy: str = None) -> lcurl.CURLcode:
+    netrc_file = str(netrc_file)
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 

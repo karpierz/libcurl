@@ -209,9 +209,9 @@ def test(URL: str, user_login: str = "testuser:testpass") -> lcurl.CURLcode:
                                         tv_usec=(tv_usec % 1000) * 1000)
             else:
                 timeout = lcurl.timeval(tv_sec=0, tv_usec=5_000)  # 5 ms
-            select_test(max_fd + 1,
-                        ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
-                        ct.byref(timeout))
+            res = select_test(max_fd + 1,
+                              ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                              ct.byref(timeout))
 
             abort_on_test_timeout(TEST_HANG_TIMEOUT)
 

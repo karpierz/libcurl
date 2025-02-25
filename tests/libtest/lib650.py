@@ -46,6 +46,7 @@ def count_chars(arg, buf, size):
 
 @curl_test_decorator
 def test(URL: str, file_path: str) -> lcurl.CURLcode:
+    file_path = str(file_path)
 
     global testdata, testname
 

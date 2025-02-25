@@ -151,6 +151,7 @@ def suburl(base: str, i: int) -> str:
 
 @curl_test_decorator
 def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
+    cookie_jar = str(cookie_jar)
 
     scode: lcurl.CURLSHcode = lcurl.CURLSHE_OK
     code:  lcurl.CURLcode   = lcurl.CURLE_OK

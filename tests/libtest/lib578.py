@@ -51,6 +51,7 @@ def progress_callback(clientp, dltotal, dlnow, ultotal, ulnow):
 
 @curl_test_decorator
 def test(URL: str, filename: str) -> lcurl.CURLcode:
+    filename = str(filename)
 
     global file_name
     file_name = filename

@@ -83,9 +83,9 @@ def do_one_request(multi: ct.POINTER(lcurl.CURLM), URL: str, resolve: str) -> lc
             max_fd = max_fd.value
 
             timeout = lcurl.timeval(tv_sec=1, tv_usec=0)  # 1 sec
-            select_test(max_fd + 1,
-                        ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
-                        ct.byref(timeout))
+            res = select_test(max_fd + 1,
+                              ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
+                              ct.byref(timeout))
 
             abort_on_test_timeout()
 
@@ -123,7 +123,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
 
     multi: ct.POINTER(lcurl.CURLM) = multi_init()
 
-    with curl_guard(True, mcurl=multi):
+    with curl_guard(True, mcurl=multi) as guard:
 
         dns_entry : str= "testserver.example.com:%s:%s" % (port, address)
 

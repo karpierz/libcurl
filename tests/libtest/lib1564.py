@@ -44,7 +44,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
     multi: ct.POINTER(lcurl.CURLM) = multi_init()
 
-    with curl_guard(True, mcurl=multi):
+    with curl_guard(True, mcurl=multi) as guard:
 
         numfds = ct.c_int()
 

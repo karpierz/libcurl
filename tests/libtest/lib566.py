@@ -31,6 +31,7 @@ from curl_test import *  # noqa
 
 @curl_test_decorator
 def test(URL: str, filename: str) -> lcurl.CURLcode:
+    filename = str(filename)
 
     res: lcurl.CURLcode
 

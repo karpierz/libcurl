@@ -39,7 +39,8 @@ def suburl(base: str, i: int) -> str:
 
 
 @curl_test_decorator
-def test(URL: str, filename: str = "log/file568.txt") -> lcurl.CURLcode:
+def test(URL: str, sdpf_file: str) -> lcurl.CURLcode:
+    sdpf_file = str(sdpf_file)
 
     res: lcurl.CURLcode
 
@@ -63,9 +64,9 @@ def test(URL: str, filename: str = "log/file568.txt") -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_RTSP_STREAM_URI, stream_uri.encode("utf-8"))
 
         try:
-            sdpf = open(filename, "rb")
+            sdpf = open(sdpf_file, "rb")
         except OSError as exc:
-            print("can't open %s" % filename, file=sys.stderr)
+            print("can't open %s" % sdpf_file, file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         with sdpf:

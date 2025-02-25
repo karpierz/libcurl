@@ -54,13 +54,13 @@ def read_callback(buffer, size, nitems, userp):
 
 @lcurl.free_callback
 def free_callback(ptr):
-    print("########################################")
     pooh = ct.cast(ptr, ct.POINTER(WriteThis)).contents
     pooh.freecount += 1
 
 
 @curl_test_decorator
 def test(URL: str, mime_file: str) -> lcurl.CURLcode:
+    mime_file = str(mime_file)
 
     res: lcurl.CURLcode = TEST_ERR_FAILURE
 
@@ -156,7 +156,3 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
             raise guard.Break
 
     return res
-
-
-#res = test("http://example.com", "XXX")
-#print(("\nERROR: %d" % res) if res else "\nOK")

@@ -38,8 +38,6 @@ def test(URL: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
-    unmet = ct.c_long()
-
     if global_init(lcurl.CURL_GLOBAL_ALL) != lcurl.CURLE_OK:
         return TEST_ERR_MAJOR_BAD
 
@@ -67,10 +65,12 @@ def test(URL: str) -> lcurl.CURLcode:
         # suppressed the actual header.
         # The server returns 304, which means the condition is "unmet".
 
+        unmet = ct.c_long(0)
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONDITION_UNMET, ct.byref(unmet))
         if res != lcurl.CURLE_OK: raise guard.Break
+        unmet = unmet.value
 
-        if unmet.value != 1:
+        if unmet != 1:
             return TEST_ERR_FAILURE
 
     return res

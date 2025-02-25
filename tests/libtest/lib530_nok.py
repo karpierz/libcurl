@@ -312,9 +312,9 @@ def test_one(URL: str, timercb: int, socketcb: int) -> lcurl.CURLcode:
             else:
                 timeout = lcurl.timeval(tv_sec=10, tv_usec=0)  # 10 sec
             assert max_fd
-            select_test(max_fd,
-                        ct.byref(fd_read), ct.byref(fd_write), None,
-                        ct.byref(timeout))
+            res = select_test(max_fd,
+                              ct.byref(fd_read), ct.byref(fd_write), None,
+                              ct.byref(timeout))
 
             # Check the sockets for reading / writing
             if check_fd_set(multi, sockets.read,  fd_read,  lcurl.CURL_CSELECT_IN, "read"):

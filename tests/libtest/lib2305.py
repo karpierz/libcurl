@@ -76,6 +76,7 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
 
     @curl_test_decorator
     def test(URL: str, output_file: str) -> lcurl.CURLcode:
+        output_file = str(output_file)
 
         global libtest_debug_config, libtest_debug_cb
 

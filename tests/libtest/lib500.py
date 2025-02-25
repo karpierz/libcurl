@@ -81,6 +81,7 @@ else:
 
 @curl_test_decorator
 def test(URL: str, filename: str = None, ftp_type: str = None) -> lcurl.CURLcode:
+    if filename: filename = str(filename)
 
     global libtest_debug_config, libtest_debug_cb
 
@@ -109,65 +110,65 @@ def test(URL: str, filename: str = None, ftp_type: str = None) -> lcurl.CURLcode
         setupcallbacks(curl)
 
         res = lcurl.easy_perform(curl)
+        if res != lcurl.CURLE_OK: raise guard.Break
 
-        if res == lcurl.CURLE_OK:
-            ipstr = ct.c_char_p(None)
-            res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PRIMARY_IP, ct.byref(ipstr))
-            if filename:
-                with open(filename, "wb") as moo:
+        ipstr = ct.c_char_p(None)
+        res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PRIMARY_IP, ct.byref(ipstr))
+        if filename:
+            with open(filename, "wb") as moo:
 
-                    moo.write(b"IP %s\n" % ipstr.value)
+                moo.write(b"IP %s\n" % ipstr.value)
 
-                    time_namelookup    = lcurl.off_t()
-                    time_connect       = lcurl.off_t()
-                    time_pretransfer   = lcurl.off_t()
-                    time_posttransfer  = lcurl.off_t()
-                    time_starttransfer = lcurl.off_t()
-                    time_total         = lcurl.off_t()
-                    lcurl.easy_getinfo(curl, lcurl.CURLINFO_NAMELOOKUP_TIME_T,    ct.byref(time_namelookup))
-                    lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONNECT_TIME_T,       ct.byref(time_connect))
-                    lcurl.easy_getinfo(curl, lcurl.CURLINFO_PRETRANSFER_TIME_T,   ct.byref(time_pretransfer))
-                    lcurl.easy_getinfo(curl, lcurl.CURLINFO_POSTTRANSFER_TIME_T,  ct.byref(time_posttransfer))
-                    lcurl.easy_getinfo(curl, lcurl.CURLINFO_STARTTRANSFER_TIME_T, ct.byref(time_starttransfer))
-                    lcurl.easy_getinfo(curl, lcurl.CURLINFO_TOTAL_TIME_T,         ct.byref(time_total))
-                    time_namelookup    = time_namelookup.value
-                    time_connect       = time_connect.value
-                    time_pretransfer   = time_pretransfer.value
-                    time_posttransfer  = time_posttransfer.value
-                    time_starttransfer = time_starttransfer.value
-                    time_total         = time_total.value
+                time_namelookup    = lcurl.off_t()
+                time_connect       = lcurl.off_t()
+                time_pretransfer   = lcurl.off_t()
+                time_posttransfer  = lcurl.off_t()
+                time_starttransfer = lcurl.off_t()
+                time_total         = lcurl.off_t()
+                lcurl.easy_getinfo(curl, lcurl.CURLINFO_NAMELOOKUP_TIME_T,    ct.byref(time_namelookup))
+                lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONNECT_TIME_T,       ct.byref(time_connect))
+                lcurl.easy_getinfo(curl, lcurl.CURLINFO_PRETRANSFER_TIME_T,   ct.byref(time_pretransfer))
+                lcurl.easy_getinfo(curl, lcurl.CURLINFO_POSTTRANSFER_TIME_T,  ct.byref(time_posttransfer))
+                lcurl.easy_getinfo(curl, lcurl.CURLINFO_STARTTRANSFER_TIME_T, ct.byref(time_starttransfer))
+                lcurl.easy_getinfo(curl, lcurl.CURLINFO_TOTAL_TIME_T,         ct.byref(time_total))
+                time_namelookup    = time_namelookup.value
+                time_connect       = time_connect.value
+                time_pretransfer   = time_pretransfer.value
+                time_posttransfer  = time_posttransfer.value
+                time_starttransfer = time_starttransfer.value
+                time_total         = time_total.value
 
-                    # since the timing will always vary we only compare relative
-                    # differences between these 5 times
-                    if time_namelookup > time_connect:
-                        moo.write((b"namelookup vs connect: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
-                                   + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
-                                  (time_namelookup // 1_000_000, time_namelookup % 1_000_000,
-                                   time_connect    // 1_000_000, time_connect    % 1_000_000))
-                    if time_connect > time_pretransfer:
-                        moo.write((b"connect vs pretransfer: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
-                                   + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
-                                  (time_connect     // 1_000_000, time_connect     % 1_000_000,
-                                   time_pretransfer // 1_000_000, time_pretransfer % 1_000_000))
-                    if time_pretransfer > time_posttransfer:
-                        moo.write((b"pretransfer vs posttransfer: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
-                                   + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
-                                  (time_pretransfer  // 1_000_000, time_pretransfer  % 1_000_000,
-                                   time_posttransfer // 1_000_000, time_posttransfer % 1_000_000))
-                    if time_pretransfer > time_starttransfer:
-                        moo.write((b"pretransfer vs starttransfer: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
-                                   + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
-                                  (time_pretransfer   // 1_000_000, time_pretransfer   % 1_000_000,
-                                   time_starttransfer // 1_000_000, time_starttransfer % 1_000_000))
-                    if time_starttransfer > time_total:
-                        moo.write((b"starttransfer vs total: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
-                                   + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
-                                  (time_starttransfer // 1_000_000, time_starttransfer % 1_000_000,
-                                   time_total         // 1_000_000, time_total         % 1_000_000))
-                    if time_posttransfer > time_total:
-                        moo.write((b"posttransfer vs total: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
-                                   + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
-                                  (time_posttransfer // 1_000_000, time_posttransfer % 1_000_000,
-                                   time_total        // 1_000_000, time_total        % 1_000_000))
+                # since the timing will always vary we only compare relative
+                # differences between these 5 times
+                if time_namelookup > time_connect:
+                    moo.write((b"namelookup vs connect: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
+                               + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
+                              (time_namelookup // 1_000_000, time_namelookup % 1_000_000,
+                               time_connect    // 1_000_000, time_connect    % 1_000_000))
+                if time_connect > time_pretransfer:
+                    moo.write((b"connect vs pretransfer: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
+                               + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
+                              (time_connect     // 1_000_000, time_connect     % 1_000_000,
+                               time_pretransfer // 1_000_000, time_pretransfer % 1_000_000))
+                if time_pretransfer > time_posttransfer:
+                    moo.write((b"pretransfer vs posttransfer: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
+                               + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
+                              (time_pretransfer  // 1_000_000, time_pretransfer  % 1_000_000,
+                               time_posttransfer // 1_000_000, time_posttransfer % 1_000_000))
+                if time_pretransfer > time_starttransfer:
+                    moo.write((b"pretransfer vs starttransfer: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
+                               + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
+                              (time_pretransfer   // 1_000_000, time_pretransfer   % 1_000_000,
+                               time_starttransfer // 1_000_000, time_starttransfer % 1_000_000))
+                if time_starttransfer > time_total:
+                    moo.write((b"starttransfer vs total: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
+                               + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
+                              (time_starttransfer // 1_000_000, time_starttransfer % 1_000_000,
+                               time_total         // 1_000_000, time_total         % 1_000_000))
+                if time_posttransfer > time_total:
+                    moo.write((b"posttransfer vs total: %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8")
+                               + b".%06ld %" + lcurl.CURL_FORMAT_CURL_OFF_T.encode("utf-8") + b".%06ld\n") %
+                              (time_posttransfer // 1_000_000, time_posttransfer % 1_000_000,
+                               time_total        // 1_000_000, time_total        % 1_000_000))
 
     return res

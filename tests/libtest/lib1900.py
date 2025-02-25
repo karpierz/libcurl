@@ -31,6 +31,8 @@ from curl_test import *  # noqa
 
 @curl_test_decorator
 def test(URL: str, first_hsts: str, second_hsts: str) -> lcurl.CURLcode:
+    first_hsts  = str(first_hsts)
+    second_hsts = str(second_hsts)
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 

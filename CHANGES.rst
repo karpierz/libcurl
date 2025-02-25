@@ -16,6 +16,7 @@ Changelog
   | are curently available.
 - | Tox configuration has been moved to pyproject.toml
   | and now based on tox >= 4.0
+- Many bugs fixed.
 - Copyright year update.
 - Cleanup.
 - Setup (dependencies) update.

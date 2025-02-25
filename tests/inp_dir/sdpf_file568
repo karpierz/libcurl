@@ -1,0 +1,135 @@
+#***************************************************************************
+#                                  _   _ ____  _
+#  Project                     ___| | | |  _ \| |
+#                             / __| | | | |_) | |
+#                            | (__| |_| |  _ <| |___
+#                             \___|\___/|_| \_\_____|
+#
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# This software is licensed as described in the file COPYING, which
+# you should have received as part of this distribution. The terms
+# are also available at https://curl.se/docs/copyright.html.
+#
+# You may opt to use, copy, modify, merge, publish, distribute and/or sell
+# copies of the Software, and permit persons to whom the Software is
+# furnished to do so, under the terms of the COPYING file.
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+# KIND, either express or implied.
+#
+# SPDX-License-Identifier: curl
+#
+#***************************************************************************
+
+"""
+Performs an FTP upload and renames the file just after a successful
+transfer.
+"""
+
+import sys
+import os
+import ctypes as ct
+from pathlib import Path
+
+import libcurl as lcurl
+from curltestutils import *  # noqa
+
+here = Path("__file__").resolve().parent
+
+
+LOCAL_FILE = here/"input/uploadthis.txt"
+
+UPLOAD_FILE_AS = b"while-uploading.txt"
+REMOTE_URL     = b"ftp://example.com/" + UPLOAD_FILE_AS
+RENAME_FILE_TO = b"renamed-and-fine.txt"
+
+
+# NOTE: if you want this example to work on Windows with libcurl as a
+# DLL, you MUST also provide a read callback with CURLOPT_READFUNCTION.
+# Failing to do so will give you a crash since a DLL may not use the
+# variable's memory when passed in to it from an app like this.
+@lcurl.read_callback
+def read_callback(buffer, size, nitems, stream):
+    file = lcurl.from_oid(stream)
+    bread = file.read(size * nitems)
+    if not bread: return 0
+    nread = len(bread)
+    ct.memmove(buffer, bread, nread)
+    print("*** We read %d bytes from file" % nread, file=sys.stderr)
+    return nread
+
+
+def main(argv=sys.argv[1:]):
+
+    RNFR_cmd: bytes = b"RNFR " + UPLOAD_FILE_AS
+    RNTO_cmd: bytes = b"RNTO " + RENAME_FILE_TO
+
+    # open file to upload
+    try:
+        fd_src = LOCAL_FILE.open("rb")
+    except OSError as exc:
+        print("Couldn't open '%s': %s" %
+              (LOCAL_FILE, os.strerror(exc.errno)))
+        return 1  # cannot continue
+
+    # get the file size
+    try:
+        fsize: int = os.fstat(fd_src.fileno()).st_size
+    except:
+        fd_src.close()
+        return 1  # cannot continue
+
+    print("Local file size: %d bytes." % fsize)
+
+    # In windows, this will init the winsock stuff
+    lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
+
+    # get a curl handle
+    curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
+    if not curl:
+        fd_src.close()
+        lcurl.global_cleanup()
+        return 1
+
+    # build a list of FTP commands to pass to libcurl
+    headerlist = ct.POINTER(lcurl.slist)()
+    headerlist = lcurl.slist_append(headerlist, RNFR_cmd)
+    headerlist = lcurl.slist_append(headerlist, RNTO_cmd)
+
+    # upload to this place
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, REMOTE_URL)
+    # tell it to "upload" to the URL
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_UPLOAD, 1)
+    # we want to use our own read function
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_callback)
+    # pass in that last of FTP commands to run after the transfer
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_POSTQUOTE, headerlist)
+    # now specify which file to upload
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_READDATA, id(fd_src))
+    # Set the size of the file to upload (optional).  If you give a *_LARGE
+    # option you MUST make sure that the type of the passed-in argument is a
+    # curl_off_t. If you use CURLOPT_INFILESIZE (without _LARGE) you must
+    # make sure that to pass in a type 'long' argument.
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_INFILESIZE_LARGE, fsize)
+    # enable verbose for easier tracing
+    #lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
+
+    # Perform the custom request
+    res: lcurl.CURLcode = lcurl.easy_perform(curl)
+
+    # Check for errors
+    if res != lcurl.CURLE_OK:
+        handle_easy_perform_error(res)
+
+    # clean up the FTP commands list
+    lcurl.slist_free_all(headerlist)
+    # Always cleanup
+    lcurl.easy_cleanup(curl)
+    fd_src.close()  # close the local file
+    lcurl.global_cleanup()
+
+    return 0
+
+
+sys.exit(main())

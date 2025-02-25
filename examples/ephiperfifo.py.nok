@@ -160,7 +160,7 @@ def multi_timer_cb(multi, timeout_ms, userp):
         its.it_value.tv_sec     = 0
         its.it_value.tv_nsec    = 1
     else:
-        memset(ct.byref(its), 0, ct.sizeof(its))
+        ct.memset(ct.byref(its), 0, ct.sizeof(its))
     timerfd_settime(g.tfd, 0, ct.byref(its), None)
 
     return 0
@@ -209,7 +209,7 @@ def event_cb(g: GlobalInfo, fd: int, revents: int):
     if g.still_running <= 0:
         print("last transfer done, kill timeout", file=MSG_OUT)
         its = struct itimerspec()
-        memset(ct.byref(its), 0, sizeof(its))
+        ct.memset(ct.byref(its), 0, sizeof(its))
         timerfd_settime(g.tfd, 0, ct.byref(its), None)
 
 
@@ -445,7 +445,7 @@ def main(argv=sys.argv[1:]):
         perror("timerfd_create failed");
         return 1
 
-    memset(ct.byref(its), 0, sizeof(its))
+    ct.memset(ct.byref(its), 0, sizeof(its))
     its.it_interval.tv_sec = 0
     its.it_value.tv_sec    = 1
     timerfd_settime(g.tfd, 0, ct.byref(its), None)

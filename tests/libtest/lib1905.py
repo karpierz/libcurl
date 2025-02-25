@@ -31,6 +31,7 @@ from curl_test import *  # noqa
 
 @curl_test_decorator
 def test(URL: str, cookie_file: str) -> lcurl.CURLcode:
+    cookie_file = str(cookie_file)
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
