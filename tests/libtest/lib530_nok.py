@@ -29,9 +29,6 @@ import libcurl as lcurl
 from libcurl._platform import FD_ISSET, FD_SET
 from curl_test import *  # noqa
 
-# from warnless.c
-def curlx_sztosi(sznum) -> int: return int(sznum)
-
 # The purpose of this test is to make sure that if libcurl.CURLMOPT_SOCKETFUNCTION
 # or libcurl.CURLMOPT_TIMERFUNCTION returns error, the associated transfer should be
 # aborted correctly.
@@ -83,7 +80,7 @@ def add_fd(sockets: Sockets, fd: lcurl.socket_t, what: str) -> int:
     # Allocate array storage when required.
     #
     if not sockets.sockets:
-        sockets.sockets = ct.cast(libc.malloc(20 * ct.sizeof(lcurl.socket_t)), ct.POINTER(lcurl.socket_t))
+        sockets.sockets = (20 * lcurl.socket_t)()
         if not sockets.sockets:
             return 1
         sockets.max_count = 20
@@ -110,7 +107,7 @@ max_socket_calls: int = 0
 socket_calls:     int = 0
 
 @lcurl.socket_callback
-def curlSocketCallback(easy, s, what, userp, socketp):
+def socket_callback(easy, s, what, userp, socketp):
     #
     # Callback invoked by curl to poll reading / writing of a socket.
     #
@@ -122,7 +119,7 @@ def curlSocketCallback(easy, s, what, userp, socketp):
 
     socket_calls += 1
     if socket_calls == max_socket_calls:
-        print("curlSocketCallback returns error", file=sys.stderr)
+        print("socket_callback returns error", file=sys.stderr)
         return -1
 
     if what == lcurl.CURL_POLL_IN or what == lcurl.CURL_POLL_INOUT:
@@ -204,7 +201,7 @@ def getMicroSecondTimeout(timeout: lcurl.timeval) -> int:
     result = ct.c_ssize_t((timeout.tv_sec  - now.tv_sec) * 1_000_000 +
                           (timeout.tv_usec - now.tv_usec)).value
     if result < 0: result = 0
-    return curlx_sztosi(result)
+    return result
 
 
 def update_fd_set(sockets: Sockets, fdset: lcurl.fd_set, max_fd: lcurl.socket_t):
@@ -280,7 +277,7 @@ def test_one(URL: str, timercb: int, socketcb: int) -> lcurl.CURLcode:
         # go verbose
         easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
-        multi_setopt(multi, lcurl.CURLMOPT_SOCKETFUNCTION, curlSocketCallback)
+        multi_setopt(multi, lcurl.CURLMOPT_SOCKETFUNCTION, socket_callback)
         multi_setopt(multi, lcurl.CURLMOPT_SOCKETDATA, ct.byref(sockets))
 
         multi_setopt(multi, lcurl.CURLMOPT_TIMERFUNCTION, timer_callback)
@@ -304,17 +301,19 @@ def test_one(URL: str, timercb: int, socketcb: int) -> lcurl.CURLcode:
             max_fd = max_fd.value
 
             if timer_timeout.tv_sec != -1:
-                usTimeout: int = getMicroSecondTimeout(timer_timeout)
-                timeout = lcurl.timeval(tv_sec=usTimeout // 1_000_000,
-                                        tv_usec=usTimeout % 1_000_000)
+                tv_usec: int = getMicroSecondTimeout(timer_timeout)
+                timeout = lcurl.timeval(tv_sec=tv_usec // 1_000_000,
+                                        tv_usec=tv_usec % 1_000_000)
             elif max_fd <= 0:
                 timeout = lcurl.timeval(tv_sec=0, tv_usec=100_000)  # 100 ms
             else:
                 timeout = lcurl.timeval(tv_sec=10, tv_usec=0)  # 10 sec
             assert max_fd
+            timeout = lcurl.timeval(tv_sec=10, tv_usec=0)  # 10 sec # !!!!
             res = select_test(max_fd,
                               ct.byref(fd_read), ct.byref(fd_write), None,
                               ct.byref(timeout))
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@", res)
 
             # Check the sockets for reading / writing
             if check_fd_set(multi, sockets.read,  fd_read,  lcurl.CURL_CSELECT_IN, "read"):

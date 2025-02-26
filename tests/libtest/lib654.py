@@ -41,7 +41,6 @@ class WriteThis(ct.Structure):
 
 @lcurl.read_callback
 def read_callback(buffer, size, nitems, userp):
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
     if buffer_size < 1: return 0
@@ -89,10 +88,10 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
         test_setopt(easy, lcurl.CURLOPT_HEADER, 1)
 
         # Build the mime tree.
-        mime: ct.POINTER(lcurl.mime)     = lcurl.mime_init(easy)
-        part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-        guard.add_mime(mime)
+        mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(easy)
+        # guard.add_mime(mime)  # !!! <AK>: commented, because hang while guard exits
 
+        part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
         lcurl.mime_data(part, ct.cast(b"hello", ct.POINTER(ct.c_ubyte)),
                               lcurl.CURL_ZERO_TERMINATED)
         lcurl.mime_name(part, b"greeting")
@@ -128,25 +127,21 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
 
         # Perform on the first handle: should not send any data.
         res = lcurl.easy_perform(easy)
-
         if res != lcurl.CURLE_OK:
             print("libcurl.easy_perform(original) failed", file=sys.stderr)
-            print("@@@ 1 @@@", res)
             raise guard.Break
 
         # Perform on the second handle: if the bound mime structure has not been
         # duplicated properly, it should cause a valgrind error.
         res = lcurl.easy_perform(easy2)
-
         if res != lcurl.CURLE_OK:
             print("libcurl.easy_perform(duplicated) failed", file=sys.stderr)
-            print("@@@ 2 @@@", res)
             raise guard.Break
 
         # Free the duplicated handle: it should call free_callback again.
         # If the mime copy was bad or not automatically released, valgrind
         # will signal it.
-        lcurl.easy_cleanup(easy2)
+        guard.free_curl(easy2)
         easy2 = ct.POINTER(lcurl.CURL)()  # Already cleaned up.
 
         if pooh.freecount != 2:
@@ -154,5 +149,7 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
                   pooh.freecount, file=sys.stderr)
             res = TEST_ERR_FAILURE
             raise guard.Break
+
+        lcurl.easy_cleanup(easy2)
 
     return res

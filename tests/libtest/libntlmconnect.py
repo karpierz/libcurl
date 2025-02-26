@@ -30,10 +30,6 @@ import ctypes as ct
 import libcurl as lcurl
 from curl_test import *  # noqa
 
-# from warnless.c
-def curlx_sztosi(sznum) -> int: return int(sznum)
-
-
 TEST_HANG_TIMEOUT = 60 * 1000
 MAX_EASY_HANDLES  = 3
 
@@ -46,14 +42,13 @@ ntlmcb_res: lcurl.CURLcode = lcurl.CURLE_OK
 
 @lcurl.write_callback
 def write_callback(buffer, size, nitems, userp):
-    idx: int = int(userp)
+    idx: int = int(userp or 0)
 
+    global ntlm_curls, ntlm_sockets, ntlm_counters
     global ntlmcb_res
 
     buffer_size = nitems * size
     failure = 0 if buffer_size else 1
-
-    global ntlm_curls, ntlm_sockets, ntlm_counters
 
     curl: ct.POINTER(lcurl.CURL) = ntlm_curls[idx]
 
@@ -65,14 +60,13 @@ def write_callback(buffer, size, nitems, userp):
     code: lcurl.CURLcode = lcurl.easy_getinfo(curl, lcurl.CURLINFO_LASTSOCKET,
                                               ct.byref(last_sock))
     # )
+    last_sock = last_sock.value
     if code != lcurl.CURLE_OK:
         print("%s:%d libcurl.easy_getinfo() failed, with code %d (%s)" %
               (current_file(), current_line(),
                code, lcurl.easy_strerror(code).decode("utf-8")), file=sys.stderr)
         ntlmcb_res = TEST_ERR_MAJOR_BAD
         return failure
-
-    last_sock = last_sock.value
 
     sock: lcurl.socket_t = last_sock if last_sock != -1 else lcurl.CURL_SOCKET_BAD
 
@@ -85,7 +79,7 @@ def write_callback(buffer, size, nitems, userp):
             # An easy handle with a socket different to previously
             # tracked one, log and fail right away. Known bug #37.
             print("Handle %d started on socket %d and moved to %d" %
-                  (curlx_sztosi(idx), ntlm_sockets[idx], sock),
+                  (idx, ntlm_sockets[idx], sock),
                   file=sys.stderr)
             ntlmcb_res = TEST_ERR_MAJOR_BAD
             return failure
@@ -131,10 +125,10 @@ def test(URL: str, user_login: str = "testuser:testpass") -> lcurl.CURLcode:
                 ntlm_curls[num_handles] = curl = easy_init()
 
                 if num_handles % 3 == 2:
-                    full_url: str = "%s0200" % URL
+                    full_url: str = "%s/0200" % URL.rstrip("/")
                     easy_setopt(curl, lcurl.CURLOPT_HTTPAUTH, lcurl.CURLAUTH_NTLM)
                 else:
-                    full_url: str = "%s0100" % URL
+                    full_url: str = "%s/0100" % URL.rstrip("/")
                     easy_setopt(curl, lcurl.CURLOPT_HTTPAUTH, lcurl.CURLAUTH_BASIC)
                 easy_setopt(curl, lcurl.CURLOPT_FRESH_CONNECT, 1)
                 easy_setopt(curl, lcurl.CURLOPT_URL, full_url.encode("utf-8"))
@@ -154,14 +148,15 @@ def test(URL: str, user_login: str = "testuser:testpass") -> lcurl.CURLcode:
 
             running = ct.c_int()
             multi_perform(multi, ct.byref(running))
+            running = running.value
 
             print("%s:%d running %d state %d" %
-                  (current_file(), current_line(), running.value, state),
+                  (current_file(), current_line(), running, state),
                   file=sys.stderr)
 
             abort_on_test_timeout(TEST_HANG_TIMEOUT)
 
-            if not running.value and state == HandleState.NoMoreHandles:
+            if not running and state == HandleState.NoMoreHandles:
                 break  # done
 
             fd_read  = lcurl.fd_set()
@@ -195,18 +190,18 @@ def test(URL: str, user_login: str = "testuser:testpass") -> lcurl.CURLcode:
 
             print("%s:%d num_handles %d timeout %ld running %d" %
                   (current_file(), current_line(),
-                   num_handles, curl_timeout, running.value), file=sys.stderr)
+                   num_handles, curl_timeout, running), file=sys.stderr)
 
             # if there's no timeout and we get here on the last handle, we may
             # already have read the last part of the stream so waiting makes no
             # sense
-            if curl_timeout == -1 and not running.value and num_handles >= len(ntlm_curls):
+            if curl_timeout == -1 and not running and num_handles >= len(ntlm_curls):
                 break
 
             if curl_timeout != -1:
-                tv_usec = min(LONG_MAX, INT_MAX, curl_timeout)
-                timeout = lcurl.timeval(tv_sec=tv_usec // 1000,
-                                        tv_usec=(tv_usec % 1000) * 1000)
+                curl_timeout = min(LONG_MAX, INT_MAX, curl_timeout)
+                timeout = lcurl.timeval(tv_sec=curl_timeout // 1000,
+                                        tv_usec=(curl_timeout % 1000) * 1000)
             else:
                 timeout = lcurl.timeval(tv_sec=0, tv_usec=5_000)  # 5 ms
             res = select_test(max_fd + 1,
@@ -217,9 +212,9 @@ def test(URL: str, user_login: str = "testuser:testpass") -> lcurl.CURLcode:
 
         # test_cleanup:
 
-        for i, curl in ntlm_curls:
+        for i, curl in enumerate(ntlm_curls):
             print("Data connection %d: %d" % (i, ntlm_counters[i]))
             lcurl.multi_remove_handle(multi, curl)
-            curl_easy_cleanup(curl)
+            lcurl.easy_cleanup(curl)
 
     return res

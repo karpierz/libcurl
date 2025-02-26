@@ -113,19 +113,19 @@ def mcode_or_die(where: str, mcode: lcurl.CURLMcode):
         return
 
     if mcode == lcurl.CURLM_BAD_HANDLE:
-        s = __STRING(CURLM_BAD_HANDLE)
+        s = "CURLM_BAD_HANDLE"
     elif mcode == lcurl.CURLM_BAD_EASY_HANDLE:
-        s = __STRING(CURLM_BAD_EASY_HANDLE)
+        s = "CURLM_BAD_EASY_HANDLE"
     elif mcode == lcurl.CURLM_OUT_OF_MEMORY:
-        s = __STRING(CURLM_OUT_OF_MEMORY)
+        s = "CURLM_OUT_OF_MEMORY"
     elif mcode == lcurl.CURLM_INTERNAL_ERROR:
-        s = __STRING(CURLM_INTERNAL_ERROR)
+        s = "CURLM_INTERNAL_ERROR"
     elif mcode == lcurl.CURLM_UNKNOWN_OPTION:
-        s = __STRING(CURLM_UNKNOWN_OPTION)
+        s = "CURLM_UNKNOWN_OPTION"
     elif mcode == lcurl.CURLM_LAST:
-        s = __STRING(CURLM_LAST)
+        s = "CURLM_LAST"
     elif mcode == lcurl.CURLM_BAD_SOCKET:
-        s = __STRING(CURLM_BAD_SOCKET)
+        s = "CURLM_BAD_SOCKET"
         print("ERROR: %s returns %s" % (where, s), file=MSG_OUT)
         # ignore this error
         return
@@ -275,11 +275,9 @@ def setsock(SockInfo *f, s: lcurl.socket_t, e: ct.POINTER(lcurl.CURL), action: i
 def addsock(lcurl.socket_t s, easy: ct.POINTER(lcurl.CURL), int action, g: GlobalInfo):
     # Initialize a new SockInfo structure
     SockInfo *fdp = (SockInfo*)calloc(1, sizeof(SockInfo));
-
     fdp->global = &g;
     setsock(fdp, s, easy, action, g)
-
-    lcurl.multi_assign(g.multi, s, fdp)
+    lcurl.multi_assign(g.multi, s, ct.cast(fdp, ct.c_void_p))
 
 
 @lcurl.socket_callback
@@ -390,7 +388,7 @@ def init_fifo(g: GlobalInfo) -> int:
         perror("mkfifo")
         sys.exit(1)
 
-    sockfd = open(fifo, O_RDWR | O_NONBLOCK, 0);
+    sockfd = open(fifo, O_RDWR | O_NONBLOCK, 0)
     if sockfd == -1:
         perror("open")
         sys.exit(1)
@@ -425,7 +423,6 @@ def main(argv=sys.argv[1:]):
     global g_should_exit_
 
     g = GlobalInfo()
-    memset(&g, 0, sizeof(GlobalInfo));
 
     its = struct itimerspec()
     struct epoll_event ev;

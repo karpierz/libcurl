@@ -29,8 +29,7 @@ import time
 import libcurl as lcurl
 from curl_test import *  # noqa
 
-
-TIMEOUT = 50  # in secs
+TIMEOUT = 20  # 50 # in secs
 
 testcmd = b"A1 IDLE\r\n"
 testbuf = (ct.c_char * 1024)()
@@ -41,7 +40,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
-    start: lcurl.time_t = int(time.time())
+    start: lcurl.time_t = time.time()
 
     if global_init(lcurl.CURL_GLOBAL_DEFAULT) != lcurl.CURLE_OK:
         return TEST_ERR_MAJOR_BAD
@@ -53,22 +52,22 @@ def test(URL: str) -> lcurl.CURLcode:
         if not curl:  return TEST_ERR_EASY_INIT
         if not multi: return TEST_ERR_MULTI
 
-        if lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8")):
-            return TEST_ERR_MAJOR_BAD
+        easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         easy_setopt(curl, lcurl.CURLOPT_CONNECT_ONLY, 1)
         easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
-        if lcurl.multi_add_handle(multi, curl):
+
+        mres: lcurl.CURLMcode = lcurl.multi_add_handle(multi, curl)
+        if mres != lcurl.CURLM_OK:
             return TEST_ERR_MAJOR_BAD
 
         state: int = 0
 
-        pos: int = 0
-        sock = lcurl.CURL_SOCKET_BAD
-        while int(time.time()) - start < TIMEOUT:
+        pos:  int = 0
+        sock: int = lcurl.CURL_SOCKET_BAD
+        while time.time() - start < float(TIMEOUT):
 
             running = ct.c_int()
-            if lcurl.multi_perform(multi, ct.byref(running)):
-                return TEST_ERR_MAJOR_BAD
+            multi_perform(multi, ct.byref(running))
 
             while True:
                 msgs_left = ct.c_int()
@@ -77,9 +76,6 @@ def test(URL: str) -> lcurl.CURLcode:
                 if not msgp: break
                 msg = msgp.contents
 
-                print("==== msg.easy_handle:",
-                      msg.msg == lcurl.CURLMSG_DONE, msg.easy_handle, curl)
-               #if msg.msg == lcurl.CURLMSG_DONE and msg.easy_handle == curl:
                 if msg.msg == lcurl.CURLMSG_DONE and msg.easy_handle == curl:
                     socket = lcurl.socket_t(lcurl.CURL_SOCKET_BAD)
                     lcurl.easy_getinfo(curl, lcurl.CURLINFO_ACTIVESOCKET, ct.byref(socket))
@@ -88,9 +84,7 @@ def test(URL: str) -> lcurl.CURLcode:
                         return TEST_ERR_MAJOR_BAD
                     print("Connected fine, extracted socket. Moving on")
 
-            waitfd = lcurl.waitfd()
-
-            print("&&&& sock:\t", sock, sock == lcurl.CURL_SOCKET_BAD)
+            waitfd: lcurl.waitfd = lcurl.waitfd()
             if sock != lcurl.CURL_SOCKET_BAD:
                 socket = lcurl.socket_t(lcurl.CURL_SOCKET_BAD)
                 lcurl.easy_getinfo(curl, lcurl.CURLINFO_ACTIVESOCKET, ct.byref(socket))
@@ -102,22 +96,24 @@ def test(URL: str) -> lcurl.CURLcode:
             lcurl.multi_wait(multi, ct.byref(waitfd),
                              (0 if sock == lcurl.CURL_SOCKET_BAD else 1), 50,
                              ct.byref(running))
-            print("@@@@ waitfd:\t", sock, (waitfd.revents & waitfd.events))
+            #print("@@@@ waitfd:\t", sock, (waitfd.revents & waitfd.events), state)
             if sock == lcurl.CURL_SOCKET_BAD or not (waitfd.revents & waitfd.events):
                 continue
 
-            size = ct.c_size_t(0)
+            size = 0
             if not state:
-                print("@@@@", testcmd[pos:])
-                ec = lcurl.easy_send(curl, testcmd[pos:], len(testcmd) - pos, ct.byref(size))
+                #print("@@@@", testcmd[pos:])
+                size = ct.c_size_t(0)
+                ec: lcurl.CURLcode = lcurl.easy_send(curl, testcmd[pos:], len(testcmd) - pos,
+                                                     ct.byref(size))
+                size = size.value
                 if ec == lcurl.CURLE_AGAIN:
                     continue
                 if ec != lcurl.CURLE_OK:
                     print("libcurl.easy_send() failed, with code %d (%s)" %
                           (ec, lcurl.easy_strerror(ec).decode("utf-8")), file=sys.stderr)
                     res = ec
-                    break
-                size = size.contents
+                    raise guard.Break
                 if size > 0:
                     pos += size
                 else:
@@ -126,32 +122,24 @@ def test(URL: str) -> lcurl.CURLcode:
                     state += 1
                     pos = 0
             elif pos < ct.sizeof(testbuf):
-                ec = lcurl.easy_recv(curl, ct.byref(testbuf, pos), ct.sizeof(testbuf) - pos,
-                                     ct.byref(size))
+                size = ct.c_size_t(0)
+                ec: lcurl.CURLcode = lcurl.easy_recv(curl, testbuf[pos:], ct.sizeof(testbuf) - pos,
+                                                     ct.byref(size))
+                size = size.value
                 if ec == lcurl.CURLE_AGAIN:
                     continue
                 if ec != lcurl.CURLE_OK:
                     print("libcurl.easy_recv() failed, with code %d (%s)" %
                           (ec, lcurl.easy_strerror(ec).decode("utf-8")), file=sys.stderr)
                     res = ec
-                    break
-                size = size.contents
+                    raise guard.Break
                 if size > 0:
                     pos += size
-            else:
-                size = size.contents
             if size <= 0:
                 sock = lcurl.CURL_SOCKET_BAD
 
-        print("####", state)
-        if res != lcurl.CURLE_OK or not state:
-            raise guard.Break
-
-        sys.stdout.fwrite(testbuf, pos, 1)
-        print()
+        if state:
+            sys.stdout.fwrite(testbuf[:pos])
+            print()
 
     return res
-
-
-#res = test("http://example.com")
-#print(("\nERROR: %d" % res) if res else "\nOK")

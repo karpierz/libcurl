@@ -90,7 +90,7 @@ class GlobalInfo(ct.Structure):
 class ConnInfo(ct.Structure):
     # Information associated with a specific easy handle
     _fields_ = [
-    ("easy", ct.POINTER(lcurl.CURL)),
+    ("easy",   ct.POINTER(lcurl.CURL)),
     char *url;
     ("global", ct.POINTER(GlobalInfo)),
     char error[CURL_ERROR_SIZE];
@@ -116,19 +116,19 @@ def mcode_or_die(where: str, mcode: lcurl.CURLMcode):
         return
 
     if mcode == lcurl.CURLM_BAD_HANDLE:
-        s = __STRING(CURLM_BAD_HANDLE)
+        s = "CURLM_BAD_HANDLE"
     elif mcode == lcurl.CURLM_BAD_EASY_HANDLE:
-        s = __STRING(CURLM_BAD_EASY_HANDLE)
+        s = "CURLM_BAD_EASY_HANDLE"
     elif mcode == lcurl.CURLM_OUT_OF_MEMORY:
-        s = __STRING(CURLM_OUT_OF_MEMORY)
+        s = "CURLM_OUT_OF_MEMORY"
     elif mcode == lcurl.CURLM_INTERNAL_ERROR:
-        s = __STRING(CURLM_INTERNAL_ERROR)
+        s = "CURLM_INTERNAL_ERROR"
     elif mcode == lcurl.CURLM_UNKNOWN_OPTION:
-        s = __STRING(CURLM_UNKNOWN_OPTION)
+        s = "CURLM_UNKNOWN_OPTION"
     elif mcode == lcurl.CURLM_LAST:
-        s = __STRING(CURLM_LAST)
+        s = "CURLM_LAST"
     elif mcode == lcurl.CURLM_BAD_SOCKET:
-        s = __STRING(CURLM_BAD_SOCKET);
+        s = "CURLM_BAD_SOCKET";
         print("ERROR: %s returns %s" % (where, s), file=MSG_OUT)
         # ignore this error
         return
@@ -251,7 +251,7 @@ def addsock(lcurl.socket_t s, easy: ct.POINTER(lcurl.CURL), int action, g: Globa
     SockInfo *fdp = calloc(1, sizeof(SockInfo));
     fdp->global = ct.pointer(g)
     setsock(fdp, s, easy, action, g)
-    lcurl.multi_assign(g.multi, s, fdp)
+    lcurl.multi_assign(g.multi, s, ct.cast(fdp, ct.c_void_p))
 
 
 @lcurl.socket_callback
@@ -388,7 +388,6 @@ def clean_fifo(g: GlobalInfo):
 def main(argv=sys.argv[1:]):
 
     g = GlobalInfo()
-    memset(&g, 0, sizeof(GlobalInfo));
 
     g.evbase = event_base_new()
     init_fifo(g)

@@ -88,34 +88,32 @@ multi_handle = ct.POINTER(lcurl.CURLM)()
 def write_callback(buffer, size, nitems, userp):
     # curl calls this routine to get more data
     url_file: URL_FILE = ct.cast(userp, ct.POINTER(URL_FILE)).contents
+    buffer_size = nitems * size
 
-    size *= nitems
     # remaining space in buffer
     rembuff: int = url_file.buffer_len - url_file.buffer_pos
 
-    if size > rembuff:
+    if buffer_size > rembuff:
         # not enough space in buffer
-        newbuff: char * = realloc(url_file.buffer, url_file.buffer_len + (size - rembuff))
+        newbuff: char * = realloc(url_file.buffer, url_file.buffer_len + (buffer_size - rembuff))
         if not newbuff:
             print("callback buffer grow failed", file=sys.stderr)
-            size = rembuff;
+            buffer_size = rembuff
         else:
             # realloc succeeded increase buffer size
-            url_file.buffer_len += size - rembuff
+            url_file.buffer_len += buffer_size - rembuff
             url_file.buffer      = newbuff
 
-    ct.memmove(&url_file.buffer[url_file.buffer_pos], buffer, size)
-    url_file.buffer_pos += size
+    ct.memmove(&url_file.buffer[url_file.buffer_pos], buffer, buffer_size)
+    url_file.buffer_pos += buffer_size
 
-    return size
+    return buffer_size
 
 
 def fill_buffer(URL_FILE *file, size_t want) -> int:
     # use to attempt to fill the read buffer up to requested number of bytes
 
     global multi_handle
-
-    int rc;
 
     # only attempt to fill buffer if transactions still running
     # and buffer does not exceed required size already
@@ -130,7 +128,7 @@ def fill_buffer(URL_FILE *file, size_t want) -> int:
         fd_excep = lcurl.fd_set()
 
         curl_timeout = ct.c_long(-1)
-        curl_multi_timeout(multi_handle, ct.byref(curl_timeout))
+        lcurl.multi_timeout(multi_handle, ct.byref(curl_timeout))
         curl_timeout = curl_timeout.value
 
         # get file descriptors from the transfers
@@ -156,6 +154,7 @@ def fill_buffer(URL_FILE *file, size_t want) -> int:
                     lcurl.timeval(tv_sec=1, tv_usec=0))
                    if curl_timeout >= 0 else
                    lcurl.timeval(tv_sec=60, tv_usec=0))  # 1 minute
+        rc: int  # select() return code
         if max_fd == -1:
             time.sleep(100 / 1000)
             rc = 0
@@ -277,7 +276,7 @@ def url_feof(url_file: URL_FILE) -> int:
     return ret
 
 
-size_t url_fread(url_file: URL_FILE, size: int = -1):
+def url_fread(url_file: URL_FILE, size: int = -1) -> int:
 
     size_t want;
 
@@ -287,7 +286,7 @@ size_t url_fread(url_file: URL_FILE, size: int = -1):
 
     elif url_file.type == CFTYPE.CURL:
 
-        want = nmemb * size;
+        want = nmemb * size
 
         fill_buffer(file, size);
 
@@ -305,7 +304,7 @@ size_t url_fread(url_file: URL_FILE, size: int = -1):
 
         use_buffer(file, want)
 
-        want = want / size;     # number of items
+        want = want / size  # number of items
 
     else: # unknown or supported type - oh dear
         #TODO: exception kind ?
@@ -401,10 +400,6 @@ def main(argv=sys.argv[1:]):
 
     url: str = argv[1] if argc >= 2 else "http://192.168.7.3/testfile"  # default to testurl
 
-    out_file: object
-    url_file: URL_FILE
-
-    size_t nread;
     char buffer[256];
 
     # copy from url line by line with fgets
@@ -415,7 +410,7 @@ def main(argv=sys.argv[1:]):
         return 1
 
     try:
-        url_file = url_open(url, "r")
+        url_file: URL_FILE = url_open(url, "r")
     except:
         print("couldn't url_open() %s" % url)
         out_file.close()

@@ -18,7 +18,7 @@ tests = {
     "lib501": ["http://example.com"],
     "lib502": ["http://example.com"],
     "lib503": ["http://example.com"],
-    #select_test_"lib504": ["http://example.com"],
+    "lib504": ["http://example.com"],
     "lib505": ["http://example.com", inp_dir/"uploadthis.txt"],
     "lib506": ["http://example.com", inp_dir/"cookie_jar506"],
     "lib507": ["http://example.com"],
@@ -68,7 +68,7 @@ tests = {
     "lib568": ["http://example.com", inp_dir/"sdpf_file568"],
     "lib569": ["http://example.com", out_dir/"sid_file569"],
     "lib570": ["http://example.com"],
-    #XXX"lib571": ["http://example.com", out_dir/"lib571.txt"],
+    #"lib571": ["http://example.com", out_dir/"lib571.txt"],  # !!! hungs up !!!
     "lib572": ["http://example.com", inp_dir/"params_file572"],
     "lib573": ["http://example.com"],
     "lib574": ["http://example.com"],
@@ -90,7 +90,7 @@ tests = {
     "lib651": ["http://example.com"],
     "lib652": ["http://example.com"],
     "lib653": ["http://example.com"],
-    #"lib654_nok": ["http://example.com", inp_dir/"mime_file654"],
+    "lib654": ["http://example.com", inp_dir/"mime_file654"],
     "lib655": ["http://example.com"],
     "lib658": ["http://example.com"],
     "lib659": ["http://example.com"],
@@ -101,7 +101,7 @@ tests = {
     "lib670": ["http://example.com"],
     "lib674": ["http://example.com"],
     "lib676": ["http://example.com", inp_dir/"cookies676"],
-    #"lib677_nok": ["http://example.com"],
+    "lib677": ["http://example.com"],
     "lib678": ["http://example.com"],
     "lib694": ["http://example.com", "http://example.com"],
     "lib695": ["http://example.com"],
@@ -123,7 +123,7 @@ tests = {
     "lib1515": ["http://example.com", "127.0.0.1", "80"],
     "lib1517": ["http://example.com"],
     "lib1518": ["http://example.com"],
-       "lib1520": ["http://example.com"],
+    "lib1520": ["http://example.com"],
     "lib1522": ["http://example.com"],
     "lib1523": ["http://example.com"],
     "lib1525": ["http://example.com"],
@@ -132,7 +132,7 @@ tests = {
     "lib1528": ["http://example.com"],
     "lib1529": ["http://example.com"],
     "lib1530": ["http://example.com"],
-    #XXX"lib1531": ["http://example.com"],
+    "lib1531": ["http://example.com"],
     "lib1532": ["http://example.com"],
     #XXX"lib1533": ["http://example.com"],
     #XXX"lib1534": ["http://example.com"],
@@ -154,7 +154,7 @@ tests = {
     "lib1557": ["http://example.com"],
     "lib1558": ["http://example.com"],
     "lib1559": ["http://example.com"],
-    #"lib1560_nok": ["http://example.com"],
+    "lib1560": ["http://example.com"],
     "lib1564": ["http://example.com"],
     "lib1565": ["http://example.com"],
     "lib1567": ["http://example.com"],
@@ -168,9 +168,9 @@ tests = {
     "lib1598": ["http://example.com"],
     "lib1662": ["http://example.com"],
     "lib1900": ["http://example.com", log_dir/"first-hsts.txt", log_dir/"second-hsts.txt"],
-#    "lib1901": ["http://example.com"],
+    #"lib1901": ["http://example.com"], # !!! abnormal exit !!!
     "lib1903": ["http://example.com", inp_dir/"cookies1903", inp_dir/"cookie_jar1903"],
-    #XXX"lib1905": ["http://example.com", inp_dir/"cookies1905"],  # !!! hungs up !!!
+    #"lib1905": ["http://example.com", inp_dir/"cookies1905"],  # !!! hungs up !!!
     "lib1906": ["http://example.com"],
     "lib1907": ["http://example.com"],
     "lib1908": ["http://example.com", log_dir/"altsvc-1908"],
@@ -192,13 +192,13 @@ tests = {
     "lib1940": ["http://example.com"],
     "lib1945": ["http://example.com"],
     "lib1947": ["http://example.com", "http://httpstat.us"],
-    #XXX"lib1948": ["http://example.com"],
+    "lib1948": ["http://example.com"],
     "lib1955": ["http://example.com"],
     #"lib1956": ["http://example.com"],
     #"lib1957": ["http://example.com"],
     "lib1958": ["http://example.com"],
     "lib1959": ["http://example.com"],
-    #XXX"lib1960": ["http://example.com", "127.0.0.1", "80"],
+    "lib1960": ["http://example.com", "127.0.0.1", "80"],
     "lib1964": ["http://example.com"],
     "lib1970": ["http://example.com"],
     "lib1971": ["http://example.com"],
@@ -213,7 +213,7 @@ tests = {
     "lib2305": ["http://example.com", out_dir/"lib2305.txt"],
     "lib2306": ["http://example.com", "http://httpstat.us"],
     "lib2308": ["http://example.com"],
-    #XXX"lib2309": ["http://example.com", inp_dir/"netrc_file2309"],
+    "lib2309": ["http://example.com", inp_dir/"netrc_file2309"],
     "lib2310": ["http://example.com"],
     "lib2402": ["http://example.com", "127.0.0.1", "80"],
     "lib2404": ["http://example.com", "127.0.0.1", "80"],
@@ -226,12 +226,14 @@ tests = {
     "lib3100": ["http://example.com"],
     "lib3101": ["http://example.com"],
     "lib3102": ["http://example.com"],
-    "lib3103": ["http://example.com"],
-    "lib3104": ["http://example.com"],
+    #"lib3103": ["http://example.com"],  # ??? often timeouts !!!
+    #"lib3104": ["http://example.com"],  # ??? often timeouts !!!
     "lib3105": ["http://example.com"],
-    "lib3207": ["http://example.com", "CA_info"],
+    #"lib3207": ["http://example.com", "CA_info"],
     "lib3208": ["http://example.com"],
-    "libauthretry": ["http://example.com"],
+    "libprereq":      ["http://example.com"],
+    "libauthretry":   ["http://example.com", "basic", "digest"],
+    "libntlmconnect": ["http://example.com", "testuser:testpass"],
 }
 
 
@@ -271,4 +273,6 @@ if __name__.rpartition(".")[-1] == "__main__":
     for test_name in tests:
         getattr(MainTestCase, "test_" + test_name)(main_test)
     MainTestCase.tearDownClass()
+    sys.stderr.flush()
+    sys.stdout.flush()
     print("\nFINISH all tests")

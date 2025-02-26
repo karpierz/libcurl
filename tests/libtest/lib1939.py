@@ -51,14 +51,14 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
         if not c:
             # We're going to drive the transfer using multi interface here,
             # because we want to stop during the middle.
-            m: lcurl.CURLMcode = lcurl.multi_add_handle(multi, curl)
-            if not m:
+            mres: lcurl.CURLMcode = lcurl.multi_add_handle(multi, curl)
+            if mres == lcurl.CURLM_OK:
                 # Run the multi handle once, just enough to start establishing an
                 # HTTPS connection.
                 running_handles = ct.c_int()
-                m = lcurl.multi_perform(multi, ct.byref(running_handles))
+                mres = lcurl.multi_perform(multi, ct.byref(running_handles))
 
-            if m:
+            if mres != lcurl.CURLM_OK:
                 print("libcurl.multi_perform failed", file=sys.stderr)
 
     return lcurl.CURLE_OK

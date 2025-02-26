@@ -83,7 +83,7 @@ class GlobalInfo(ct.Structure):
 class ConnInfo(ct.Structure):
     # Information associated with a specific easy handle
     _fields_ = [
-    ("easy", ct.POINTER(lcurl.CURL)),
+    ("easy",   ct.POINTER(lcurl.CURL)),
     char *url;
     ("global", ct.POINTER(GlobalInfo)),
     char error[CURL_ERROR_SIZE];
@@ -246,7 +246,7 @@ def addsock(lcurl.socket_t s, easy: ct.POINTER(lcurl.CURL), int action, g: Globa
     fdp->global = ct.pointer(g)
     fdp->ch = g_io_channel_unix_new(s);
     setsock(fdp, s, easy, action, g)
-    lcurl.multi_assign(g.multi, s, fdp)
+    lcurl.multi_assign(g.multi, s, ct.cast(fdp, ct.c_void_p))
 
 
 @lcurl.socket_callback

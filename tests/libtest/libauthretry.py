@@ -38,7 +38,7 @@ def send_request(curl: ct.POINTER(lcurl.CURL), url: str, seq: int,
                  auth_scheme: int, user_login: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode
-    full_url: str = "%s%04d" % (url, seq)
+    full_url: str = "%s/%04d" % (url.rstrip("/"), seq)
 
     print("Sending new request %d to %s with credential %s (auth %ld)" %
           (seq, full_url, user_login, auth_scheme), file=sys.stderr)

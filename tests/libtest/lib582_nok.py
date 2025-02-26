@@ -29,9 +29,6 @@ import libcurl as lcurl
 from libcurl._platform import FD_ISSET, FD_SET
 from curl_test import *  # noqa
 
-# from warnless.c
-def curlx_sztosi(sznum) -> int: return int(sznum)
-
 
 class Sockets(ct.Structure):
     _fields_ = [
@@ -79,7 +76,7 @@ def add_fd(sockets: Sockets, fd: lcurl.socket_t, what: str) -> int:
     # Allocate array storage when required.
     #
     if not sockets.sockets:
-        sockets.sockets = libc.malloc(20 * ct.sizeof(lcurl.socket_t))
+        sockets.sockets = (20 * lcurl.socket_t)()
         if not sockets.sockets:
             return 1
         sockets.max_count = 20
@@ -97,7 +94,7 @@ def add_fd(sockets: Sockets, fd: lcurl.socket_t, what: str) -> int:
 
 
 @lcurl.socket_callback
-def curlSocketCallback(easy, s, what, userp, socketp):
+def socket_callback(easy, s, what, userp, socketp):
     #
     # Callback invoked by curl to poll reading / writing of a socket.
     #
@@ -167,7 +164,7 @@ def getMicroSecondTimeout(timeout: lcurl.timeval) -> int:
     result = ct.c_ssize_t((timeout.tv_sec  - now.tv_sec) * 1_000_000 +
                           (timeout.tv_usec - now.tv_usec)).value
     if result < 0: result = 0
-    return curlx_sztosi(result)
+    return result
 
 
 def update_fd_set(sockets: Sockets, fdset: lcurl.fd_set, max_fd: lcurl.socket_t):
@@ -192,17 +189,13 @@ def notifyCurl(curl: ct.POINTER(lcurl.CURLM),
 
 
 def check_fd_set(curl: ct.POINTER(lcurl.CURLM),
-                 sockets: Sockets, fdset: lcurl.fd_set, evBitmask: int, name: str) -> int:
+                 sockets: Sockets, fdset: lcurl.fd_set, evBitmask: int, name: str):
     #
     # Invoke curl when a file descriptor is set.
     #
-    result: int = 0
-
     for i in range(sockets.count):
         if FD_ISSET(sockets.sockets[i], ct.byref(fdset)):
             notifyCurl(curl, sockets.sockets[i], evBitmask, name)
-
-    return result
 
 
 @curl_test_decorator
@@ -211,8 +204,8 @@ def test(URL: str, filename: str = None, user_login: str = None,
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
-    sockets = ReadWriteSockets((None, 0, 0),
-                               (None, 0, 0))
+    sockets = ReadWriteSockets(Sockets(None, 0, 0),
+                               Sockets(None, 0, 0))
     timer_timeout = lcurl.timeval(tv_sec=-1, tv_usec=0)
 
     start_test_timing()
@@ -274,7 +267,7 @@ def test(URL: str, filename: str = None, user_login: str = None,
             easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYHOST, 0)
             easy_setopt(curl, lcurl.CURLOPT_INFILESIZE_LARGE, file_len)
 
-            multi_setopt(multi, lcurl.CURLMOPT_SOCKETFUNCTION, curlSocketCallback)
+            multi_setopt(multi, lcurl.CURLMOPT_SOCKETFUNCTION, socket_callback)
             multi_setopt(multi, lcurl.CURLMOPT_SOCKETDATA, ct.byref(sockets))
             multi_setopt(multi, lcurl.CURLMOPT_TIMERFUNCTION, timer_callback)
             multi_setopt(multi, lcurl.CURLMOPT_TIMERDATA, ct.byref(timer_timeout))

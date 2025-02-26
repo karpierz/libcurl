@@ -100,20 +100,27 @@ class curl_guard:
         # Always cleanup
         for mime in self.mimes:
             if mime: lcurl.mime_free(mime)
+        mime = None ; self.mimes = []
         for slist in self.slists:
             if slist: lcurl.slist_free_all(slist)
+        slist = None ; self.slists = []
         if self.mcurl and self.curls:
             for curl in self.curls:
                 lcurl.multi_remove_handle(self.mcurl, curl)
         if self.mcurl:
             lcurl.multi_cleanup(self.mcurl)
+        self.mcurl = None
         if self.share:
             lcurl.share_cleanup(self.share)
+        self.share = None
         if self.curls:
             for curl in self.curls:
                 if curl: lcurl.easy_cleanup(curl)
+            curl = None
+        self.curls = []
         if self.gcurl:
             lcurl.global_cleanup()
+        self.gcurl = False
 
         if exc_type is self.Break:
             return True

@@ -597,7 +597,6 @@ except: pass  # noqa: E722
        ct.POINTER(timeval))
 def select(nfds, readfds, writefds, exceptfds, timeout):
 
-    print("&&&&&&&& nfds:", nfds)
     if nfds < 0:
         #SET_SOCKERRNO(EINVAL) # !!!
         return -1
@@ -613,7 +612,7 @@ def select(nfds, readfds, writefds, exceptfds, timeout):
             timeout_sec = None
         else:
             timeout_sec = (timeout.contents.tv_sec +
-                           timeout.contents.tv_usec * 1000)
+                           timeout.contents.tv_usec / 1_000_000)
         _time.sleep(timeout_sec or 0)
         return 0
 
@@ -632,7 +631,7 @@ def py_select(nfds, readfds, writefds, exceptfds, timeout):
         timeout = None
     else:
         timeout = timeout.contents
-        timeout = timeout.tv_sec + timeout.tv_usec * 1000
+        timeout = timeout.tv_sec + timeout.tv_usec / 1_000_000
 
     if is_windows and (nfds == 0 or
         ((not readfds   or readfds.contents.fd_count   == 0) and

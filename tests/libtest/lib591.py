@@ -106,9 +106,9 @@ def test(URL: str, filename: str, accept_timeout: str) -> lcurl.CURLcode:
 
                 # At this point, timeout is guaranteed to be greater or equal than -1.
                 if curl_timeout != -1:
-                    tv_usec = min(LONG_MAX, INT_MAX, curl_timeout)
-                    timeout = lcurl.timeval(tv_sec=tv_usec // 1000,
-                                            tv_usec=(tv_usec % 1000) * 1000)
+                    curl_timeout = min(LONG_MAX, INT_MAX, curl_timeout)
+                    timeout = lcurl.timeval(tv_sec=curl_timeout // 1000,
+                                            tv_usec=(curl_timeout % 1000) * 1000)
                 else:
                     timeout = lcurl.timeval(tv_sec=0, tv_usec=100_000)  # 100 ms
                 res = select_test(max_fd + 1,
