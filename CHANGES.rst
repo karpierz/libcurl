@@ -1,7 +1,7 @@
 Changelog
 =========
 
-8.12.1.1b1 (2025-02-14)
+8.12.1.4b1 (2025-03-01)
 -----------------------
 - Add support for Python 3.12 and 3.13
 - Drop support for Python 3.7 and 3.8

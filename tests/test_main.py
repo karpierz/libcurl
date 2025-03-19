@@ -76,7 +76,7 @@ tests = {
     "lib576": ["http://example.com"],
     "lib578": ["http://example.com", out_dir/"lib578.txt"],
     "lib579": ["http://example.com", out_dir/"lib579.txt"],
-    #select_test_"lib582_nok": ["http://example.com"],
+    #select_test_"lib582_nok": ["http://example.com", inp_dir/"uploadthis.txt"],
     "lib583": ["http://example.com", None, None],  # "curl_client_key.pub", "curl_client_key"
     "lib586": ["http://example.com"],
     "lib589": ["http://example.com"],
@@ -115,9 +115,9 @@ tests = {
     "lib1507": ["http://example.com"],
     "lib1508": ["http://example.com"],
     "lib1509": ["http://example.com"],
-    #XXX"lib1510": ["http://example.com", "127.0.0.1", "80"],
-    #XXX"lib1511": ["http://example.com"],
-    #XXX"lib1512": ["http://example.com", "127.0.0.1", "80"],
+    "lib1510": ["http://example.com", "127.0.0.1", "80"],
+    "lib1511": ["http://example.com"],
+    "lib1512": ["http://example.com", "127.0.0.1", "80"],
     "lib1513": ["http://example.com"],
     "lib1514": ["http://example.com"],
     "lib1515": ["http://example.com", "127.0.0.1", "80"],
@@ -134,8 +134,8 @@ tests = {
     "lib1530": ["http://example.com"],
     "lib1531": ["http://example.com"],
     "lib1532": ["http://example.com"],
-    #XXX"lib1533": ["http://example.com"],
-    #XXX"lib1534": ["http://example.com"],
+    "lib1533": ["http://example.com"],
+    "lib1534": ["http://example.com"],
     "lib1535": ["http://example.com"],
     "lib1536": ["http://example.com"],
     "lib1537": ["http://example.com"],
@@ -194,8 +194,8 @@ tests = {
     "lib1947": ["http://example.com", "http://httpstat.us"],
     "lib1948": ["http://example.com"],
     "lib1955": ["http://example.com"],
-    #"lib1956": ["http://example.com"],
-    #"lib1957": ["http://example.com"],
+    "lib1956": ["http://example.com"],
+    "lib1957": ["http://example.com"],
     "lib1958": ["http://example.com"],
     "lib1959": ["http://example.com"],
     "lib1960": ["http://example.com", "127.0.0.1", "80"],
@@ -229,7 +229,7 @@ tests = {
     #"lib3103": ["http://example.com"],  # ??? often timeouts !!!
     #"lib3104": ["http://example.com"],  # ??? often timeouts !!!
     "lib3105": ["http://example.com"],
-    #"lib3207": ["http://example.com", "CA_info"],
+    #"lib3207": ["http://example.com", "CA_info"],  # ??? sometimes breaks !!!
     "lib3208": ["http://example.com"],
     "libprereq":      ["http://example.com"],
     "libauthretry":   ["http://example.com", "basic", "digest"],
@@ -237,7 +237,7 @@ tests = {
 }
 
 
-class MainTestCase(unittest.TestCase):
+class MainTestCase:#(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):

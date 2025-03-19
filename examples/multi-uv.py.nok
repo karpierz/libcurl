@@ -62,38 +62,42 @@ class curl_context_t(ct.Structure):
 ]
 
 
+FILE * file
+
+
 def create_curl_context(sockfd: lcurl.socket_t,
-                        uv: ct.POINTER(datauv)) -> ct.POINTER(curl_context_t):
+                        uv: ct.POINTER(datauv)) -> curl_context_t:
 
-    context = ct.cast(malloc(ct.sizeof(curl_context_t)), ct.POINTER(curl_context_t))
-    context->sockfd = sockfd
-    context->uv     = uv
+    context = curl_context_t()
+    context.sockfd = sockfd
+    context.uv     = uv
 
-    uv_poll_init_socket(uv->loop, &context->poll_handle, sockfd)
-    context->poll_handle.data = context
+    uv_poll_init_socket(uv.contents.loop, ct.byref(context.poll_handle), sockfd)
+    context.poll_handle.data = context
 
     return context
 
 
+def destroy_curl_context(context: curl_context_t):
+
+    uv_close(ct.cast(ct.byref(context.poll_handle), ct.POINTER(uv_handle_t)),
+             curl_close_cb)
+
+
 def curl_close_cb(handle: ct.POINTER(uv_handle_t)):
 
-    context = ct.cast(handle->data, ct.POINTER(curl_context_t))
-
+    context = ct.cast(handle.contents.data, ct.POINTER(curl_context_t))
     free(context);
-
-
-def destroy_curl_context(context: ct.POINTER(curl_context_t)):
-
-    uv_close(ct.cast(&context->poll_handle, ct.POINTER(uv_handle_t)),
-             curl_close_cb)
 
 
 def add_download(url: str, num: int, mcurl: ct.POINTER(lcurl.CURLM)):
 
+    global file
+
     filename = "%d.download" % num
 
     try:
-        FILE * file = open(filename, "wb")
+        file = open(filename, "wb")
     except:
         print("Error opening %s" % filename, file=sys.stderr)
         return
@@ -108,11 +112,12 @@ def add_download(url: str, num: int, mcurl: ct.POINTER(lcurl.CURLM)):
     print("Added download %s -> %s" % (url, filename), file=sys.stderr)
 
 
-def check_multi_info(context: ct.POINTER(curl_context_t)):
+def check_multi_info(context: curl_context_t):
+    mcurl = context.uv.contents.multi
 
     while True:
         pending = ct.c_int()
-        msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(context->uv->multi,
+        msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
                                                                 ct.byref(pending))
         if not msgp: break
         message = msgp.contents
@@ -126,12 +131,14 @@ def check_multi_info(context: ct.POINTER(curl_context_t)):
             easy_handle: ct.POINTER(lcurl.CURL) = message.easy_handle
 
             done_url = ct.c_char_p(None)
-            FILE *file;= NULL
-            lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_EFFECTIVE_URL, &done_url);
-            lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_PRIVATE, &file);
+            FILE *file#;= NULL
+            lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_EFFECTIVE_URL,
+                                            ct.byref(done_url))
+            lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_PRIVATE,
+                                            ct.byref(file))
             print("%s DONE" % done_url)
 
-            lcurl.multi_remove_handle(context->uv->multi, easy_handle)
+            lcurl.multi_remove_handle(mcurl, easy_handle)
             lcurl.easy_cleanup(easy_handle)
             if file: file.fclose()
         else:
@@ -140,7 +147,8 @@ def check_multi_info(context: ct.POINTER(curl_context_t)):
 
 def on_uv_socket(req: ct.POINTER(uv_poll_t), status: int, events: int):
     # callback from libuv on socket activity
-    context: ct.POINTER(curl_context_t) = ct.cast(req->data, ct.POINTER(curl_context_t))
+    context: curl_context_t = ct.cast(req.contents.data, ct.POINTER(curl_context_t)).contents
+    mcurl = context.uv.contents.multi
 
     flags: int = 0
     if events & UV_READABLE:
@@ -149,40 +157,47 @@ def on_uv_socket(req: ct.POINTER(uv_poll_t), status: int, events: int):
         flags |= lcurl.CURL_CSELECT_OUT
 
     running_handles = ct.c_int()
-    lcurl.multi_socket_action(context->uv->multi, context->sockfd, flags,
+    lcurl.multi_socket_action(mcurl, context.sockfd, flags,
                               ct.byref(running_handles))
     check_multi_info(context)
 
 
 def on_uv_timeout(req: ct.POINTER(uv_timer_t)):
     # callback from libuv when timeout expires
-    curl_context_t * context = (curl_context_t *) req->data;
-    if context:
-        running_handles = ct.c_int()
-        lcurl.multi_socket_action(context->uv->multi, lcurl.CURL_SOCKET_TIMEOUT,
-                                  0, ct.byref(running_handles))
-        check_multi_info(context)
+    if not req.contents.data: return
+    context: curl_context_t = ct.cast(req.contents.data, ct.POINTER(curl_context_t)).contents
+
+    mcurl = context.uv.contents.multi
+    running_handles = ct.c_int()
+    lcurl.multi_socket_action(mcurl, lcurl.CURL_SOCKET_TIMEOUT,
+                              0, ct.byref(running_handles))
+    check_multi_info(context)
 
 
 @lcurl.multi_timer_callback
 def cb_timeout(multi, timeout_ms, userp):
     # callback from libcurl to update the timeout expiry
-    uv: ct.POINTER(datauv) = ct.cast(userp, (ct.POINTER(datauv)))
+    uv: ct.POINTER(datauv) = ct.cast(userp, ct.POINTER(datauv)).contents
 
     if timeout_ms < 0:
-        uv_timer_stop(&uv->timeout)
+        uv_timer_stop(ct.byref(uv.timeout))
     else:
         if timeout_ms == 0:
             timeout_ms = 1  # 0 means call curl_multi_socket_action asap but NOT
                             # within the callback itself
-        uv_timer_start(&uv->timeout, on_uv_timeout, ct.c_uint64(imeout_ms), 0)  # do not repeat
+        uv_timer_start(ct.byref(uv.timeout), on_uv_timeout,
+                                ct.c_uint64(imeout_ms), 0)  # do not repeat
 
     return 0
 
 
 @lcurl.socket_callback
-int cb_socket(easy: ct.POINTER(lcurl.CURL), s: lcurl.socket_t, int action, ct.POINTER(datauv) uv, void *socketp):
+def cb_socket(easy, s, action, userp, socketp) -> int:
     # callback from libcurl to update socket activity to wait for
+    uv = ct.cast(userp, ct.POINTER(datauv))
+    mcurl = uv.contents.multi
+    context_p = ct.cast(socketp, ct.POINTER(curl_context_t))
+    context = context_p.contents if context_p else None
 
     events: int = 0
 
@@ -190,26 +205,23 @@ int cb_socket(easy: ct.POINTER(lcurl.CURL), s: lcurl.socket_t, int action, ct.PO
                   lcurl.CURL_POLL_OUT,
                   lcurl.CURL_POLL_INOUT):
 
-        curl_context = (ct.cast(socketp, ct.POINTER(curl_context_t))
-                        if socketp else create_curl_context(s, uv))
+        context = context or create_curl_context(s, uv)
 
-        lcurl.multi_assign(uv->multi, s, (void *) curl_context);
+        lcurl.multi_assign(mcurl, s, ct.cast(ct.byref(context), ct.c_void_p))
 
         if action != lcurl.CURL_POLL_IN:
             events |= UV_WRITABLE
         if action != lcurl.CURL_POLL_OUT:
             events |= UV_READABLE
 
-        uv_poll_start(&curl_context->poll_handle, events, on_uv_socket)
+        uv_poll_start(ct.byref(context.poll_handle), events, on_uv_socket)
 
     elif action == lcurl.CURL_POLL_REMOVE:
 
-        if socketp:
-            curl_context: ct.POINTER(curl_context_t) = ct.cast(socketp, ct.POINTER(curl_context_t))
-
-            uv_poll_stop(&(curl_context)->poll_handle)
-            destroy_curl_context(curl_context)
-            lcurl.multi_assign(uv->multi, s, None)
+        if context_p:
+            uv_poll_stop(ct.byref(context.poll_handle))
+            destroy_curl_context(context)
+            lcurl.multi_assign(mcurl, s, None)
 
     else:
         abort()
@@ -222,27 +234,29 @@ def main(argv=sys.argv[1:]):
     if not argv:
         return 0
 
-    lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
+    if lcurl.global_init(lcurl.CURL_GLOBAL_ALL):
+        print("Could not init curl", file=sys.stderr)
+        return 1
 
     uv = datauv(0)
     uv.loop = uv_default_loop()
     uv_timer_init(uv.loop, ct.byref(uv.timeout))
 
-    uv.multi = lcurl.multi_init()
+    uv.multi = mcurl = lcurl.multi_init()
 
-    with curl_guard(True, None, uv.multi) as guard:
+    with curl_guard(True, None, mcurl) as guard:
 
-        lcurl.multi_setopt(uv.multi, lcurl.CURLMOPT_SOCKETFUNCTION, cb_socket)
-        lcurl.multi_setopt(uv.multi, lcurl.CURLMOPT_SOCKETDATA, ct.byref(uv))
-        lcurl.multi_setopt(uv.multi, lcurl.CURLMOPT_TIMERFUNCTION,  cb_timeout)
-        lcurl.multi_setopt(uv.multi, lcurl.CURLMOPT_TIMERDATA,  ct.byref(uv))
+        lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_SOCKETFUNCTION, cb_socket)
+        lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_SOCKETDATA, ct.byref(uv))
+        lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_TIMERFUNCTION,  cb_timeout)
+        lcurl.multi_setopt(mcurl, lcurl.CURLMOPT_TIMERDATA,  ct.byref(uv))
 
         for i, arg in enumerate(argv):
-            add_download(arg, i + 1, uv.multi)
+            add_download(arg, i + 1, mcurl)
 
         # kickstart the thing
         running_handles = ct.c_int()
-        lcurl.multi_socket_action(uv.multi, lcurl.CURL_SOCKET_TIMEOUT, 0,
+        lcurl.multi_socket_action(mcurl, lcurl.CURL_SOCKET_TIMEOUT, 0,
                                   ct.byref(running_handles))
         uv_run(uv.loop, UV_RUN_DEFAULT)
 

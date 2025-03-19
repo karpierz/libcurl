@@ -26,6 +26,7 @@
 HTTP/2 server push
 """
 
+import argparse
 import sys
 import ctypes as ct
 
@@ -33,36 +34,40 @@ import libcurl as lcurl
 from curl_utils import *  # noqa
 from utils import dump
 
-#ifndef lcurl.CURLPIPE_MULTIPLEX
-#error "too old libcurl, cannot do HTTP/2 server push!"
-#endif
-
-
-int my_trace(CURL *handle, type: lcurl.infotype,
-             char *data, size_t size,
-             void *userp):
-    if type == lcurl.CURLINFO_TEXT:
-        print("== Info: %s" % data, end="", file=sys.stderr)
-        return 0
-    elif type == lcurl.CURLINFO_HEADER_OUT:   text = "=> Send header"
-    elif type == lcurl.CURLINFO_DATA_OUT:     text = "=> Send data"
-    elif type == lcurl.CURLINFO_SSL_DATA_OUT: text = "=> Send SSL data"
-    elif type == lcurl.CURLINFO_HEADER_IN:    text = "<= Recv header"
-    elif type == lcurl.CURLINFO_DATA_IN:      text = "<= Recv data"
-    elif type == lcurl.CURLINFO_SSL_DATA_IN:  text = "<= Recv SSL data"
-    else: return 0  # in case a new one is introduced to shock us
-    dump(text, (unsigned char *)data, size, 1)
-
-    return 0
-
+if not hasattr(lcurl, "CURLPIPE_MULTIPLEX"):
+    print("too old libcurl, cannot do HTTP/2 server push!", file=sys.stderr)
+    sys.exit(1)
+# endif
 
 OUTPUTFILE = "download_0.data"
 
 
-def setup(easy: CURL *, url: str) -> int:
+@lcurl.debug_callback
+def my_trace(curl, info_type, data, size, userptr):
+
+    if info_type == lcurl.CURLINFO_TEXT:
+        print("== Info: %s" % bytes(data[:size]).decode("utf-8"),
+              end="", file=sys.stderr)
+    else:
+        if   info_type == lcurl.CURLINFO_HEADER_OUT:   text = "=> Send header"
+        elif info_type == lcurl.CURLINFO_DATA_OUT:     text = "=> Send data"
+        elif info_type == lcurl.CURLINFO_SSL_DATA_OUT: text = "=> Send SSL data"
+        elif info_type == lcurl.CURLINFO_HEADER_IN:    text = "<= Recv header"
+        elif info_type == lcurl.CURLINFO_DATA_IN:      text = "<= Recv data"
+        elif info_type == lcurl.CURLINFO_SSL_DATA_IN:  text = "<= Recv SSL data"
+        else: return 0  # in case a new one is introduced to shock us
+        dump(text, data, size, True, sys.stderr)
+
+    return 0
+
+
+setup_out = None
+
+def setup(easy: ct.POINTER(lcurl.CURL), url: str) -> int:
 
     try:
-        FILE * out = open(OUTPUTFILE, "wb")
+        global setup_out
+        setup_out = open(OUTPUTFILE, "wb")
     except:
         # failed
         return 1
@@ -72,7 +77,7 @@ def setup(easy: CURL *, url: str) -> int:
                             lcurl.CURL_HTTP_VERSION_2_0)
     lcurl.easy_setopt(easy, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
     lcurl.easy_setopt(easy, lcurl.CURLOPT_SSL_VERIFYHOST, 0)
-    lcurl.easy_setopt(easy, lcurl.CURLOPT_WRITEDATA, out);
+    lcurl.easy_setopt(easy, lcurl.CURLOPT_WRITEDATA, setup_out);
     # please be verbose
     lcurl.easy_setopt(easy, lcurl.CURLOPT_VERBOSE, 1)
     lcurl.easy_setopt(easy, lcurl.CURLOPT_DEBUGFUNCTION, my_trace)
@@ -86,12 +91,14 @@ def setup(easy: CURL *, url: str) -> int:
 
 count: int = 0
 
+push_out = None
+
 # called when there's an incoming push
-def server_push_callback(CURL *parent,
-                         CURL *easy,
-                         size_t num_headers,
-                         struct curl_pushheaders *headers,
-                         void *userp) -> int:
+def server_push_callback(parent: ct.POINTER(lcurl.CURL),
+                         easy: ct.POINTER(lcurl.CURL),
+                         num_headers: ct.c_size_t,
+                         headers: ct.POINTER(curl_pushheaders),
+                         userp: ct.c_void_p) -> int:
 
     transfersp = ct.cast(userp, ct.POINTER(ct.c_int))
 
@@ -102,14 +109,15 @@ def server_push_callback(CURL *parent,
 
     # here's a new stream, save it in a new file for each new push
     try:
-        FILE * out = open(filename, "wb")
+        global push_out
+        push_out = open(filename, "wb")
     except:
         # if we cannot save it, deny it
         print("Failed to create output file for push", file=sys.stderr)
         return lcurl.CURL_PUSH_DENY
 
     # write to this file
-    lcurl.easy_setopt(easy, lcurl.CURLOPT_WRITEDATA, out);
+    lcurl.easy_setopt(easy, lcurl.CURLOPT_WRITEDATA, push_out);
 
     print("**** push callback approves stream %u, got %u headers!" %
           (count, num_headers), file=sys.stderr)
@@ -129,29 +137,31 @@ def server_push_callback(CURL *parent,
     return lcurl.CURL_PUSH_OK
 
 
-#
-# Download a file over HTTP/2, take care of server push.
-#
-
 def main(argv=sys.argv[1:]) -> int:
-
-    struct CURLMsg *m;
+    #
+    # Download a file over HTTP/2, take care of server push.
+    #
+    app_name = sys.argv[0].rpartition("/")[2].rpartition("\\")[2]
 
     if len(argv) != 1:
         print("need URL as argument", file=sys.stderr)
         return 2
 
-    url: str = argv[0]
+    parser = argparse.ArgumentParser(prog=f"python {app_name}")
+    parser.add_argument("url")
+    args = parser.parse_args(argv)
 
-    int transfers = 1;  # we start with one
+    url: str = args.url
 
-    multi_handle: CURLM * = lcurl.multi_init()
+    transfers = ct.c_int(1)  # we start with one
+
+    multi_handle: ct.POINTER(lcurl.CURLM) = lcurl.multi_init()
     lcurl.multi_setopt(multi_handle, lcurl.CURLMOPT_PIPELINING,
                                      lcurl.CURLPIPE_MULTIPLEX)
     lcurl.multi_setopt(multi_handle, lcurl.CURLMOPT_PUSHFUNCTION,
                                      server_push_callback)
     lcurl.multi_setopt(multi_handle, lcurl.CURLMOPT_PUSHDATA,
-                                     &transfers)
+                                     ct.byref(transfers))
 
     easy: lcurl.POINTER(lcurl.CURL) = lcurl.easy_init()
     if setup(easy, url):
@@ -165,19 +175,19 @@ def main(argv=sys.argv[1:]) -> int:
         mc: lcurl.CURLMcode = lcurl.multi_perform(multi_handle, ct.byref(still_running))
         # wait for activity, timeout or "nothing"
         if still_running.value: mc = lcurl.multi_poll(multi_handle, None, 0, 1000, None)
-        if mc:
-            break
+        if mc: break
 
         # A little caution when doing server push is that libcurl itself has
         # created and added one or more easy handles but we need to clean them up
         # when we are done.
         while True:
             msgq = ct.c_int(0)
-            m = curl_multi_info_read(multi_handle, ct.byref(msgq))
+            m: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi_handle, ct.byref(msgq))
             if not m: break
+            m = m.value
 
-            if m->msg == CURLMSG_DONE:
-                CURL *e = m->easy_handle;
+            if m.msg == lcurl.CURLMSG_DONE:
+                e: ct.POINTER(lcurl.CURL) = m.easy_handle
                 transfers.value -= 1
                 lcurl.multi_remove_handle(multi_handle, e)
                 lcurl.easy_cleanup(e)
@@ -187,4 +197,5 @@ def main(argv=sys.argv[1:]) -> int:
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

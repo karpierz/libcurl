@@ -81,6 +81,7 @@ Test: lib668: OK
 Test: lib670: OK
 Test: lib674: OK
 Test: lib676: OK
+Test: lib677: OK
 Test: lib678: ERROR: 27
 Test: lib694: OK
 Test: lib695: OK
@@ -93,6 +94,9 @@ Test: lib1506: OK
 Test: lib1507: OK
 Test: lib1508: OK
 Test: lib1509: OK
+Test: lib1510: OK
+Test: lib1511: ERROR: 119
+Test: lib1512: ERROR: 6
 Test: lib1513: OK
 Test: lib1514: OK
 Test: lib1515: OK
@@ -109,6 +113,8 @@ Test: lib1529: ERROR: 3
 Test: lib1530: ERROR: 1
 Test: lib1531: OK
 Test: lib1532: OK
+Test: lib1533: ERROR: 119
+Test: lib1534: ERROR: 22
 Test: lib1535: OK
 Test: lib1536: OK
 Test: lib1537: OK
@@ -165,6 +171,8 @@ Test: lib1945: OK
 Test: lib1947: OK
 Test: lib1948: OK
 Test: lib1955: ERROR: 3
+Test: lib1956: ERROR: 3
+Test: lib1957: ERROR: 3
 Test: lib1958: ERROR: 3
 Test: lib1959: ERROR: 3
 Test: lib1960: OK
@@ -198,4 +206,5 @@ Test: lib3102: OK
 Test: lib3105: OK
 Test: lib3208: OK
 Test: libprereq: OK
+Test: libauthretry: OK
 Test: libntlmconnect: OK

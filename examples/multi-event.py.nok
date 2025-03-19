@@ -35,12 +35,6 @@ import libcurl as lcurl
 from curl_utils import *  # noqa
 
 
-mcurl:   ct.POINTER(lcurl.CURLM) = ct.POINTER(lcurl.CURLM)()
-base:    ct.POINTER(event_base)  = ct.POINTER(event_base)()
-timeout: ct.POINTER(event)       = ct.POINTER(event)()
-FILE *file;
-
-
 class curl_context_t(ct.Structure):
     _fields_ = [
     ("event",  ct.POINTER(event)),
@@ -48,22 +42,27 @@ class curl_context_t(ct.Structure):
 ]
 
 
-def create_curl_context(sockfd: lcurl.socket_t) -> ct.POINTER(lcurl.context_t):
+mcurl:   ct.POINTER(lcurl.CURLM) = ct.POINTER(lcurl.CURLM)()
+base:    ct.POINTER(event_base)  = ct.POINTER(event_base)()
+timeout: ct.POINTER(event)       = ct.POINTER(event)()
+FILE *file;
+
+
+def create_curl_context(sockfd: lcurl.socket_t) -> curl_context_t:
 
     global base
 
-    context = ct.cast(malloc(ct.sizeof(curl_context_t)), ct.POINTER(curl_context_t))
-    context->sockfd = sockfd
-    context->event  = event_new(base, sockfd, 0, curl_perform, context)
+    context = curl_context_t()
+    context.sockfd = sockfd
+    context.event  = event_new(base, sockfd, 0, curl_perform, ct.byref(context))
 
     return context
 
 
-def destroy_curl_context(context: ct.POINTER(curl_context_t)):
+def destroy_curl_context(context: curl_context_t):
 
-    event_del(context->event)
-    event_free(context->event)
-    free(context);
+    event_del(context.event)
+    event_free(context.event)
 
 
 def add_download(url: str, num: int):
@@ -80,9 +79,9 @@ def add_download(url: str, num: int):
         return
 
     handle: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
-    curl_easy_setopt(handle, CURLOPT_WRITEDATA, file);
-    curl_easy_setopt(handle, CURLOPT_PRIVATE, file);
     lcurl.easy_setopt(handle, lcurl.CURLOPT_URL, url.encode("utf-8"))
+    curl_easy_setopt(handle, lcurl.CURLOPT_WRITEDATA, file)
+    curl_easy_setopt(handle, lcurl.CURLOPT_PRIVATE,   file)
 
     lcurl.multi_add_handle(mcurl, handle)
 
@@ -95,24 +94,25 @@ def check_multi_info():
 
     while True:
         pending = ct.c_int()
-        message: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
-                                                                   ct.byref(pending))
-        if not message: break
-        message = message.contents
+        msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(mcurl,
+                                                                ct.byref(pending))
+        if not msgp: break
+        message = msgp.contents
 
         if message.msg == CURLMSG_DONE:
             # Do not use message data after calling libcurl.multi_remove_handle() and
             # libcurl.easy_cleanup(). As per libcurl.multi_info_read() docs:
             # "WARNING: The data the returned pointer points to does not survive
             # calling curl_multi_cleanup, curl_multi_remove_handle or
-            # curl_easy_cleanup." */
+            # curl_easy_cleanup."
             easy_handle: ct.POINTER(lcurl.CURL) = message.easy_handle
 
             done_url = ct.c_char_p(None)
-            FILE *file;
+            FILE *file#;= NULL
             lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_EFFECTIVE_URL,
                                             ct.byref(done_url))
-            lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_PRIVATE, &file);
+            lcurl.easy_getinfo(easy_handle, lcurl.CURLINFO_PRIVATE,
+                                            ct.byref(file))
             print("%s DONE" % done_url)
 
             lcurl.multi_remove_handle(mcurl, easy_handle)
@@ -122,32 +122,33 @@ def check_multi_info():
             print("CURLMSG default", file=sys.stderr)
 
 
-def curl_perform(int fd, short event, void *arg):
+@CFUNC(None, evutil_socket_t, ct.c_short, ct.c_void_p)
+def curl_perform(fd, events, arg):
+    context = ct.cast(arg, ct.POINTER(curl_context_t)).contents
 
     global mcurl
 
     flags: int = 0
-    if event & EV_READ:
+    if events & EV_READ:
         flags |= lcurl.CURL_CSELECT_IN
-    if event & EV_WRITE:
+    if events & EV_WRITE:
         flags |= lcurl.CURL_CSELECT_OUT
 
-    context = ct.cast(arg, ct.POINTER(curl_context_t))
-
     running_handles = ct.c_int()
-    lcurl.multi_socket_action(mcurl, context->sockfd, flags,
+    lcurl.multi_socket_action(mcurl, context.sockfd, flags,
                               ct.byref(running_handles))
     check_multi_info()
 
 
-def on_timeout(fd: evutil_socket_t, short events, void *arg):
+@CFUNC(None, evutil_socket_t, ct.c_short, ct.c_void_p)
+def on_timeout(fd, events, arg):
 
     global mcurl
 
-    int running_handles;
+    running_handles = ct.c_int()
     lcurl.multi_socket_action(mcurl, lcurl.CURL_SOCKET_TIMEOUT,
                               0, ct.byref(running_handles))
-    check_multi_info();
+    check_multi_info()
 
 
 @lcurl.multi_timer_callback
@@ -160,30 +161,31 @@ def cb_timeout(multi, timeout_ms, userp):
     else:
         if timeout_ms == 0:
             timeout_ms = 1  # 0 means call socket_action asap
-        tv = lcurl.timeval(tv_sec =(timeout_ms // 1000)       
+        tv = lcurl.timeval(tv_sec =(timeout_ms // 1000),
                            tv_usec=(timeout_ms %  1000) * 1000)
-        evtimer_del(timeout);
+        evtimer_del(timeout)
         evtimer_add(timeout, ct.byref(tv))
 
     return 0
 
 
 @lcurl.socket_callback
-def cb_socket(easy: ct.POINTER(lcurl.CURL), s: lcurl.socket_t, int action, void *userp, void *socketp) -> int:
+def cb_socket(easy, s, action, userp, socketp) -> int:
+    context_p = ct.cast(socketp, ct.POINTER(curl_context_t))
+    context = context_p.contents if context_p else None
 
     global mcurl
     global base
 
     events: int = 0
 
-    if action in (lcurl.CURL_POLL_IN:
-                  lcurl.CURL_POLL_OUT:
+    if action in (lcurl.CURL_POLL_IN,
+                  lcurl.CURL_POLL_OUT,
                   lcurl.CURL_POLL_INOUT):
 
-        curl_context = (ct.cast(socketp, ct.POINTER(curl_context_t))
-                        if socketp else create_curl_context(s))
+        context = context or create_curl_context(s)
 
-        lcurl.multi_assign(mcurl, s, (void *) curl_context)
+        lcurl.multi_assign(mcurl, s, ct.cast(ct.byref(context), ct.c_void_p))
 
         if action != lcurl.CURL_POLL_IN:
             events |= EV_WRITE
@@ -192,18 +194,16 @@ def cb_socket(easy: ct.POINTER(lcurl.CURL), s: lcurl.socket_t, int action, void 
 
         events |= EV_PERSIST
 
-        event_del(curl_context->event)
-        event_assign(curl_context->event, base, curl_context->sockfd,
-                     events, curl_perform, curl_context)
-        event_add(curl_context->event, None)
+        event_del(context.event)
+        event_assign(context.event, base, context.sockfd,
+                     events, curl_perform, ct.byref(context))
+        event_add(context.event, None)
 
     elif action == lcurl.CURL_POLL_REMOVE:
 
-        if socketp:
-            curl_context = ct.cast(socketp, ct.POINTER(curl_context_t))
-
-            event_del(curl_context->event)
-            destroy_curl_context(curl_context)
+        if context_p:
+            event_del(context.event)
+            destroy_curl_context(context)
             lcurl.multi_assign(mcurl, s, None)
 
     else:

@@ -26,6 +26,7 @@
 WebSockets data echos
 """
 
+import argparse
 import sys
 import ctypes as ct
 import time
@@ -35,178 +36,177 @@ from curl_utils import *  # noqa
 from utils import dump
 
 
-if not defined("CURL_DISABLE_WEBSOCKETS"):
+def send_binary(curl: ct.POINTER(lcurl.CURL),
+                buf: ct.POINTER(ct.c_char), buflen: int) -> lcurl.CURLcode:
 
-    def send_binary(curl: ct.POINTER(lcurl.CURL),
-                    char *buf, buflen: int) -> lcurl.CURLcode:
-
-        nwritten = ct.c_size_t()
-        lcurl.CURLcode result = lcurl.ws_send(curl, buf, buflen,
-                                              ct.byref(nwritten), 0,
-                                              lcurl.CURLWS_BINARY)
-        nwritten = nwritten.value
-        print("ws: send_binary(len=%d) -> %d, %d" %
-              (buflen, int(result), nwritten), file=sys.stderr)
-        return result
+    nwritten = ct.c_size_t()
+    result: lcurl.CURLcode = lcurl.ws_send(curl, buf, buflen,
+                                           ct.byref(nwritten), 0,
+                                           lcurl.CURLWS_BINARY)
+    nwritten = nwritten.value
+    print("ws: send_binary(len=%d) -> %d, %d" %
+          (buflen, int(result), nwritten), file=sys.stderr)
+    return result
 
 
-    def recv_binary(curl: ct.POINTER(lcurl.CURL),
-                    char *exp_data, exp_len: int) -> lcurl.CURLcode:
+def recv_binary(curl: ct.POINTER(lcurl.CURL),
+                exp_data: ct.POINTER(ct.c_char), exp_len: int) -> lcurl.CURLcode:
 
-        frame   = ct.POINTER(lcurl.ws_frame)()
-        recvbuf = (ct.c_char * 256)()
-      
-        print("recv_binary: expected payload %d bytes" % exp_len,
+    framep   = ct.POINTER(lcurl.ws_frame)()
+    recvbuf = (ct.c_char * 256)()
+
+    print("recv_binary: expected payload %d bytes" % exp_len,
+          file=sys.stderr)
+
+    r_offset: int = 0
+    while True:
+
+        nread = ct.c_size_t()
+        result:  lcurl.CURLcode = lcurl.ws_recv(curl, recvbuf, ct.sizeof(recvbuf),
+                                                ct.byref(nread), ct.byref(framep))
+        if result == lcurl.CURLE_AGAIN:
+            print("EAGAIN, sleep, try again", file=sys.stderr)
+            time.sleep(100 / 1000)
+            continue
+        nread = nread.value
+        frame = framep.contents
+
+        print("ws: curl_ws_recv(offset=%d, len=%d) -> %d, %d" %
+              (r_offset, ct.sizeof(recvbuf), int(result), nread),
               file=sys.stderr)
-
-        r_offset: int = 0
-        while True:
-
-            nread = ct.c_size_t()
-            result:  lcurl.CURLcode = lcurl.ws_recv(curl, recvbuf, ct.sizeof(recvbuf),
-                                                    ct.byref(nread), ct.byref(frame))
-            if result == lcurl.CURLE_AGAIN:
-                print("EAGAIN, sleep, try again", file=sys.stderr)
-                time.sleep(100 / 1000)
-                continue
-            nread = nread.value
-
-            print("ws: curl_ws_recv(offset=%d, len=%d) -> %d, %d" %
-                  (r_offset, ct.sizeof(recvbuf), int(result), nread),
+        if result != lcurl.CURLE_OK:
+            return result
+        if not (frame.flags & lcurl.CURLWS_BINARY):
+            print("recv_data: wrong frame, got %d bytes rflags %x" %
+                  (nread, frame.flags), file=sys.stderr)
+            return lcurl.CURLE_RECV_ERROR
+        if frame.offset != lcurl.off_t(r_offset).value:
+            print("recv_data: frame offset, expected %d, got %ld" %
+                  (r_offset, frame.offset), file=sys.stderr)
+            return lcurl.CURLE_RECV_ERROR
+        if frame.bytesleft != lcurl.off_t(exp_len - r_offset - nread).value:
+            print("recv_data: frame bytesleft, expected %d, got %ld" %
+                  (exp_len - r_offset - nread, frame.bytesleft),
                   file=sys.stderr)
-            if result != lcurl.CURLE_OK:
-                return result
-            if not (frame->flags & lcurl.CURLWS_BINARY):
-                print("recv_data: wrong frame, got %d bytes rflags %x" %
-                      (nread, frame->flags), file=sys.stderr)
-                return lcurl.CURLE_RECV_ERROR
-            if frame->offset != lcurl.off_t(r_offset).value:
-                print("recv_data: frame offset, expected %d, got %ld" %
-                      (r_offset, (long)frame->offset), file=sys.stderr)
-                return lcurl.CURLE_RECV_ERROR
-            if frame->bytesleft != lcurl.off_t(exp_len - r_offset - nread).value:
-                print("recv_data: frame bytesleft, expected %d, got %ld" %
-                      (exp_len - r_offset - nread, (long)frame->bytesleft),
-                      file=sys.stderr)
-                return lcurl.CURLE_RECV_ERROR
-            if r_offset + nread > exp_len:
-                print("recv_data: data length, expected %d, now at %d" %
-                      (exp_len, r_offset + nread), file=sys.stderr)
-                return lcurl.CURLE_RECV_ERROR
-            if memcmp(exp_data + r_offset, recvbuf, nread):
-                print("recv_data: data differs, offset=%d, len=%d" %
-                      (r_offset, nread), file=sys.stderr)
-                dump("expected:", (unsigned char *)exp_data + r_offset, nread, 0);
-                dump("received:", (unsigned char *)recvbuf, nread, 0);
-                return lcurl.CURLE_RECV_ERROR
-          
-            r_offset += nread;
-            if r_offset >= exp_len:
-                print("recv_data: frame complete", file=sys.stderr)
-                break
-      
-        return lcurl.CURLE_OK
+            return lcurl.CURLE_RECV_ERROR
+        if r_offset + nread > exp_len:
+            print("recv_data: data length, expected %d, now at %d" %
+                  (exp_len, r_offset + nread), file=sys.stderr)
+            return lcurl.CURLE_RECV_ERROR
+        if memcmp(exp_data + r_offset, recvbuf, nread):
+            print("recv_data: data differs, offset=%d, len=%d" %
+                  (r_offset, nread), file=sys.stderr)
+            dump("expected:", (unsigned char *)exp_data + r_offset, nread, False, sys.stderr)
+            dump("received:", (unsigned char *)recvbuf,             nread, False, sys.stderr)
+            return lcurl.CURLE_RECV_ERROR
+
+        r_offset += nread
+        if r_offset >= exp_len:
+            print("recv_data: frame complete", file=sys.stderr)
+            break
+
+    return lcurl.CURLE_OK
 
 
-    def websocket_close(curl: ct.POINTER(lcurl.CURL)):
-        # just close the connection
-        sent = ct.c_size_t()
-        result: lcurl.CURLcode = lcurl.ws_send(curl, b"", 0,
-                                               ct.byref(sent), 0,
-                                               lcurl.CURLWS_CLOSE)
-        sent = sent.value
-        print("ws: curl_ws_send returned %u, sent %u" %
-              (int(result), sent), file=sys.stderr)
+def websocket_close(curl: ct.POINTER(lcurl.CURL)):
+    # just close the connection
+    sent = ct.c_size_t()
+    result: lcurl.CURLcode = lcurl.ws_send(curl, b"", 0,
+                                           ct.byref(sent), 0,
+                                           lcurl.CURLWS_CLOSE)
+    sent = sent.value
+    print("ws: curl_ws_send returned %u, sent %u" %
+          (int(result), sent), file=sys.stderr)
 
 
-    def data_echo(curl: ct.POINTER(lcurl.CURL),
-                  plen_min: int, plen_max: int) -> lcurl.CURLcode:
+def data_echo(curl: ct.POINTER(lcurl.CURL),
+              plen_min: int, plen_max: int) -> lcurl.CURLcode:
 
-        res: lcurl.CURLcode = lcurl.CURLE_OK
+    res: lcurl.CURLcode = lcurl.CURLE_OK
 
-        send_buf = (ct.c_char * plen_max)()
-        if not send_buf:
-            return lcurl.CURLE_OUT_OF_MEMORY
-        for i in range(plen_max):
-            send_buf[i] = bytes([ord("0") + (i % 10)])
+    send_buf = (ct.c_char * plen_max)()
+    if not send_buf:
+        return lcurl.CURLE_OUT_OF_MEMORY
+    for i in range(plen_max):
+        send_buf[i] = bytes([ord("0") + (i % 10)])
 
-        for plen in range(plen_min, plen_max + 1):
-            res = send_binary(curl, send_buf, plen)
-            if res != lcurl.CURLE_OK:
-                break
-            res = recv_binary(curl, send_buf, plen)
-            if res != lcurl.CURLE_OK:
-                print("recv_data(len=%d) -> %d" % (plen, int(res)),
-                      file=sys.stderr)
-                break
-
-        if res == lcurl.CURLE_OK:
-            websocket_close(curl)
-        del send_buf
-
-        return res
-
-# endif
-
-
-if not defined("CURL_DISABLE_WEBSOCKETS"):
-
-    def main(argv=sys.argv[1:]) -> int:
-
-        res: lcurl.CURLcode = lcurl.CURLE_OK
-
-        if len(argv) != 3:
-            print("usage: ws-data url minlen maxlen", file=sys.stderr)
-            return 2
-
-        url: str      = argv[0]
-        plen_min: int = int(argv[1])
-        plen_max: int = int(argv[2])
-
-        if plen_min < 0:
-            print("minlen must be >= 0, got %d" % plen_min, file=sys.stderr)
-            return 2
-
-        if plen_max < 0:
-            print("maxlen must be >= 0, got %d" % plen_max, file=sys.stderr)
-            return 2
-
-        if plen_max < plen_min:
-            print("maxlen must be >= minlen, got %d-%d" % (plen_min, plen_max),
+    for plen in range(plen_min, plen_max + 1):
+        res = send_binary(curl, send_buf, plen)
+        if res != lcurl.CURLE_OK:
+            break
+        res = recv_binary(curl, send_buf, plen)
+        if res != lcurl.CURLE_OK:
+            print("recv_data(len=%d) -> %d" % (plen, int(res)),
                   file=sys.stderr)
-            return 2
+            break
 
-        lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
+    if res == lcurl.CURLE_OK:
+        websocket_close(curl)
+    del send_buf
 
-        curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
-        if not curl:
-            lcurl.global_cleanup()
-            return int(res)  # !!! tu raczej blad a nie sukces !!!
+    return res
 
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
-        # use the callback style
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT, b"ws-data")
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_CONNECT_ONLY, 2)  # websocket style
 
-        res = lcurl.easy_perform(curl)
-        print("curl_easy_perform() returned %u" % int(res), file=sys.stderr)
-        if res == lcurl.CURLE_OK:
-            res = data_echo(curl, plen_min, plen_max)
+def main(argv=sys.argv[1:]) -> int:
+    app_name = sys.argv[0].rpartition("/")[2].rpartition("\\")[2]
 
-        # always cleanup
-        lcurl.easy_cleanup(curl)
-        lcurl.global_cleanup()
-
-        return int(res)
-
-else:  # defined("CURL_DISABLE_WEBSOCKETS"):
-
-    def main(argv=sys.argv[1:]) -> int:
+    if defined("CURL_DISABLE_WEBSOCKETS") and CURL_DISABLE_WEBSOCKETS:
         print("WebSockets not enabled in libcurl", file=sys.stderr)
         return 1
+    # endif
 
-# endif
+    if len(argv) != 3:
+        print(f"usage: python {app_name} url minlen maxlen", file=sys.stderr)
+        return 2
+
+    parser = argparse.ArgumentParser(prog=f"python {app_name}")
+    parser.add_argument("url")
+    parser.add_argument("minlen", type=int)
+    parser.add_argument("maxlen", type=int)
+    args = parser.parse_args(argv)
+
+    url:      str = args.url
+    plen_min: int = args.minlen
+    plen_max: int = args.maxlen
+
+    if plen_min < 0:
+        print("minlen must be >= 0, got %d" % plen_min, file=sys.stderr)
+        return 2
+
+    if plen_max < 0:
+        print("maxlen must be >= 0, got %d" % plen_max, file=sys.stderr)
+        return 2
+
+    if plen_max < plen_min:
+        print("maxlen must be >= minlen, got %d-%d" % (plen_min, plen_max),
+              file=sys.stderr)
+        return 2
+
+    res: lcurl.CURLcode = lcurl.CURLE_OK
+
+    lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
+
+    curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
+    if not curl:
+        lcurl.global_cleanup()
+        return int(res)  # !!! tu raczej blad a nie sukces !!!
+
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
+    # use the callback style
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT, b"ws-data")
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
+    lcurl.easy_setopt(curl, lcurl.CURLOPT_CONNECT_ONLY, 2)  # websocket style
+
+    res = lcurl.easy_perform(curl)
+    print("curl_easy_perform() returned %u" % int(res), file=sys.stderr)
+    if res == lcurl.CURLE_OK:
+        res = data_echo(curl, plen_min, plen_max)
+
+    # always cleanup
+    lcurl.easy_cleanup(curl)
+    lcurl.global_cleanup()
+
+    return int(res)
 
 
 if __name__ == "__main__":

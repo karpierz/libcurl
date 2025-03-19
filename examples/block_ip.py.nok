@@ -76,22 +76,22 @@ class connection_filter(ct.Structure):
         ("ipv6_v6only", ct.c_int)])
 
 
-def ip_list_append(list: ct.POINTER(ip_struct),
+def ip_list_append(ip_list: ct.POINTER(ip_struct),
                    data: bytes) -> ct.POINTER(ip_struct):
+
+    if data is None:
+        return ct.POINTER(ip_struct)()
 
     ip_obj = ip_struct()
 
     if b":" in data:
-        if hasattr(socket, "AF_INET6"):
-            ip_obj.family = socket.AF_INET6
-        else:
+        if not hasattr(socket, "AF_INET6"):
             return ct.POINTER(ip_struct)()
+        ip_obj.family = socket.AF_INET6
     else:
         ip_obj.family = socket.AF_INET
 
     ip_obj.str = data
-    if data is None:
-        return ct.POINTER(ip_struct)()
 
     # determine the number of bits that this IP will match against
 
@@ -113,22 +113,22 @@ def ip_list_append(list: ct.POINTER(ip_struct),
     try:
         print("################", type(ip_str), ip_str)  # !!!
         address = socket.inet_pton(ip_obj.family, ip_str.decode("utf-8"))
+        ct.memset(ct.byref(ip_obj.netaddr), 0, ct.sizeof(ip_obj.netaddr))
         ct.memmove(ct.byref(ip_obj.netaddr), address, len(address))
-        print("###### 00 ######", ip_obj.netaddr)
+        print("###### 00 ######", ip_obj.netaddr, address)
         print("######    ######")
     except:  # socket.error:
         ip_obj.str = None
         return ct.POINTER(ip_struct)()
 
-    if not list:
-        return ct.pointer(ip_obj)
-
-    last: ct.POINTER(ip_struct) = list
-    while last.contents.next:
-        last = last.contents.next
-    last.contents.next = ct.pointer(ip_obj)
-
-    return list
+    if not ip_list:
+        ip_list = ct.pointer(ip_obj)
+    else:
+        last: ct.POINTER(ip_struct) = ip_list
+        while last.contents.next:
+            last = last.contents.next
+        last.contents.next = ct.pointer(ip_obj)
+    return ip_list
 
 
 def free_connection_filter(filter: connection_filter):
@@ -148,12 +148,12 @@ def ip_match(ip: ip_struct, netaddr: ct.c_void_p) -> bool:
     x = ct.cast(ct.byref(ip.netaddr), ct.POINTER(ct.c_ubyte))
     y = ct.cast(netaddr, ct.POINTER(ct.c_ubyte))
     i: int = 0
-    bytes: int = ip.maskbits // 8
-    while bytes:
+    nbytes: int = ip.maskbits // 8
+    while nbytes:
         i += 1
         if x[i - 1] != y[i - 1]:
             return False
-        bytes -= 1
+        nbytes -= 1
     tailbits: int = ip.maskbits % 8
     if tailbits:
         tailmask = ct.c_ubyte((0xFF << (8 - tailbits)) & 0xFF).value
@@ -186,35 +186,43 @@ def open_socket(clientp, purpose, address) -> lcurl.socket_t:
     if purpose == lcurl.CURLSOCKTYPE_IPCXN:
         cinaddr = ct.c_void_p(None)
         if address.family == socket.AF_INET:
-            cinaddr = ct.cast(ct.byref(ct.cast(ct.byref(address.addr),
-                                               ct.POINTER(sockaddr_in)).contents.sin_addr), ct.c_void_p)
+            sin_addr = ct.cast(ct.byref(address.addr),
+                               ct.POINTER(sockaddr_in)).contents.sin_addr
+            cinaddr = ct.pointer(sin_addr)
+            cinaddr_bin = bytes(ct.cast(cinaddr,
+                                        ct.POINTER(ct.c_ubyte))[0:ct.sizeof(sin_addr)])
         elif hasattr(socket, "AF_INET6") and address.family == socket.AF_INET6:
-            cinaddr = ct.cast(ct.byref(ct.cast(ct.byref(address.addr),
-                                               ct.POINTER(sockaddr_in6)).contents.sin6_addr), ct.c_void_p)
+            sin6_addr = ct.cast(ct.byref(address.addr),
+                                ct.POINTER(sockaddr_in6)).contents.sin6_addr
+            cinaddr = ct.pointer(sin6_addr)
+            cinaddr_bin = bytes(ct.cast(cinaddr,
+                                        ct.POINTER(ct.c_ubyte))[0:ct.sizeof(sin6_addr)])
         if cinaddr:
+            cinaddr = ct.cast(cinaddr, ct.c_void_p)
             mapped = (hasattr(socket, "AF_INET6") and not filter.ipv6_v6only
                       and is_ipv4_mapped_ipv6_address(address.family, cinaddr))
             ip: ct.POINTER(ip_struct) = filter.list
             while ip:
                 ip = ip.contents
+                print("$$$$$$$$$$$$$$$$$$$$", ip.str, cinaddr_bin)
                 if ip.family == address.family and ip_match(ip, cinaddr):
                     break
                 if (hasattr(socket, "AF_INET6") and  mapped and
                     ip.family == socket.AF_INET and
                     address.family == socket.AF_INET6 and
-                    ip_match(ip, ct.cast(cinaddr, ct.POINTER(ct.c_ubyte)) + 12)):
+                    ip_match(ip, ct.c_void_p(cinaddr.value + 12))):
                     break
                 ip = ip.next
 
             if ip and filter.type == CONNECTION_FILTER.BLACKLIST:
                 if filter.verbose:
-                    cinaddr_str = socket.inet_ntop(address.family, ct.cast(cinaddr, ct.c_char_p).value)
+                    cinaddr_str = socket.inet_ntop(address.family, cinaddr_bin)
                     print("* Rejecting IP %s due to blacklist entry %s." %
                           (cinaddr_str, ip.str.decode("utf-8")), file=sys.stderr)
                 return lcurl.CURL_SOCKET_BAD
             elif not ip and filter.type == CONNECTION_FILTER.WHITELIST:
                 if filter.verbose:
-                    cinaddr_str = socket.inet_ntop(address.family, ct.cast(cinaddr, ct.c_char_p).value)
+                    cinaddr_str = socket.inet_ntop(address.family, cinaddr_bin)
                     print("* Rejecting IP %s due to missing whitelist entry." %
                           cinaddr_str, file=sys.stderr)
                 return lcurl.CURL_SOCKET_BAD

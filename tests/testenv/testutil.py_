@@ -191,10 +191,13 @@ def runclientoutput(cmd: str) -> str:
 def shell_quote(s: str) -> str:
     # Quote an argument for passing safely to a Bourne shell
     # This does the same thing as String::ShellQuote but doesn't need a package.
-    if s !~ m/^[-+=.,_\/:a-zA-Z0-9]+$/:
-        # string contains a "dangerous" character--quote it
-        s =~ s/'/'"'"'/g;
-        s = f"'{s}'"
+    if $^O eq 'MSWin32':
+        s = f'"{s}"'
+    else:
+        if s !~ m/^[-+=.,_\/:a-zA-Z0-9]+$/:
+            # string contains a "dangerous" character--quote it
+            s =~ s/'/'"'"'/g
+            s = f"'{s}'"
     return s
 
 
