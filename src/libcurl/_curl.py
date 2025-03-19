@@ -2877,7 +2877,7 @@ try:  # libcurl >= ?.?.?
         ct.c_char_p)(
         ("curl_global_trace", dll), (
         (1, "config"),))
-except: pass  # noqa: E722
+except: pass  # noqa: E722 # pragma: no cover
 
 # NAME curl_global_sslset()
 #
@@ -3413,7 +3413,7 @@ try:  # libcurl >= 8.12.1
         (1, "shmac_len"),
         (1, "sdata"),
         (1, "sdata_len"),))
-except: pass  # noqa: E722
+except: pass  # noqa: E722 # pragma: no cover
 
 # This is the curl_ssls_export_cb callback prototype. It
 # is passed to curl_easy_ssls_export() to extract SSL sessions/tickets.
@@ -3447,7 +3447,7 @@ try:  # libcurl >= 8.12.1
         (1, "handle"),
         (1, "export_fn"),
         (1, "userptr"),))
-except: pass  # noqa: E722
+except: pass  # noqa: E722 # pragma: no cover
 
 # Addons & utils
 

@@ -517,7 +517,7 @@ try:  # libcurl >= ?.?.?
         ct.POINTER(CURLM))(
         ("curl_multi_get_handles", dll), (
         (1, "multi_handle"),))
-except: pass  # noqa: E722
+except: pass  # noqa: E722 # pragma: no cover
 
 # Name: curl_push_callback
 #
@@ -574,7 +574,7 @@ try:  # libcurl >= ?.?.?
         (1, "ufds"),
         (1, "size"),
         (1, "fd_count"),))
-except: pass  # noqa: E722
+except: pass  # noqa: E722 # pragma: no cover
 
 # Name:    select()
 #
