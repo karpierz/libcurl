@@ -586,7 +586,7 @@ except: pass  # noqa: E722
 #          small write(2)) without blocking.
 #
 # Returns: On success, return the number of file descriptors contained in the
-#          three returned descriptor sets (that is, the total number of bits 
+#          three returned descriptor sets (that is, the total number of bits
 #          that are set in readfds, writefds, exceptfds).  The return value
 #          may be zero if the timeout expired before any file descriptors
 #          became ready. On error, -1 is returned, and the file descriptor

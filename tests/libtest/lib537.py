@@ -136,7 +136,7 @@ else:
         if rl.rlim_cur > LIMIT_CAP:
             print("soft limit above %ld, not running" % LIMIT_CAP, file=sys.stderr)
             return -2
-        
+
         # if soft limit and hard limit are different we ask the
         # system to raise soft limit all the way up to the hard
         # limit. Due to some other system limit the soft limit

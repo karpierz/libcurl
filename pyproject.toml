@@ -196,7 +196,7 @@ requires = [
     'tox-backtick>=0.5.9',
 ]
 [tool.tox.labels]
-py = ['py39','py310','py311','py312','py313', 'pypy39','pypy310']
+py = ['py39','py310','py311','py312','py313', 'pypy310','pypy311']
 prepare  = ['prepare']
 coverage = ['coverage']
 lint = ['lint']

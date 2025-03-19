@@ -1320,7 +1320,7 @@ def setget_parts() -> int:
 
     for setget_parts_item in setget_parts_list:
         if error: break
-        
+
         urlp: ct.POINTER(lcurl.CURLU) = lcurl.url()
         if not urlp:
             error += 1
@@ -1489,11 +1489,11 @@ append_list = [
     querycase(b"HTTP://test/?size=2#f", b"name=joe doe", b"http://test/?size=2&name=joe+doe#f",
               0, lcurl.CURLU_URLENCODE, lcurl.CURLUE_OK),
     querycase(b"HTTP://test/",          b"name=joe",     b"http://test/?name=joe",
-              0, 0, lcurl.CURLUE_OK),                   
+              0, 0, lcurl.CURLUE_OK),
     querycase(b"HTTP://test/?size=2",   b"name=joe",     b"http://test/?size=2&name=joe",
-              0, 0, lcurl.CURLUE_OK),                   
+              0, 0, lcurl.CURLUE_OK),
     querycase(b"HTTP://test/?size=2&",  b"name=joe",     b"http://test/?size=2&name=joe",
-              0, 0, lcurl.CURLUE_OK),                   
+              0, 0, lcurl.CURLUE_OK),
     querycase(b"HTTP://test/?size=2#f", b"name=joe",     b"http://test/?size=2&name=joe#f",
               0, 0, lcurl.CURLUE_OK),
 ]

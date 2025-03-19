@@ -92,7 +92,7 @@ def progress_callback(clientp, dltotal, dlnow, ultotal, ulnow):
 
     if started and ulnow <= 0.0 and last_ul:
         progress_final_report()
- 
+
     last_ul       = int(ulnow)
     last_ul_total = int(ultotal)
     if not started:
