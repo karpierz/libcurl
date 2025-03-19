@@ -5,8 +5,8 @@ Changelog
 -----------------------
 - Add support for Python 3.12 and 3.13
 - Drop support for Python 3.7 and 3.8
-- Add support for PyPy 3.10
-- Drop support for PyPy 3.7 and 3.8
+- Add support for PyPy 3.10 and 3.11
+- Drop support for PyPy 3.7, 3.8 and 3.9
 - Upgrade: libcurl v.7.84.0 -> v.8.12.1
 - Bugfix for type of version_info_data.feature_names.
 - Bugfix for write_to_fd.
@@ -18,6 +18,7 @@ Changelog
   | and now based on tox >= 4.0
 - Many bugs fixed.
 - Copyright year update.
+- 100% code linting.
 - Cleanup.
 - Setup (dependencies) update.
 
