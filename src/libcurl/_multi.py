@@ -598,21 +598,21 @@ except: pass  # noqa: E722
 def select(nfds, readfds, writefds, exceptfds, timeout):
 
     if nfds < 0:
-        #SET_SOCKERRNO(EINVAL) # !!!
+        # SET_SOCKERRNO(EINVAL) # !!!
         return -1
 
-    if is_windows and (nfds == 0 or
-        ((not readfds   or readfds.contents.fd_count   == 0) and
-         (not writefds  or writefds.contents.fd_count  == 0) and
-         (not exceptfds or exceptfds.contents.fd_count == 0))):
+    if is_windows and (nfds == 0
+       or ((not readfds   or readfds.contents.fd_count   == 0)
+       and (not writefds  or writefds.contents.fd_count  == 0)
+       and (not exceptfds or exceptfds.contents.fd_count == 0))):
         # Winsock select() requires that at least one of the three fd_set
         # pointers is not NULL and points to a non-empty fdset. IOW Winsock
         # select() can not be used to sleep without a single fd_set.
         if not timeout:
             timeout_sec = None
         else:
-            timeout_sec = (timeout.contents.tv_sec +
-                           timeout.contents.tv_usec / 1_000_000)
+            timeout_sec = (timeout.contents.tv_sec
+                           + timeout.contents.tv_usec / 1_000_000)
         _time.sleep(timeout_sec or 0)
         return 0
 
@@ -624,7 +624,7 @@ def select(nfds, readfds, writefds, exceptfds, timeout):
 def py_select(nfds, readfds, writefds, exceptfds, timeout):
 
     if nfds < 0:
-        #SET_SOCKERRNO(EINVAL) # !!!
+        # SET_SOCKERRNO(EINVAL) # !!!
         return -1
 
     if not timeout:
@@ -633,10 +633,10 @@ def py_select(nfds, readfds, writefds, exceptfds, timeout):
         timeout = timeout.contents
         timeout = timeout.tv_sec + timeout.tv_usec / 1_000_000
 
-    if is_windows and (nfds == 0 or
-        ((not readfds   or readfds.contents.fd_count   == 0) and
-         (not writefds  or writefds.contents.fd_count  == 0) and
-         (not exceptfds or exceptfds.contents.fd_count == 0))):
+    if is_windows and (nfds == 0
+       or ((not readfds   or readfds.contents.fd_count   == 0)
+       and (not writefds  or writefds.contents.fd_count  == 0)
+       and (not exceptfds or exceptfds.contents.fd_count == 0))):
         # Winsock select() requires that at least one of the three fd_set
         # pointers is not NULL and points to a non-empty fdset. IOW Winsock
         # select() can not be used to sleep without a single fd_set.
@@ -648,7 +648,7 @@ def py_select(nfds, readfds, writefds, exceptfds, timeout):
                                         _extract_sockets_from_fd_set(writefds),
                                         _extract_sockets_from_fd_set(exceptfds),
                                         timeout)
-    except OSError as exc:
+    except OSError:
         return -1
     return len(infd) + len(outfd) + len(errfd)
 
