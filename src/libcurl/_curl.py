@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305,E722,F401
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 
@@ -93,6 +95,14 @@ CURLSSLBACKEND_LIBRESSL  = CURLSSLBACKEND_OPENSSL
 # deprecated names:
 CURLSSLBACKEND_CYASSL    = CURLSSLBACKEND_WOLFSSL
 CURLSSLBACKEND_DARWINSSL = CURLSSLBACKEND_SECURETRANSPORT
+
+# bits for the CURLOPT_FOLLOWLOCATION option
+CURLFOLLOW_ALL       = 1  # generic follow redirects
+# Do not use the custom method in the follow-up request if the HTTP code
+# instructs so (301, 302, 303).
+CURLFOLLOW_OBEYCODE  = 2
+# Only use the custom method in the first request, always reset in the next
+CURLFOLLOW_FIRSTONLY = 3
 
 class httppost(ct.Structure): pass
 httppost._fields_ = [
@@ -580,9 +590,22 @@ CURLcode = ct.c_int
     CURLE_UNRECOVERABLE_POLL,        # 99 - poll/select returned fatal error
     CURLE_TOO_LARGE,                 # 100 - a value/data met its maximum
     CURLE_ECH_REQUIRED,              # 101 - ECH tried but failed
-    CURL_LAST  # never use!
+    CURL_LAST,  # never use!
 
-) = range(0, 103)
+    CURLE_RESERVED115,               # 115-126 - used in tests
+    CURLE_RESERVED116,
+    CURLE_RESERVED117,
+    CURLE_RESERVED118,
+    CURLE_RESERVED119,
+    CURLE_RESERVED120,
+    CURLE_RESERVED121,
+    CURLE_RESERVED122,
+    CURLE_RESERVED123,
+    CURLE_RESERVED124,
+    CURLE_RESERVED125,
+    CURLE_RESERVED126,
+
+) = tuple(range(0, 103)) + tuple(range(115, 127))
 
 # CURLcode OLDIES section moved at the eof
 
@@ -767,7 +790,7 @@ sshhostkeycallback = CFUNC(ct.c_int,   # return CURLE_OK to accept or something 
     ct.c_size_t)             # keylen  # length of the key
 
 # parameter for the CURLOPT_USE_SSL option
-usessl = ct.c_int
+usessl = ct.c_long
 (
     CURLUSESSL_NONE,     # do not attempt to use SSL
     CURLUSESSL_TRY,      # try using SSL, proceed anyway otherwise
@@ -873,6 +896,13 @@ CURLALTSVC_READONLYFILE = (1 << 2)
 CURLALTSVC_H1           = (1 << 3)
 CURLALTSVC_H2           = (1 << 4)
 CURLALTSVC_H3           = (1 << 5)
+
+# bitmask values for CURLOPT_UPLOAD_FLAGS
+CURLULFLAG_ANSWERED = (1 << 0)
+CURLULFLAG_DELETED  = (1 << 1)
+CURLULFLAG_DRAFT    = (1 << 2)
+CURLULFLAG_FLAGGED  = (1 << 3)
+CURLULFLAG_SEEN     = (1 << 4)
 
 class hstsentry(ct.Structure):
     _fields_ = [
@@ -1190,7 +1220,7 @@ if 1:  # enum
 
     # Set the krb4/5 security level, this also enables krb4/5 awareness. This
     # is a string, 'clear', 'safe', 'confidential' or 'private'. If the string
-    # is set but does not match one of these, 'private' will be used.  */
+    # is set but does not match one of these, 'private' will be used.
     CURLOPT_KRBLEVEL = CURLOPTTYPE_STRINGPOINT + 63
 
     # Set if we should verify the peer in ssl handshake, set 1 to verify.
@@ -1948,7 +1978,7 @@ if 1:  # enum
     # pointer to be passed to HTTP_TRAILER_FUNCTION
     CURLOPT_TRAILERDATA = CURLOPTTYPE_CBPOINT + 284
 
-    # set this to 1L to allow HTTP/0.9 responses or 0L to disallow
+    # set this to 1 to allow HTTP/0.9 responses or 0 to disallow
     CURLOPT_HTTP09_ALLOWED = CURLOPTTYPE_LONG + 285
 
     # alt-svc control bitmask
@@ -2070,7 +2100,12 @@ if 1:  # enum
     # maximum number of keepalive probes (Linux, *BSD, macOS, etc.)
     CURLOPT_TCP_KEEPCNT = CURLOPTTYPE_LONG + 326
 
-    CURLOPT_LASTENTRY = CURLOPT_TCP_KEEPCNT + 1  # the last unused
+    CURLOPT_UPLOAD_FLAGS = CURLOPTTYPE_LONG + 327
+
+    # set TLS supported signature algorithms
+    CURLOPT_SSL_SIGNATURE_ALGORITHMS = CURLOPTTYPE_STRINGPOINT + 328
+
+    CURLOPT_LASTENTRY = CURLOPT_SSL_SIGNATURE_ALGORITHMS + 1  # the last unused
 # end enum CURLoption
 
 # CURLoption OLDIES section moved at the eof
@@ -2253,7 +2288,7 @@ CURL_HTTP_VERSION_2 = CURL_HTTP_VERSION_2_0
 #
 
 (
-    CURL_RTSPREQ_NONE,  # first in list
+    CURL_RTSPREQ_NONE,
     CURL_RTSPREQ_OPTIONS,
     CURL_RTSPREQ_DESCRIBE,
     CURL_RTSPREQ_ANNOUNCE,
@@ -2265,12 +2300,12 @@ CURL_HTTP_VERSION_2 = CURL_HTTP_VERSION_2_0
     CURL_RTSPREQ_SET_PARAMETER,
     CURL_RTSPREQ_RECORD,
     CURL_RTSPREQ_RECEIVE,
-    CURL_RTSPREQ_LAST  # last in list
+    CURL_RTSPREQ_LAST  # not used
 
 ) = range(13)
 
 # These enums are for use with the CURLOPT_NETRC option.
-CURL_NETRC_OPTION = ct.c_int
+CURL_NETRC_OPTION = ct.c_long
 (
     CURL_NETRC_IGNORED,   # The .netrc will never be read.
                           # This is the default.
@@ -2304,7 +2339,7 @@ CURL_SSLVERSION_MAX_TLSv1_3 = (CURL_SSLVERSION_TLSv1_3 << 16)
 # never use, keep last
 CURL_SSLVERSION_MAX_LAST    = (CURL_SSLVERSION_LAST    << 16)
 
-CURL_TLSAUTH = ct.c_int
+CURL_TLSAUTH = ct.c_long
 (
     CURL_TLSAUTH_NONE,
     CURL_TLSAUTH_SRP,
@@ -2323,7 +2358,7 @@ CURL_REDIR_POST_302 = 2
 CURL_REDIR_POST_303 = 4
 CURL_REDIR_POST_ALL = (CURL_REDIR_POST_301 | CURL_REDIR_POST_302 | CURL_REDIR_POST_303)
 
-TimeCond = ct.c_int
+TimeCond = ct.c_long
 (
     CURL_TIMECOND_NONE,
 
@@ -2877,7 +2912,7 @@ try:  # libcurl >= ?.?.?
         ct.c_char_p)(
         ("curl_global_trace", dll), (
         (1, "config"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # NAME curl_global_sslset()
 #
@@ -2888,17 +2923,17 @@ except: pass  # noqa: E722 # pragma: no cover
 # *before* curl_global_init().
 #
 # The backend can be identified by the id (e.g. CURLSSLBACKEND_OPENSSL). The
-# backend can also be specified via the name parameter (passing -1 as id).
-# If both id and name are specified, the name will be ignored. If neither id
-# nor name are specified, the function will fail with
-# CURLSSLSET_UNKNOWN_BACKEND and set the "avail" pointer to the
-# NULL-terminated list of available backends.
+# backend can also be specified via the name parameter (passing -1 as id). If
+# both id and name are specified, the name will be ignored. If neither id nor
+# name are specified, the function will fail with CURLSSLSET_UNKNOWN_BACKEND
+# and set the "avail" pointer to the NULL-terminated list of available
+# backends.
 #
 # Upon success, the function returns CURLSSLSET_OK.
 #
 # If the specified SSL backend is not available, the function returns
-# CURLSSLSET_UNKNOWN_BACKEND and sets the "avail" pointer to a NULL-terminated
-# list of available SSL backends.
+# CURLSSLSET_UNKNOWN_BACKEND and sets the "avail" pointer to a
+# NULL-terminated list of available SSL backends.
 #
 # The SSL backend can be set only once. If it has already been set, a
 # subsequent attempt to change it will result in a CURLSSLSET_TOO_LATE.
@@ -3413,7 +3448,7 @@ try:  # libcurl >= 8.12.1
         (1, "shmac_len"),
         (1, "sdata"),
         (1, "sdata_len"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # This is the curl_ssls_export_cb callback prototype. It
 # is passed to curl_easy_ssls_export() to extract SSL sessions/tickets.
@@ -3447,7 +3482,7 @@ try:  # libcurl >= 8.12.1
         (1, "handle"),
         (1, "export_fn"),
         (1, "userptr"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # Addons & utils
 

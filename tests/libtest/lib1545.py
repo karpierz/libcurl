@@ -45,7 +45,6 @@ def test(URL: str) -> lcurl.CURLcode:
         formpost: ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
         lastptr:  ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
 
-        # CURL_IGNORE_DEPRECATION(
         fields = (lcurl.forms * 3)()
         fields[0].option = lcurl.CURLFORM_COPYNAME
         fields[0].value  = b"file"
@@ -56,13 +55,10 @@ def test(URL: str) -> lcurl.CURLcode:
 
         easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTPPOST, formpost)
-        # )
 
         lcurl.easy_perform(curl)
         lcurl.easy_perform(curl)
 
-        # CURL_IGNORE_DEPRECATION(
         lcurl.formfree(formpost)
-        # )
 
     return res

@@ -84,7 +84,7 @@ def test(URL: str) -> lcurl.CURLcode:
                                   (exc.errno, exc.strerror), file=sys.stderr)
                             res = TEST_ERR_FAILURE
                             break
-                        if real_nread != nread:
+                        if real_nread != nread:  # pragma: no cover
                             print("write() failed: wrote %d bytes, should be %d" %
                                   (real_nread, nread), file=sys.stderr)
                             res = TEST_ERR_FAILURE
@@ -94,16 +94,11 @@ def test(URL: str) -> lcurl.CURLcode:
                     if res != lcurl.CURLE_OK or nread == 0:
                         break
 
-                if res and res != lcurl.CURLE_AGAIN:
+                if res and res != lcurl.CURLE_AGAIN:  # pragma: no cover
                     res = TEST_ERR_FAILURE
 
             transfers += 1
 
-            if defined("LIB696"):
-                # perform the transfer a second time
-                if not res and transfers < 2:
-                     continue
-            # endif
             break
 
     return res

@@ -9,7 +9,7 @@
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at https://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -48,12 +48,12 @@ def test(URL: str, AWS_login: str = "xxx") -> lcurl.CURLcode:
                           AWS_login.encode("utf-8") if AWS_login else None)
         list: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                               b"Content-Type: application/json")
-        if not list: return lcurl.CURLE_FAILED_INIT
+        if not list: return lcurl.CURLE_FAILED_INIT  # pragma: no branch
         tmp: ct.POINTER(lcurl.slist) = lcurl.slist_append(list,
                                              b"X-Xxx-Date: 19700101T000000Z")
         if tmp: list = tmp
         guard.add_slist(list)
-        if not list: return lcurl.CURLE_FAILED_INIT
+        if not list: return lcurl.CURLE_FAILED_INIT  # pragma: no branch
 
         easy_setopt(curl, lcurl.CURLOPT_HTTPHEADER, list)
 

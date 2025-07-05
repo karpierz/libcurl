@@ -40,7 +40,8 @@ def read_callback(buffer, size, nitems, stream):
     global consumed
     amount = nitems * size  # Total bytes curl wants
     data_size = len(testdata)
-    if consumed == data_size: return 0
+    if consumed == data_size:
+        return 0  # pragma: no cover
     if amount > data_size - consumed:
         amount = data_size
     consumed += amount
@@ -82,7 +83,7 @@ def test(URL: str) -> lcurl.CURLcode:
         hhl: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                              b"Trailer: my-super-awesome-trailer,"
                                              b" my-other-awesome-trailer")
-        if not hhl: return res
+        if not hhl: raise guard.Break
         guard.add_slist(hhl)
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))

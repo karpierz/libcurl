@@ -91,9 +91,10 @@ def main(argv=sys.argv[1:]):
 
         # Find out which handle this message is about
         for idx, curl in enumerate(curl_handles):
-            found = (id(msg.easy_handle.contents) == id(curl.contents))
+            found = (msg.easy_handle == curl)
             if found: break
-        else: idx = len(curl_handles)
+        else:
+            idx = len(curl_handles)
 
         if idx == HTTP_HANDLE:
             print("HTTP transfer completed with status %d" % msg.data.result)
@@ -112,4 +113,5 @@ def main(argv=sys.argv[1:]):
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

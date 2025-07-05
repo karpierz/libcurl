@@ -50,12 +50,12 @@ def test(URL: str) -> lcurl.CURLcode:
 
         filetime = ct.c_long(-1)
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_FILETIME, ct.byref(filetime))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if filetime.value != -1:
+        if filetime.value != -1:  # pragma: no cover
             print("%s:%d filetime init failed; expected -1 but is %ld" %
                   (current_file(), current_line(), filetime.value), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -65,7 +65,7 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_FILETIME, 1)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
@@ -74,12 +74,12 @@ def test(URL: str) -> lcurl.CURLcode:
         # Test that a filetime is properly set after receiving an HTTP resource.
 
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_FILETIME, ct.byref(filetime))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if filetime.value != 30:
+        if filetime.value != 30:  # pragma: no cover
             print("%s:%d filetime of http resource is incorrect; "
                   "expected 30 but is %ld" %
                   (current_file(), current_line(), filetime.value), file=sys.stderr)
@@ -89,7 +89,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # Test that a filetime is properly initialized on curl_easy_duphandle.
 
         dupe: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(curl)
-        if not dupe:
+        if not dupe:  # pragma: no cover
             print("%s:%d libcurl.easy_duphandle() failed" %
                   (current_file(), current_line()), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -97,12 +97,12 @@ def test(URL: str) -> lcurl.CURLcode:
         guard.add_curl(dupe)
 
         res = lcurl.easy_getinfo(dupe, lcurl.CURLINFO_FILETIME, ct.byref(filetime))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if filetime.value != -1:
+        if filetime.value != -1:  # pragma: no cover
             print("%s:%d filetime init failed; expected -1 but is %ld" %
                   (current_file(), current_line(), filetime.value), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -113,12 +113,12 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_reset(curl)
 
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_FILETIME, ct.byref(filetime))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if filetime.value != -1:
+        if filetime.value != -1:  # pragma: no cover
             print("%s:%d filetime init failed; expected -1 but is %ld" %
                   (current_file(), current_line(), filetime.value), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT

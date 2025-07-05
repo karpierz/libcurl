@@ -53,16 +53,18 @@ def test(URL: str, URL1: str,
 
         for count in range(2):
             res = lcurl.easy_perform(curl)
+            if res: break  # pragma: no branch
 
             usedauth = ct.c_long(0)
             res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_HTTPAUTH_USED,
                                      ct.byref(usedauth))
-            if usedauth.value != lcurl.CURLAUTH_NTLM:
+            if res: break  # pragma: no branch
+
+            if usedauth.value != lcurl.CURLAUTH_NTLM:  # pragma: no branch
                 print("CURLINFO_HTTPAUTH_USED did not say NTLM")
 
             # set a new URL for the second, so that we don't restart NTLM
             test_setopt(curl, lcurl.CURLOPT_URL, URL1.encode("utf-8"))
-
-            if res: break
+            if res: break  # pragma: no branch
 
     return res

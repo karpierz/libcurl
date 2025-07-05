@@ -45,36 +45,34 @@ def test(URL: str) -> lcurl.CURLcode:
   o: ct.POINTER(lcurl.easyoption) = lcurl.easy_option_next(None)
   while o:
       opt: lcurl.easyoption = o.contents
-      # CURL_IGNORE_DEPRECATION(
       # Test for mismatch OR missing typecheck macros
-      if lcurl.check_long_option(opt.id) != (opt.type == lcurl.CURLOT_LONG or
-                                           opt.type == lcurl.CURLOT_VALUES):
+      if lcurl.check_long_option(opt.id) != (opt.type == lcurl.CURLOT_LONG or  # pragma: no cover
+                                             opt.type == lcurl.CURLOT_VALUES):
           print_err(opt.name, "CURLOT_LONG or CURLOT_VALUES")
           error += 1
-      if lcurl.check_off_t_option(opt.id) != (opt.type == lcurl.CURLOT_OFF_T):
+      if lcurl.check_off_t_option(opt.id) != (opt.type == lcurl.CURLOT_OFF_T):  # pragma: no cover
           print_err(opt.name, "CURLOT_OFF_T")
           error += 1
-      if lcurl.check_string_option(opt.id) != (opt.type == lcurl.CURLOT_STRING):
+      if lcurl.check_string_option(opt.id) != (opt.type == lcurl.CURLOT_STRING):  # pragma: no cover
           print_err(opt.name, "CURLOT_STRING")
           error += 1
-      if lcurl.check_slist_option(opt.id) != (opt.type == lcurl.CURLOT_SLIST):
+      if lcurl.check_slist_option(opt.id) != (opt.type == lcurl.CURLOT_SLIST):  # pragma: no cover
           print_err(opt.name, "CURLOT_SLIST")
           error += 1
-      if lcurl.check_cb_data_option(opt.id) != (opt.type == lcurl.CURLOT_CBPTR):
+      if lcurl.check_cb_data_option(opt.id) != (opt.type == lcurl.CURLOT_CBPTR):  # pragma: no cover
           print_err(opt.name, "CURLOT_CBPTR")
           error += 1
       # From here: only test that the type matches if macro is known
-      if lcurl.check_write_cb_option(opt.id) and (opt.type != lcurl.CURLOT_FUNCTION):
+      if lcurl.check_write_cb_option(opt.id) and (opt.type != lcurl.CURLOT_FUNCTION):  # pragma: no cover
           print_err(opt.name, "CURLOT_FUNCTION")
           error += 1
-      if lcurl.check_conv_cb_option(opt.id) and (opt.type != lcurl.CURLOT_FUNCTION):
+      if lcurl.check_conv_cb_option(opt.id) and (opt.type != lcurl.CURLOT_FUNCTION):  # pragma: no cover
           print_err(opt.name, "CURLOT_FUNCTION")
           error += 1
-      if lcurl.check_postfields_option(opt.id) and (opt.type != lcurl.CURLOT_OBJECT):
+      if lcurl.check_postfields_option(opt.id) and (opt.type != lcurl.CURLOT_OBJECT):  # pragma: no cover
           print_err(opt.name, "CURLOT_OBJECT")
           error += 1
       # Todo: no gcc typecheck for lcurl.CURLOPTTYPE_BLOB types?
-      # )
 
       o = lcurl.easy_option_next(o)
   # endif

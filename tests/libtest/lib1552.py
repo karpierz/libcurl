@@ -68,7 +68,7 @@ def test(URL: str, user_login: str = "u:s") -> lcurl.CURLcode:
             num = ct.c_int()
             mres: lcurl.CURLMcode = lcurl.multi_wait(multi, None, 0, TEST_HANG_TIMEOUT,
                                                      ct.byref(num))
-            if mres != lcurl.CURLM_OK:
+            if mres != lcurl.CURLM_OK:  # pragma: no cover
                 print("libcurl.multi_wait() returned %d" % mres)
                 return TEST_ERR_MAJOR_BAD
 
@@ -83,12 +83,11 @@ def test(URL: str, user_login: str = "u:s") -> lcurl.CURLcode:
                                                                 ct.byref(msgs_left))
         if msgp:
             msg = msgp.contents
-            # this should now contain a result code from the easy handle,
-            # get it
+            # this should now contain a result code from the easy handle, get it
             i = msg.data.result
 
         #test_cleanup:
-        if res:
+        if res:  # pragma: no cover
             i = res
 
     return i  # return the final return code

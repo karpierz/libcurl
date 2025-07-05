@@ -88,7 +88,7 @@ def test_fire(ptr: ct.c_void_p) -> ct.c_void_p:
     code: lcurl.CURLcode
 
     curl: ct.POINTER(lcurl.CURL) = easy_init()
-    if not curl:
+    if not curl:  # pragma: no cover
         return None  # NULL
 
     with curl_guard(False, curl) as guard:
@@ -102,7 +102,7 @@ def test_fire(ptr: ct.c_void_p) -> ct.c_void_p:
         print("PERFORM")
         code = lcurl.easy_perform(curl)
 
-        if code != lcurl.CURLE_OK:
+        if code != lcurl.CURLE_OK:  # pragma: no cover
             i: int = 0
             print("perform url '%s' repeat %d failed, curlcode %d" %
                   (tdata.url.decode("utf-8"), i, code), file=sys.stderr)
@@ -133,25 +133,25 @@ def test(URL: str) -> lcurl.CURLcode:
     # prepare share
     print("SHARE_INIT")
     share: ct.POINTER(lcurl.CURLSH) = lcurl.share_init()
-    if not share:
+    if not share:  # pragma: no cover
         print("libcurl.share_init() failed", file=sys.stderr)
         lcurl.global_cleanup()
         return TEST_ERR_MAJOR_BAD
 
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURLSHOPT_LOCKFUNC")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_LOCKFUNC, test_lock)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURLSHOPT_UNLOCKFUNC")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_UNLOCKFUNC, test_unlock)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURLSHOPT_USERDATA")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_USERDATA, ct.byref(user))
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURL_LOCK_DATA_SSL_SESSION")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_SHARE,
                                           lcurl.CURL_LOCK_DATA_SSL_SESSION)
-    if scode != lcurl.CURLSHE_OK:
+    if scode != lcurl.CURLSHE_OK:  # pragma: no cover
         print("libcurl.share_setopt() failed", file=sys.stderr)
         lcurl.share_cleanup(share)
         lcurl.global_cleanup()
@@ -170,7 +170,7 @@ def test(URL: str) -> lcurl.CURLcode:
     # fetch another one
     print("*** run %d" % i)
     curl: ct.POINTER(lcurl.CURL) = easy_init()
-    if not curl:
+    if not curl:  # pragma: no cover
         lcurl.share_cleanup(share)
         lcurl.global_cleanup()
         return TEST_ERR_MAJOR_BAD
@@ -185,7 +185,7 @@ def test(URL: str) -> lcurl.CURLcode:
     # try to free share, expect to fail because share is in use
     print("try SHARE_CLEANUP...")
     scode = lcurl.share_cleanup(share)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no cover
         print("libcurl.share_cleanup() succeed but error expected",
               file=sys.stderr)
         share = ct.POINTER(lcurl.CURLSH)()
@@ -200,7 +200,7 @@ def test(URL: str) -> lcurl.CURLcode:
     # free share
     print("SHARE_CLEANUP")
     scode = lcurl.share_cleanup(share)
-    if scode != lcurl.CURLSHE_OK:
+    if scode != lcurl.CURLSHE_OK:  # pragma: no cover
         print("libcurl.share_cleanup() failed, code errno %d" % scode,
               file=sys.stderr)
     # global clean up

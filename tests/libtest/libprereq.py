@@ -89,7 +89,7 @@ def test(URL: str) -> lcurl.CURLcode:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)

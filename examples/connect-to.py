@@ -42,8 +42,8 @@ def main(argv=sys.argv[1:]):
 
     # instead of curl.se:443, it resolves and uses example.com:443 but in other
     # aspects work as if it still is curl.se
-    host = ct.POINTER(lcurl.slist)()
-    host = lcurl.slist_append(host, b"curl.se:443:example.com:443")
+    host: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
+                                                       b"curl.se:443:example.com:443")
 
     curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
 
@@ -68,4 +68,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

@@ -51,7 +51,7 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
         res = lcurl.easy_perform(curl)
-        if res == lcurl.CURLE_OK:
+        if res == lcurl.CURLE_OK:  # pragma: no branch
             print("****************************** Do it again", file=sys.stderr)
             res = lcurl.easy_perform(curl)
 

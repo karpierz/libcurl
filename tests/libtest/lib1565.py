@@ -27,7 +27,7 @@ import ctypes as ct
 import time
 try:
     import threading
-except ImportError:
+except ImportError:  # pragma: no cover
     threading = None
 
 import libcurl as lcurl
@@ -67,7 +67,7 @@ def run_thread():
 
         with lock:
             # critical section: begin
-            if test_failure:
+            if test_failure:  # pragma: no cover
                 break
             pending_handles[pending_num] = easy
             pending_num += 1
@@ -83,7 +83,7 @@ def run_thread():
 
     with lock:
         # critical section: begin
-        if not test_failure:
+        if not test_failure:  # pragma: no branch
             test_failure = res
         # critical section: end
 
@@ -96,13 +96,13 @@ def test(URL: str) -> lcurl.CURLcode:
 
     if threading is not None:
 
-        if (ver.features & lcurl.CURL_VERSION_THREADSAFE) == 0:
+        if (ver.features & lcurl.CURL_VERSION_THREADSAFE) == 0:  # pragma: no cover
             print("%s:%d %s but the libcurl.CURL_VERSION_THREADSAFE"
                   " feature flag is not set" %
                   (current_file(), current_line(),
                    "On Windows" if is_windows else "Have threads"),
                   file=sys.stderr)
-            return lcurl.CURLcode(-1).value
+            return TEST_ERR_MAJOR_BAD
 
     else:  # without pthread or Windows, this test doesn't work
 
@@ -110,7 +110,7 @@ def test(URL: str) -> lcurl.CURLcode:
             print("%s:%d No threads but the "
                   "libcurl.CURL_VERSION_THREADSAFE feature flag is set" %
                   (current_file(), current_line()), file=sys.stderr)
-            return lcurl.CURLcode(-1).value
+            return TEST_ERR_MAJOR_BAD
 
         return lcurl.CURLE_OK
     # </Added by AK (Adam Karpierz)>
@@ -121,17 +121,6 @@ def test(URL: str) -> lcurl.CURLcode:
     global test_failure
     global testmulti
     global url
-
-    # <Added by AK (Adam Karpierz)> as in lib3026.py
-    if is_windows:
-        # On Windows libcurl global init/cleanup calls LoadLibrary/FreeLibrary for
-        # secur32.dll and iphlpapi.dll. Here we load them beforehand so that when
-        # libcurl calls LoadLibrary/FreeLibrary it only increases/decreases the
-        # library's refcount rather than actually loading/unloading the library,
-        # which would affect the test runtime.
-        tutil.win32_load_system_library("secur32.dll")
-        tutil.win32_load_system_library("iphlpapi.dll")
-    # </Added by AK (Adam Karpierz)>
 
     start_test_timing()
 
@@ -169,20 +158,20 @@ def test(URL: str) -> lcurl.CURLcode:
             msgs_left = ct.c_int()  # how many messages are left
             msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(testmulti,
                                                                     ct.byref(msgs_left))
-            if not msgp: break
+            if not msgp: break  # pragma: no branch
             message = msgp.contents
 
-            if message.msg == lcurl.CURLMSG_DONE:
-                res = message.data.result
-                if res: goto(test_cleanup)
-                multi_remove_handle(testmulti, message.easy_handle)
-                finished_num += 1
-            else:
+            if message.msg != lcurl.CURLMSG_DONE:  # pragma: no cover
                 print("%s:%d Got an unexpected message from curl: %i" %
                       (current_file(), current_line(), message.msg),
                       file=sys.stderr)
                 res = TEST_ERR_MAJOR_BAD
                 goto(test_cleanup)
+
+            res = message.data.result
+            if res: goto(test_cleanup)
+            multi_remove_handle(testmulti, message.easy_handle)
+            finished_num += 1
 
             abort_on_test_timeout()
 
@@ -222,11 +211,11 @@ def test(URL: str) -> lcurl.CURLcode:
 
     with lock:
         # critical section: begin
-        if not test_failure:
+        if not test_failure:  # pragma: no branch
             test_failure = res
         # critical section: end
 
-    if thread_valid:
+    if thread_valid:  # pragma: no branch
         thread.join()
 
     lcurl.multi_cleanup(testmulti)

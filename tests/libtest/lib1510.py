@@ -46,13 +46,13 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
         print("%s" % dns_entry)
         slist2: ct.POINTER(lcurl.slist) = lcurl.slist_append(slist,
                                                 dns_entry.encode("utf-8"))
-        if not slist2:
+        if not slist2:  # pragma: no cover
             print("libcurl.slist_append() failed", file=sys.stderr)
             lcurl.slist_free_all(slist)
             return 1  # !!! use proper error !!!
         slist = slist2
 
-    if global_init(lcurl.CURL_GLOBAL_ALL) != lcurl.CURLE_OK:
+    if global_init(lcurl.CURL_GLOBAL_ALL) != lcurl.CURLE_OK:  # pragma: no cover
         lcurl.slist_free_all(slist)
         return TEST_ERR_MAJOR_BAD
 

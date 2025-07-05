@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305,E722
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 
@@ -68,7 +70,7 @@ try:  # libcurl >= 7.86.0
         (1, "buflen"),
         (1, "recv"),
         (1, "metap"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # flags for curl_ws_send()
 CURLWS_PONG = (1 << 6)
@@ -95,16 +97,17 @@ try:  # libcurl >= 7.86.0
         (1, "sent"),
         (1, "fragsize"),
         (1, "flags"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # bits for the CURLOPT_WS_OPTIONS bitmask:
-CURLWS_RAW_MODE = (1 << 0)
+CURLWS_RAW_MODE   = (1 << 0)
+CURLWS_NOAUTOPONG = (1 << 1)
 
 try:  # libcurl >= 7.86.0
     ws_meta = CFUNC(ct.POINTER(ws_frame),
         ct.POINTER(CURL))(
         ("curl_ws_meta", dll), (
         (1, "curl"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # eof

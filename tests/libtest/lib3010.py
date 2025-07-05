@@ -45,7 +45,7 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
 
         ret = lcurl.easy_perform(curl)
-        if ret:
+        if ret != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d lcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    ret, lcurl.easy_strerror(ret).decode("utf-8")), file=sys.stderr)
@@ -60,7 +60,7 @@ def test(URL: str) -> lcurl.CURLcode:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, follow_url.value)
 
         ret = lcurl.easy_perform(curl)
-        if ret:
+        if ret != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d lcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    ret, lcurl.easy_strerror(ret).decode("utf-8")), file=sys.stderr)

@@ -33,7 +33,7 @@ from curl_test import *  # noqa
 def test(URL: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
-    i:   lcurl.CURLcode = lcurl.CURLcode(-1).value
+    i:   lcurl.CURLcode = TEST_ERR_MAJOR_BAD
 
     start_test_timing()
 
@@ -85,15 +85,14 @@ def test(URL: str) -> lcurl.CURLcode:
         msgs_left = ct.c_int(0)
         msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                 ct.byref(msgs_left))
-        if msgp:
+        if msgp:  # pragma: no branch
             msg = msgp.contents
-            # this should now contain a result code from the easy handle,
-            # get it
+            # this should now contain a result code from the easy handle, get it
             i = msg.data.result
 
         # test_cleanup:
 
-        if res:
+        if res:  # pragma: no cover
             i = res
 
     return i  # return the final return code

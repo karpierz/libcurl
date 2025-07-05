@@ -89,20 +89,14 @@ def test(URL: str,
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         test_setopt(curl, lcurl.CURLOPT_HEADER, 1)
-        if defined("LIB548"):
-            # set the data to POST with a mere pointer to a null-terminated string
-            test_setopt(curl, lcurl.CURLOPT_POSTFIELDS, uploadthis)
-        else:
-            # 547 style, which means reading the POST data from a callback
-            # CURL_IGNORE_DEPRECATION(
-            test_setopt(curl, lcurl.CURLOPT_IOCTLFUNCTION, ioctl_callback)
-            test_setopt(curl, lcurl.CURLOPT_IOCTLDATA, ct.byref(counter))
-            # )
-            test_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_callback)
-            test_setopt(curl, lcurl.CURLOPT_READDATA, ct.byref(counter))
-            # We CANNOT do the POST fine without setting the size (or choose
-            # chunked)!
-            test_setopt(curl, lcurl.CURLOPT_POSTFIELDSIZE, len(uploadthis))
+        # 547 style, which means reading the POST data from a callback
+        test_setopt(curl, lcurl.CURLOPT_IOCTLFUNCTION, ioctl_callback)
+        test_setopt(curl, lcurl.CURLOPT_IOCTLDATA, ct.byref(counter))
+        test_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_callback)
+        test_setopt(curl, lcurl.CURLOPT_READDATA, ct.byref(counter))
+        # We CANNOT do the POST fine without setting the size (or choose
+        # chunked)!
+        test_setopt(curl, lcurl.CURLOPT_POSTFIELDSIZE, len(uploadthis))
         test_setopt(curl, lcurl.CURLOPT_POST, 1)
         test_setopt(curl, lcurl.CURLOPT_PROXY,
                           proxy.encode("utf-8") if proxy else None)

@@ -9,7 +9,7 @@
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at https://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -54,7 +54,7 @@ def test(URL: str, URL2: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() failed: %s" %
                   lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
             raise guard.Break
@@ -73,7 +73,7 @@ def test(URL: str, URL2: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_URL, URL2.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() failed: %s" %
                   lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
             raise guard.Break

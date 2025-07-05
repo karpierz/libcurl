@@ -58,7 +58,7 @@ def test(URL: str,
                           user_password.encode("utf-8") if user_password else None)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             res = TEST_ERR_MAJOR_BAD
             raise guard.Break
 

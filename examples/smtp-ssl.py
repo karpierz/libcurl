@@ -98,7 +98,7 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_USERNAME, b"user")
         lcurl.easy_setopt(curl, lcurl.CURLOPT_PASSWORD, b"secret")
         # This is the URL for your mailserver. Note the use of smtps:// rather
-        # than smtp:// to request a SSL based connection.
+        # than smtp:// to request an SSL based connection.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
         # If you want to connect to a site who is not using a certificate that is
         # signed by one of the certs in the CA bundle you have, you can skip the
@@ -153,4 +153,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

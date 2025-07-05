@@ -43,8 +43,10 @@ class WriteThis(ct.Structure):
 def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
-    if pooh.sizeleft <= 0: return 0  # no more data left to deliver
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
+    if pooh.sizeleft <= 0:       # no more data left to deliver
+        return 0  # pragma: no cover
     buffer[0] = pooh.readptr[0]  # copy one single byte
     c_ptr_iadd(pooh.readptr, 1)  # advance pointer
     pooh.sizeleft -= 1           # less data left
@@ -114,7 +116,7 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
 
         # Duplicate the handle.
         easy2: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(easy)
-        if not easy2:
+        if not easy2:  # pragma: no cover
             print("libcurl.easy_duphandle() failed", file=sys.stderr)
             res = TEST_ERR_FAILURE
             raise guard.Break
@@ -127,14 +129,14 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
 
         # Perform on the first handle: should not send any data.
         res = lcurl.easy_perform(easy)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform(original) failed", file=sys.stderr)
             raise guard.Break
 
         # Perform on the second handle: if the bound mime structure has not been
         # duplicated properly, it should cause a valgrind error.
         res = lcurl.easy_perform(easy2)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform(duplicated) failed", file=sys.stderr)
             raise guard.Break
 
@@ -144,7 +146,7 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
         guard.free_curl(easy2)
         easy2 = ct.POINTER(lcurl.CURL)()  # Already cleaned up.
 
-        if pooh.freecount != 2:
+        if pooh.freecount != 2:  # pragma: no cover
             print("free_callback() called %d times instead of 2" %
                   pooh.freecount, file=sys.stderr)
             res = TEST_ERR_FAILURE

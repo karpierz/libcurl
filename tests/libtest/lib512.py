@@ -39,26 +39,26 @@ def test(URL: str) -> lcurl.CURLcode:
     code: lcurl.CURLcode
 
     code = lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
-    if code != lcurl.CURLE_OK:
+    if code != lcurl.CURLE_OK:  # pragma: no cover
         rc = 5
     else:
         curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
-        if not curl:
+        if not curl:  # pragma: no cover
             rc = 4
         else:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
             lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADER,  1)
 
             curl2: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(curl)
-            if not curl2:
+            if not curl2:  # pragma: no cover
                 rc = 3
             else:
                 code = lcurl.easy_setopt(curl2, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-                if code != lcurl.CURLE_OK:
+                if code != lcurl.CURLE_OK:  # pragma: no cover
                     rc = 2
                 else:
                     code = lcurl.easy_perform(curl2)
-                    if code != lcurl.CURLE_OK:
+                    if code != lcurl.CURLE_OK:  # pragma: no cover
                         rc = 1
                     else:
                         rc = 0

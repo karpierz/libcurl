@@ -59,7 +59,7 @@ def header_callback(buffer, size, nitems, userp):
         httpcode = httpcode.value
         print("header_callback, get status: %ld, %d" %
               (httpcode, result), file=sys.stderr)
-        if httpcode < 100 or httpcode >= 1000:
+        if httpcode < 100 or httpcode >= 1000:  # pragma: no cover
             print("header_callback, invalid status: %ld, %d" %
                   (httpcode, result), file=sys.stderr)
             return lcurl.CURLE_WRITE_ERROR
@@ -73,10 +73,10 @@ def header_callback(buffer, size, nitems, userp):
             clen = clen.value
             print("header_callback, info Content-Length: %ld, %d" %
                   (clen, result), file=sys.stderr)
-            if result:
+            if result:  # pragma: no cover
                 st.result = result;
                 return lcurl.CURLE_WRITE_ERROR
-            if clen < 0:
+            if clen < 0:  # pragma: no cover
                 print("header_callback, expected known Content-Length, "
                       "got: %ld" % clen, file=sys.stderr)
                 return lcurl.CURLE_WRITE_ERROR

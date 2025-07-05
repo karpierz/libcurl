@@ -67,11 +67,10 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     if not headers2: goto(test_cleanup)
     headers = headers2
 
-    formrc: lcurl.CURLFORMcode
+    form_rc: lcurl.CURLFORMcode
     formpost: ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
     lastptr:  ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
 
-    # CURL_IGNORE_DEPRECATION(
     fields = (lcurl.forms * 4)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
     fields[0].value  = testname
@@ -80,14 +79,12 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     fields[2].option = lcurl.CURLFORM_CONTENTHEADER
     fields[2].value  = ct.cast(headers, ct.c_char_p)
     fields[3].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(1) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(1) = %d" % form_rc)
         goto(test_cleanup)
 
     # <AK>: Commented, because API problem, when array appears as subform.
-    # CURL_IGNORE_DEPRECATION(
     # Use a form array for the non-copy test.
     formarray = (lcurl.forms * 3)()
     """
@@ -108,10 +105,9 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     fields[3].option = lcurl.CURLFORM_FILENAME
     fields[3].value  = b"remotefile.txt"
     fields[4].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(2) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(2) = %d" % form_rc)
         goto(test_cleanup)
     """
 
@@ -120,7 +116,6 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     # CURLOPT_PTRNAME actually copies the name thus we do not test this here.
     testdata[0] = ord(testdata[0]) + 1
 
-    # CURL_IGNORE_DEPRECATION(
     # Check multi-files and content type propagation.
     fields = (lcurl.forms * 6)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -134,13 +129,11 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     fields[4].option = lcurl.CURLFORM_FILE
     fields[4].value  = file_path.encode("utf-8")
     fields[5].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(3) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(3) = %d" % form_rc)
         goto(test_cleanup)
 
-    # CURL_IGNORE_DEPRECATION(
     # Check data from file content.
     fields = (lcurl.forms * 3)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -148,22 +141,18 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     fields[1].option = lcurl.CURLFORM_FILECONTENT
     fields[1].value  = file_path.encode("utf-8")
     fields[2].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(4) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(4) = %d" % form_rc)
         goto(test_cleanup)
 
-    # CURL_IGNORE_DEPRECATION(
     # Measure the current form length.
     # This is done before including stdin data because we want to reuse it
     # and stdin cannot be rewound.
     formlength = ct.c_size_t(0)
     lcurl.formget(formpost, ct.byref(formlength), count_chars)
     formlength = formlength.value
-    # )
 
-    # CURL_IGNORE_DEPRECATION(
     # Include length in data for external check.
     fields = (lcurl.forms * 3)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -171,13 +160,11 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     fields[1].option = lcurl.CURLFORM_COPYCONTENTS
     fields[1].value  = b"%lu" % formlength
     fields[2].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(5) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(5) = %d" % form_rc)
         goto(test_cleanup)
 
-    # CURL_IGNORE_DEPRECATION(
     # Check stdin (may be problematic on some platforms).
     fields = (lcurl.forms * 3)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -185,10 +172,9 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
     fields[1].option = lcurl.CURLFORM_FILE
     fields[1].value  = b"-"
     fields[2].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(6) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(6) = %d" % form_rc)
         goto(test_cleanup)
 
     curl: ct.POINTER(lcurl.CURL) = easy_init()
@@ -198,10 +184,8 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
 
         # First set the URL that is about to receive our POST.
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-        # CURL_IGNORE_DEPRECATION(
         # send a multi-part formpost
         test_setopt(curl, lcurl.CURLOPT_HTTPPOST, formpost)
-        # )
         # get verbose debug output please
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         test_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
@@ -212,12 +196,10 @@ def test(URL: str, file_path: str) -> lcurl.CURLcode:
         # Perform the request, res will get the return code
         res = lcurl.easy_perform(curl)
 
-        # test_cleanup:
+    # test_cleanup:
 
-        # CURL_IGNORE_DEPRECATION(
-        # now cleanup the formpost chain
-        lcurl.formfree(formpost)
-        # )
-        lcurl.slist_free_all(headers)
+    # now cleanup the formpost chain
+    lcurl.formfree(formpost)
+    lcurl.slist_free_all(headers)
 
     return res

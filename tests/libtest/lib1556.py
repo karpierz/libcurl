@@ -67,7 +67,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         code: lcurl.CURLcode = lcurl.easy_perform(curl)
 
-        if code != lcurl.CURLE_OK:
+        if code != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed, with code %d (%s)" %
                   (current_file(), current_line(),
                    code, lcurl.easy_strerror(code).decode("utf-8")), file=sys.stderr)

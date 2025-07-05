@@ -151,6 +151,7 @@ def setup(hnd: ct.POINTER(lcurl.CURL), const char *url, t: ct.POINTER(transfer),
     lcurl.easy_setopt(hnd, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
     lcurl.easy_setopt(hnd, lcurl.CURLOPT_SSL_VERIFYHOST, 0)
     lcurl.easy_setopt(hnd, lcurl.CURLOPT_BUFFERSIZE, 128 * 1024)
+    lcurl.easy_setopt(hnd, lcurl.CURLOPT_FOLLOWLOCATION, lcurl.CURLFOLLOW_OBEYCODE)
     lcurl.easy_setopt(hnd, lcurl.CURLOPT_WRITEFUNCTION, my_write_cb)
     lcurl.easy_setopt(hnd, lcurl.CURLOPT_WRITEDATA, t);
 
@@ -210,7 +211,6 @@ def main(argv=sys.argv[1:]) -> int:
 
     global transfer_count, transfers
 
-    m: ct.POINTER(lcurl.CURLMsg)
     const char *url;
     const char *method = "PUT";
     size_t i, n, max_parallel = 1;
@@ -361,15 +361,18 @@ def main(argv=sys.argv[1:]) -> int:
 
             do {
                 int msgq = 0;
-                m = lcurl.multi_info_read(multi_handle, &msgq);
+                m: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi_handle, &msgq);
                 if m and m->msg == lcurl.CURLMSG_DONE:
                     e: ct.POINTER(lcurl.CURL) = m->easy_handle
                     active_transfers -= 1
                     lcurl.multi_remove_handle(multi_handle, e)
                     t = get_transfer_for_easy(e);
                     if (t):
+                        long res_status;
+                        lcurl.curl_getinfo(e, lcurl.CURLINFO_RESPONSE_CODE, &res_status)
                         t->done = 1
-                        print("[t-%d] FINISHED" % t->idx, file=sys.stderr)
+                        print("[t-%d] FINISHED, result=%d, response=%ld" %
+                              (t->idx, m->data.result, res_status))
                     else:
                         lcurl.easy_cleanup(e)
                         print("unknown FINISHED???", file=sys.stderr)

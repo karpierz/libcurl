@@ -47,19 +47,6 @@ def test(URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)  # show verbose for debug
         test_setopt(curl, lcurl.CURLOPT_HEADER,  1)  # include header
 
-        if defined("LIB584"):
-            mime: ct.POINTER(lcurl.mime)     = lcurl.mime_init(curl)
-            part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-            lcurl.mime_name(part, b"fake");
-            lcurl.mime_data(part, ct.cast(b"party", ct.POINTER(ct.c_ubyte)), 5)
-            test_setopt(curl, lcurl.CURLOPT_MIMEPOST, mime)
-
-            res = lcurl.easy_perform(curl)
-
-            lcurl.mime_free(mime)
-            del mime, part
-        # endif
-
         if res != lcurl.CURLE_OK: raise guard.Break
 
         test_setopt(curl, lcurl.CURLOPT_MIMEPOST, None)

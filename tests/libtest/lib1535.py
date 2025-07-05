@@ -48,16 +48,14 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # Test that protocol is properly initialized on libcurl.easy_init.
 
-        # CURL_IGNORE_DEPRECATION(
         protocol = ct.c_long()
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PROTOCOL, ct.byref(protocol))
-        # )
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if protocol.value:
+        if protocol.value:  # pragma: no cover
             print("%s:%d protocol init failed; expected 0 but is %ld" %
                   (current_file(), current_line(), protocol.value), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -66,7 +64,7 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
@@ -74,15 +72,13 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # Test that a protocol is properly set after receiving an HTTP resource.
 
-        # CURL_IGNORE_DEPRECATION(
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PROTOCOL, ct.byref(protocol))
-        # )
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if protocol.value != lcurl.CURLPROTO_HTTP:
+        if protocol.value != lcurl.CURLPROTO_HTTP:  # pragma: no cover
             print("%s:%d protocol of http resource is incorrect; "
                   "expected %d but is %ld" %  (current_file(), current_line(),
                   lcurl.CURLPROTO_HTTP, protocol.value), file=sys.stderr)
@@ -92,22 +88,20 @@ def test(URL: str) -> lcurl.CURLcode:
         # Test that a protocol is properly initialized on libcurl.easy_duphandle.
 
         dupe: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(curl)
-        if not dupe:
+        if not dupe:  # pragma: no cover
             print("%s:%d libcurl.easy_duphandle() failed" %
                   (current_file(), current_line()), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
             raise guard.Break
         guard.add_curl(dupe)
 
-        # CURL_IGNORE_DEPRECATION(
         res = lcurl.easy_getinfo(dupe, lcurl.CURLINFO_PROTOCOL, ct.byref(protocol))
-        # )
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if protocol.value:
+        if protocol.value:  # pragma: no cover
             print("%s:%d protocol init failed; expected 0 but is %ld" %
                   (current_file(), current_line(), protocol.value), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -117,15 +111,13 @@ def test(URL: str) -> lcurl.CURLcode:
 
         lcurl.easy_reset(curl)
 
-        # CURL_IGNORE_DEPRECATION(
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PROTOCOL, ct.byref(protocol))
-        # )
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if protocol.value:
+        if protocol.value:  # pragma: no cover
             print("%s:%d protocol init failed; expected 0 but is %ld" %
                   (current_file(), current_line(), protocol.value), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT

@@ -56,7 +56,7 @@ def check_time(easy: ct.POINTER(lcurl.CURL), key: int, name: str, where: str):
     tval = lcurl.off_t()
     res: lcurl.CURLcode = lcurl.easy_getinfo(easy, key, ct.byref(tval))
     tval = tval.value
-    if res != lcurl.CURLE_OK:
+    if res != lcurl.CURLE_OK:  # pragma: no cover
         geterr(name, res, current_line(2))
     else:
         report_time(name, where, tval, tval > 0)
@@ -66,7 +66,7 @@ def check_time0(easy: ct.POINTER(lcurl.CURL), key: int, name: str, where: str):
     tval = lcurl.off_t()
     res: lcurl.CURLcode = lcurl.easy_getinfo(easy, key, ct.byref(tval))
     tval = tval.value
-    if res != lcurl.CURLE_OK:
+    if res != lcurl.CURLE_OK:  # pragma: no cover
         geterr(name, res, current_line(2))
     else:
         report_time(name, where, tval, not tval)

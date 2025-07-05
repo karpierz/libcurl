@@ -54,11 +54,10 @@ def tvdiff_secs(newer: lcurl.timeval, older: lcurl.timeval) -> float:
     return (float(newer.tv_sec  - older.tv_sec) +
             float(newer.tv_usec - older.tv_usec) / 1_000_000.0)
 
-if is_windows:
-
+if is_windows:  # pragma: no branch
+    """
     def win32_load_system_library(filename: str): # -> HMODULE:
         """ """
-        """
         # ifdef CURL_WINDOWS_UWP
             (void)filename;
             return NULL;
@@ -67,6 +66,7 @@ if is_windows:
             systemdir_len = GetSystemDirectory(NULL, 0);
             size_t written;
             TCHAR *path;
+            HMODULE module;
 
             if (filename_len  == 0 || filename_len  > 32768 ||
                 systemdir_len == 0 || systemdir_len > 32768):
@@ -80,6 +80,7 @@ if is_windows:
             # if written >= systemdir_len then nothing was written
             written = GetSystemDirectory(path, (unsigned int)systemdir_len);
             if(!written || written >= systemdir_len)
+                free(path);
                 return None
 
             if(path[written - 1] != _T('\\'))
@@ -87,8 +88,24 @@ if is_windows:
 
             _tcscpy(path + written, filename);
 
-            return LoadLibrary(path);
+            module = LoadLibrary(path);
+
+            free(path);
+
+            return module;
         # endif
-        """
+
+
+        # <Added by AK (Adam Karpierz)> (as in lib3026.py) in lib1565.py, lib3207.py
+        if is_windows:
+            # On Windows libcurl global init/cleanup calls LoadLibrary/FreeLibrary for
+            # secur32.dll and iphlpapi.dll. Here we load them beforehand so that when
+            # libcurl calls LoadLibrary/FreeLibrary it only increases/decreases the
+            # library's refcount rather than actually loading/unloading the library,
+            # which would affect the test runtime.
+            tutil.win32_load_system_library("secur32.dll")
+            tutil.win32_load_system_library("iphlpapi.dll")
+        # </Added by AK (Adam Karpierz)>
+    """
 
 # endif

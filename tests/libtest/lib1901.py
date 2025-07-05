@@ -44,7 +44,8 @@ idx: int = 0
 def read_callback(buffer, size, nitems, stream):
     global chunks
     global idx
-    if chunks[idx] is None: return 0
+    if chunks[idx] is None:
+        return 0  # pragma: no cover
     chunk_len = len(chunks[idx])
     ct.memmove(buffer, chunks[idx], chunk_len)
     buffer[chunk_len] = ord(b'\0')

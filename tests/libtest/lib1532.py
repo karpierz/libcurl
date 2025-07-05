@@ -50,19 +50,19 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
 
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_RESPONSE_CODE, ct.byref(httpcode))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if httpcode.value != 200:
+        if httpcode.value != 200:  # pragma: no cover
             print("%s:%d unexpected response code %ld" %
                   (current_file(), current_line(), httpcode.value), file=sys.stderr)
             res = lcurl.CURLE_HTTP_RETURNED_ERROR
@@ -72,12 +72,12 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_reset(curl)
 
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_RESPONSE_CODE, ct.byref(httpcode))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if httpcode.value:
+        if httpcode.value:  # pragma: no cover
             print("%s:%d libcurl.easy_reset failed to zero the response code\n"
                   "possible regression of github bug 1017" %
                   (current_file(), current_line()), file=sys.stderr)

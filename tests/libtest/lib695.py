@@ -78,7 +78,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # Perform the request, res gets the return code
         res = lcurl.easy_perform(curl)
         # Check for errors
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() 1 failed: %s" %
                   lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
             raise guard.Break
@@ -93,7 +93,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # Reuse previous mime structure as a child.
         res = lcurl.mime_subparts(part, mime1)
 
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.mime_subparts() failed: %s" %
                   lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
             raise guard.Break
@@ -103,7 +103,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # Perform the request, res gets the return code
         res = lcurl.easy_perform(curl)
         # Check for errors
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() 2 failed: %s" %
                   lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
             raise guard.Break

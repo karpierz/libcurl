@@ -70,7 +70,8 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
 
             res = lcurl.easy_perform(curl)
            #if res != lcurl.CURLE_BAD_FUNCTION_ARGUMENT:
-            if res and res != lcurl.CURLE_BAD_FUNCTION_ARGUMENT:  # AK: fix
+            if (res != lcurl.CURLE_OK  # pragma: no cover
+               and res != lcurl.CURLE_BAD_FUNCTION_ARGUMENT):  # AK: fix
                 print("This should have failed. "
                       "Cannot setup without a Transport: header", file=sys.stderr)
                 return TEST_ERR_MAJOR_BAD
@@ -100,6 +101,7 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
                 test_setopt(curl, lcurl.CURLOPT_RTSP_REQUEST, lcurl.CURL_RTSPREQ_TEARDOWN)
 
                 res = lcurl.easy_perform(curl)
+                if res != lcurl.CURLE_OK: raise guard.Break
 
                 # Clear for the next go-round
                 test_setopt(curl, lcurl.CURLOPT_RTSP_SESSION_ID, None)

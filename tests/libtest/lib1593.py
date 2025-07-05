@@ -71,6 +71,7 @@ def test(URL: str) -> lcurl.CURLcode:
         unmet = unmet.value
 
         if unmet != 1:
-            return TEST_ERR_FAILURE
+            res = TEST_ERR_FAILURE
+            raise guard.Break
 
     return res

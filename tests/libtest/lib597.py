@@ -106,7 +106,7 @@ def test(URL: str) -> lcurl.CURLcode:
         msgs_left = ct.c_int()
         msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                 ct.byref(msgs_left))
-        if msgp:
+        if msgp:  # pragma: no branch
             msg = msgp.contents
             res = msg.data.result
 

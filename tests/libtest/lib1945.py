@@ -9,7 +9,7 @@
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at https://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -65,7 +65,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
             lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTPPROXYTUNNEL, 1)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("badness: %d" % res)
 
         showem(curl, lcurl.CURLH_CONNECT | lcurl.CURLH_HEADER |

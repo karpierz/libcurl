@@ -54,7 +54,7 @@ def test(URL: str, without_proxy: str, host: str) -> lcurl.CURLcode:
 
         hosts: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                                             host.encode("utf-8"))
-        if not hosts: return res
+        if not hosts: raise guard.Break
         guard.add_slist(hosts)
 
         test_setopt(curl, lcurl.CURLOPT_RESOLVE, hosts)

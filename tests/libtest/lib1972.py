@@ -9,7 +9,7 @@
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at https://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -45,11 +45,10 @@ def test(URL: str,
         if not curl: return TEST_ERR_EASY_INIT
 
         mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(curl)
-        if not mime: return res
+        if not mime: raise guard.Break
+        guard.add_mime(mime)
         part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-        if not part:
-            lcurl.mime_free(mime)
-            return res
+        if not part: raise guard.Break
         lcurl.mime_name(part, b"foo");
         lcurl.mime_data(part, ct.cast(b"bar", ct.POINTER(ct.c_ubyte)),
                         lcurl.CURL_ZERO_TERMINATED)
@@ -64,13 +63,11 @@ def test(URL: str,
         test_setopt(curl, lcurl.CURLOPT_HEADER, 0)
         list: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                               b"Content-Type: application/json")
-        if not list: return res
+        if not list: raise guard.Break
         guard.add_slist(list)
 
         test_setopt(curl, lcurl.CURLOPT_HTTPHEADER, list)
 
         res = lcurl.easy_perform(curl)
-
-        lcurl.mime_free(mime)
 
     return res

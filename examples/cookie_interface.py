@@ -34,7 +34,7 @@ import libcurl as lcurl
 from curl_utils import *  # noqa
 
 
-def print_cookies(curl: ct.POINTER(lcurl.CURL)):
+def print_cookies(curl: ct.POINTER(lcurl.CURL)) -> int:
 
     print("Cookies, curl knows:")
     cookies = ct.POINTER(lcurl.slist)()
@@ -45,7 +45,8 @@ def print_cookies(curl: ct.POINTER(lcurl.CURL)):
         print("Curl libcurl.easy_getinfo failed: %s" %
               lcurl.easy_strerror(res).decode("utf-8"),
               file=sys.stderr)
-        assert res == lcurl.CURLE_OK
+        # assert res == lcurl.CURLE_OK
+        return 1
 
     try:
         nc = cookies ; i = 1
@@ -57,6 +58,8 @@ def print_cookies(curl: ct.POINTER(lcurl.CURL)):
             print("(none)")
     finally:
         lcurl.slist_free_all(cookies)
+
+    return 0
 
 
 def main(argv=sys.argv[1:]):
@@ -142,4 +145,5 @@ def main(argv=sys.argv[1:]):
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

@@ -37,7 +37,7 @@ cb_count: int    = 0
 def resolver_alloc_cb_fail(resolver_state, reserved, userdata):
     global cb_count
     cb_count += 1
-    if ct.c_char_p(userdata).value != TEST_DATA_STRING:
+    if ct.c_char_p(userdata).value != TEST_DATA_STRING:  # pragma: no cover
         print("Invalid test data received", file=sys.stderr)
         sys.exit(1)
     return 1
@@ -47,7 +47,7 @@ def resolver_alloc_cb_fail(resolver_state, reserved, userdata):
 def resolver_alloc_cb_pass(resolver_state, reserved, userdata):
     global cb_count
     cb_count += 1
-    if ct.c_char_p(userdata).value != TEST_DATA_STRING:
+    if ct.c_char_p(userdata).value != TEST_DATA_STRING:  # pragma: no cover
         print("Invalid test data received", file=sys.stderr)
         sys.exit(1)
     return 0
@@ -73,7 +73,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # this should fail
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_COULDNT_RESOLVE_HOST:
+        if res != lcurl.CURLE_COULDNT_RESOLVE_HOST:  # pragma: no cover
             print("libcurl.easy_perform should have returned "
                   "CURLE_COULDNT_RESOLVE_HOST but instead returned error %d" % res,
                   file=sys.stderr)
@@ -85,11 +85,11 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # this should succeed
         res = lcurl.easy_perform(curl)
-        if res:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform failed.", file=sys.stderr)
             raise guard.Break
 
-        if cb_count != 2:
+        if cb_count != 2:  # pragma: no cover
             print("Unexpected number of callbacks: %d" % cb_count, file=sys.stderr)
             res = TEST_ERR_FAILURE
             raise guard.Break

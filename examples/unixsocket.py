@@ -32,19 +32,19 @@ import ctypes as ct
 import libcurl as lcurl
 from curl_utils import *  # noqa
 
-if is_windows:
-    print("This example requires unix", file=sys.stderr)
-    sys.exit(0)
-
 if defined("USE_ABSTRACT"):
-  # The abstract socket namespace is a nonportable Linux extension.
-  # The name has no connection with filesystem pathnames.
-  ABSTRACT = "http-unix-domain"
+    # The abstract socket namespace is a nonportable Linux extension.
+    # The name has no connection with filesystem pathnames.
+    ABSTRACT = "http-unix-domain"
 else:
-  PATH = "/tmp/http-unix-domain"
+    PATH = "/tmp/http-unix-domain"
 
 
 def main(argv=sys.argv[1:]):
+
+    if is_windows:
+        print("This example requires unix", file=sys.stderr)
+        return 0
 
     url: str = argv[0] if len(argv) >= 1 else "http://example.com"
 
@@ -70,4 +70,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

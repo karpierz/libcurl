@@ -56,31 +56,31 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # Build mime structure.
         mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(curl)
-        if not mime:
+        if not mime:  # pragma: no cover
             print("libcurl.mime_init() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
         guard.add_mime(mime)
 
         part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         res = lcurl.mime_name(part, b"upfile")
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_name() failed", file=sys.stderr)
             return res
         res = lcurl.mime_filename(part, b"myfile.txt")
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_filename() failed", file=sys.stderr)
             return res
         res = lcurl.mime_data(part, ct.cast(testbuf, ct.POINTER(ct.c_ubyte)),
                                     ct.sizeof(testbuf))
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_data() failed", file=sys.stderr)
             return res
         res = lcurl.mime_encoder(part, b"binary")
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_encoder() failed", file=sys.stderr)
             return res
 

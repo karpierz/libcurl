@@ -44,14 +44,12 @@ count: int = 0
 @lcurl.read_callback
 def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
-    eof = (not pooh.readptr[0])
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
-    if not defined("LIB645"):
-        eof = (pooh.sizeleft <= 0)
-        if not eof:
-            pooh.sizeleft -= 1
-    if eof: return 0  # no more data left to deliver
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
+    if pooh.sizeleft <= 0:  # no more data left to deliver
+        return 0  # pragma: no cover
+    pooh.sizeleft -= 1
     buffer[0] = pooh.readptr[0]  # copy one single byte
     c_ptr_iadd(pooh.readptr, 1)  # advance pointer
     return 1                     # we return 1 byte at a time!
@@ -66,8 +64,7 @@ def test_once(URL: str, oldstyle: bool) -> lcurl.CURLcode:
     datasize = lcurl.off_t(-1).value
 
     pooh.readptr = ct.cast(testdata, ct.POINTER(ct.c_ubyte))
-    if not defined("LIB645"):
-        datasize = len(testdata)
+    datasize = len(testdata)
     pooh.sizeleft = datasize
 
     curl: ct.POINTER(lcurl.CURL) = easy_init()
@@ -77,36 +74,36 @@ def test_once(URL: str, oldstyle: bool) -> lcurl.CURLcode:
     with curl_guard(False, curl) as guard:
 
         mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(curl)
-        if not mime:
+        if not mime:  # pragma: no cover
             print("libcurl.mime_init() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
+        guard.add_mime(mime)
 
         part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart(1) failed", file=sys.stderr)
-            lcurl.mime_free(mime)
             return TEST_ERR_MAJOR_BAD
 
         # Fill in the file upload part
         if oldstyle:
             res = lcurl.mime_name(part, b"sendfile")
-            if not res:
+            if not res:  # pragma: no branch
                 res = lcurl.mime_data_cb(part, datasize, read_callback,
                                          lcurl.seek_callback(0), lcurl.free_callback(0),
                                          ct.byref(pooh))
-            if not res:
+            if not res:  # pragma: no branch
                 res = lcurl.mime_filename(part, b"postit2.c")
         else:
             # new style
             res = lcurl.mime_name(part, b"sendfile alternative")
-            if not res:
+            if not res:  # pragma: no branch
                 res = lcurl.mime_data_cb(part, datasize, read_callback,
                                          lcurl.seek_callback(0), lcurl.free_callback(0),
                                          ct.byref(pooh))
-            if not res:
+            if not res:  # pragma: no branch
                 res = lcurl.mime_filename(part, b"file name 2")
 
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_xxx(1) = %s" %
                   lcurl.easy_strerror(res).decode("utf-8"))
 
@@ -114,71 +111,65 @@ def test_once(URL: str, oldstyle: bool) -> lcurl.CURLcode:
         # a file upload but still using the callback
 
         pooh2.readptr = ct.cast(testdata, ct.POINTER(ct.c_ubyte))
-        if not defined("LIB645"):
-            datasize = len(testdata)
+        datasize = len(testdata)
         pooh2.sizeleft = datasize
 
         part = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart(2) failed", file=sys.stderr)
-            lcurl.mime_free(mime)
             return TEST_ERR_MAJOR_BAD
 
         # Fill in the file upload part
         res = lcurl.mime_name(part, b"callbackdata")
-        if not res:
+        if not res:  # pragma: no branch
             res = lcurl.mime_data_cb(part, datasize, read_callback,
                                      lcurl.seek_callback(0), lcurl.free_callback(0),
                                      ct.byref(pooh2))
 
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_xxx(2) = %s" %
                   lcurl.easy_strerror(res).decode("utf-8"))
 
         part = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart(3) failed", file=sys.stderr)
-            lcurl.mime_free(mime)
             return TEST_ERR_MAJOR_BAD
 
         # Fill in the filename field
         res = lcurl.mime_name(part, b"filename")
-        if not res:
+        if not res:  # pragma: no branch
             res = lcurl.mime_string(part, b"postit2.c")
 
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_xxx(3) = %s" %
                   lcurl.easy_strerror(res).decode("utf-8"))
 
         # Fill in a submit field too
         part = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart(4) failed", file=sys.stderr)
-            lcurl.mime_free(mime)
             return TEST_ERR_MAJOR_BAD
 
         res = lcurl.mime_name(part, b"submit")
-        if not res:
+        if not res:  # pragma: no branch
             res = lcurl.mime_string(part, b"send")
 
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_xxx(4) = %s" %
                   lcurl.easy_strerror(res).decode("utf-8"))
 
         part = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart(5) failed", file=sys.stderr)
-            lcurl.mime_free(mime)
             return TEST_ERR_MAJOR_BAD
 
         res = lcurl.mime_name(part, b"somename")
-        if not res:
+        if not res:  # pragma: no branch
             res = lcurl.mime_filename(part, b"somefile.txt")
-        if not res:
+        if not res:  # pragma: no branch
             res = lcurl.mime_data(part, ct.cast(b"blah blah",
                                                 ct.POINTER(ct.c_ubyte)), 9)
-
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_xxx(5) = %s" %
                   lcurl.easy_strerror(res).decode("utf-8"))
 
@@ -194,11 +185,6 @@ def test_once(URL: str, oldstyle: bool) -> lcurl.CURLcode:
         # Perform the request, res will get the return code
         res = lcurl.easy_perform(curl)
 
-        # test_cleanup:
-
-        # now cleanup the mimepost structure
-        lcurl.mime_free(mime)
-
     return res
 
 
@@ -211,6 +197,7 @@ def cyclic_add() -> lcurl.CURLcode:
 
         mime: ct.POINTER(lcurl.mime)     = lcurl.mime_init(curl)
         part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
+        guard.add_mime(mime)
         a1: lcurl.CURLcode = lcurl.mime_subparts(part, mime)
 
         if a1 == lcurl.CURLE_BAD_FUNCTION_ARGUMENT:
@@ -219,12 +206,11 @@ def cyclic_add() -> lcurl.CURLcode:
             lcurl.mime_subparts(part, submime)
             a1 = lcurl.mime_subparts(subpart, mime)
 
-        lcurl.mime_free(mime)
+    if a1 != lcurl.CURLE_BAD_FUNCTION_ARGUMENT:  # pragma: no cover
+        # that should have failed
+        return TEST_ERR_FAILURE
 
-    # that should have failed
-    return (lcurl.CURLE_OK
-            if a1 == lcurl.CURLE_BAD_FUNCTION_ARGUMENT else
-            lcurl.CURLcode(1).value)
+    return lcurl.CURLE_OK
 
 
 @curl_test_decorator
@@ -238,10 +224,10 @@ def test(URL: str) -> lcurl.CURLcode:
     with curl_guard(True) as guard:
 
         res = test_once(URL, True)  # old
-        if res: raise guard.Break
+        if res: raise guard.Break  # pragma: no cover
 
         res = test_once(URL, False)  # new
-        if res: raise guard.Break
+        if res: raise guard.Break  # pragma: no cover
 
         res = cyclic_add()
 

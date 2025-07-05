@@ -192,9 +192,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
         # Write callback
         test_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_callback)
         # Ioctl function
-        # CURL_IGNORE_DEPRECATION(
         test_setopt(curl, lcurl.CURLOPT_IOCTLFUNCTION, ioctl_callback)
-        # )
         test_setopt(curl, lcurl.CURLOPT_PROXY,
                           proxy.encode("utf-8") if proxy else None)
         # Accept any auth. But for this bug configure proxy with DIGEST, basic

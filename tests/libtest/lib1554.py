@@ -65,7 +65,7 @@ def test(URL: str) -> lcurl.CURLcode:
     share: ct.POINTER(lcurl.CURLSH) = lcurl.share_init()
 
     with curl_guard(True, share=share) as guard:
-        if not share:
+        if not share:  # pragma: no cover
             print("libcurl.share_init() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
@@ -79,7 +79,7 @@ def test(URL: str) -> lcurl.CURLcode:
         for i in range(3):
 
             curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
-            if not curl: continue
+            if not curl: continue  # pragma: no branch
             guard.add_curl(curl)
 
             lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
@@ -89,7 +89,7 @@ def test(URL: str) -> lcurl.CURLcode:
             # Perform the request, res will get the return code
             res = lcurl.easy_perform(curl)
             # Check for errors
-            if res != lcurl.CURLE_OK:
+            if res != lcurl.CURLE_OK:  # pragma: no cover
                 print("libcurl.easy_perform() failed: %s" %
                       lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
                 raise guard.Break

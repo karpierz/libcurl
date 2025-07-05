@@ -67,13 +67,13 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_XFERINFOFUNCTION, dload_progress_cb)
 
         ret = run(curl, 1, 2)
-        if ret:
-            print("error %d: %s" %
+        if ret:  # pragma: no cover
+            print("error (%d) %s" %
                   (ret, error_buffer.raw.decode("utf-8")), file=sys.stderr)
 
         ret = run(curl, 12000, 1)
-        if ret and ret != lcurl.CURLE_OPERATION_TIMEDOUT:
-            print("error %d: %s" %
+        if ret and ret != lcurl.CURLE_OPERATION_TIMEDOUT:  # pragma: no cover
+            print("error (%d) %s" %
                   (ret, error_buffer.raw.decode("utf-8")), file=sys.stderr)
         else:
             ret = lcurl.CURLE_OK

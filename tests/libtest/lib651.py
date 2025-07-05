@@ -51,11 +51,10 @@ def test(URL: str) -> lcurl.CURLcode:
     with curl_guard(True, curl) as guard:
         if not curl: return TEST_ERR_EASY_INIT
 
-        formrc: lcurl.CURLFORMcode
+        form_rc: lcurl.CURLFORMcode
         formpost: ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
         lastptr:  ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
 
-        # CURL_IGNORE_DEPRECATION(
         # Check proper name and data copying.
         fields = (lcurl.forms * 3)()
         fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -63,17 +62,14 @@ def test(URL: str) -> lcurl.CURLcode:
         fields[1].option = lcurl.CURLFORM_COPYCONTENTS
         fields[1].value  = ct.cast(testbuf, ct.c_char_p)
         fields[2].option = lcurl.CURLFORM_END
-        formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-        # )
-        if formrc:
-            print("libcurl.formadd(1) = %d" % formrc)
+        form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+        if form_rc:
+            print("libcurl.formadd(1) = %d" % form_rc)
 
         # First set the URL that is about to receive our POST.
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-        # CURL_IGNORE_DEPRECATION(
         # send a multi-part formpost
         test_setopt(curl, lcurl.CURLOPT_HTTPPOST, formpost)
-        # )
         # get verbose debug output please
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         # include headers in the output
@@ -85,9 +81,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # test_cleanup:
 
         # always cleanup
-        # CURL_IGNORE_DEPRECATION(
         # now cleanup the formpost chain
         lcurl.formfree(formpost)
-        # )
 
     return res

@@ -54,13 +54,14 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_PORT, 1)
 
         res = lcurl.easy_perform(curl)
-        if res not in (lcurl.CURLE_COULDNT_CONNECT,
+        if res not in (lcurl.CURLE_COULDNT_CONNECT,  # pragma: no cover
                        lcurl.CURLE_OPERATION_TIMEDOUT):
             print("failure expected, "
                   "libcurl.easy_perform() returned %d: <%s>, <%s>" %
                   (res, lcurl.easy_strerror(res).decode("utf-8"),
                    error_buffer.raw.decode("utf-8")), file=sys.stderr)
-            if res == lcurl.CURLE_OK: res = TEST_ERR_MAJOR_BAD  # force an error return
+            if res == lcurl.CURLE_OK:  # pragma: no cover
+                res = TEST_ERR_MAJOR_BAD  # force an error return
         else:
             res = lcurl.CURLE_OK  # reset for next use
 
@@ -75,7 +76,7 @@ def test(URL: str) -> lcurl.CURLcode:
             easy_setopt(curl, lcurl.CURLOPT_PORT, 0)
 
             res = lcurl.easy_perform(curl)
-            if res != lcurl.CURLE_OK:
+            if res != lcurl.CURLE_OK:  # pragma: no cover
                 print("success expected, "
                       "libcurl.easy_perform() returned %d: <%s>, <%s>" %
                       (res, lcurl.easy_strerror(res).decode("utf-8"),

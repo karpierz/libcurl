@@ -60,7 +60,7 @@ def test(URL: str,
                           lcurl.CURL_RTSPREQ_DESCRIBE)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("Failed to send DESCRIBE: %d" % res, file=sys.stderr)
             res = TEST_ERR_MAJOR_BAD
             raise guard.Break

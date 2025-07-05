@@ -28,21 +28,13 @@ import ctypes as ct
 import libcurl as lcurl
 from curl_test import *  # noqa
 
-
 EXCESSIVE = 10 * 1000 * 1000
-#EXCESSIVE = 8 * 1000 * 1000
 
 
 @curl_test_decorator
 def test(URL: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
-
-    long_url = ct.create_string_buffer(EXCESSIVE)
-    if not long_url:
-        return lcurl.CURLcode(1).value
-    ct.memset(long_url, ord(b'a'), EXCESSIVE)
-    long_url[EXCESSIVE - 1] = b'\0'
 
     if global_init(lcurl.CURL_GLOBAL_ALL) != lcurl.CURLE_OK:
         return TEST_ERR_MAJOR_BAD
@@ -52,6 +44,11 @@ def test(URL: str) -> lcurl.CURLcode:
     with curl_guard(True, curl) as guard:
         if not curl: return TEST_ERR_EASY_INIT
 
+        long_url = ct.create_string_buffer(EXCESSIVE)
+        if not long_url: return TEST_ERR_MAJOR_BAD  # pragma: no branch
+        ct.memset(long_url, ord(b'a'), EXCESSIVE)
+        long_url[EXCESSIVE - 1] = b'\0'
+
         res = lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, long_url)
         print("CURLOPT_URL %d bytes URL == %d" % (EXCESSIVE, res))
 
@@ -59,7 +56,7 @@ def test(URL: str) -> lcurl.CURLcode:
         print("CURLOPT_POSTFIELDS %d bytes data == %d" % (EXCESSIVE, res))
 
         u: ct.POINTER(lcurl.CURLU) = lcurl.url()
-        if not u: return int(res)
+        if not u: return int(res)  # pragma: no branch
 
         uc: lcurl.CURLUcode = lcurl.url_set(u, lcurl.CURLUPART_URL, long_url, 0)
         print("CURLUPART_URL %d bytes URL == %d (%s)" %

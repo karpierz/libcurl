@@ -43,8 +43,10 @@ def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
     data_len = len(testdata)
-    if buffer_size < data_len: return 0
-    if pooh.sizeleft == 0: return 0  # no more data left to deliver
+    if buffer_size < data_len:
+        return 0  # pragma: no cover
+    if pooh.sizeleft == 0:  # no more data left to deliver
+        return 0  # pragma: no cover
     ct.memmove(buffer, testdata, data_len)
     pooh.sizeleft = 0
     return data_len
@@ -53,7 +55,7 @@ def read_callback(buffer, size, nitems, userp):
 @curl_test_decorator
 def test(URL: str) -> lcurl.CURLcode:
 
-    res: lcurl.CURLcode = lcurl.CURLE_OK
+    res: lcurl.CURLcode = lcurl.CURLE_FAILED_INIT
 
     pooh = WriteThis(1)
 
@@ -69,25 +71,25 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_BUFFERSIZE, 102400)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 1)
         mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(curl)
-        if mime:
-            part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-            lcurl.mime_data_cb(part, -1, read_callback,
-                               lcurl.seek_callback(0), lcurl.free_callback(0),
-                               ct.byref(pooh))
-            lcurl.mime_filename(part, b"poetry.txt")
-            lcurl.mime_name(part, b"content")
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_MIMEPOST, mime)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT, b"curl/2000")
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_MAXREDIRS, 50)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION,
-                                    lcurl.CURL_HTTP_VERSION_2TLS)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_FTP_SKIP_PASV_IP, 1)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_TCP_KEEPALIVE, 1)
+        if not mime: raise guard.Break
+        guard.add_mime(mime)
+        part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
+        lcurl.mime_data_cb(part, -1, read_callback,
+                           lcurl.seek_callback(0), lcurl.free_callback(0),
+                           ct.byref(pooh))
+        lcurl.mime_filename(part, b"poetry.txt")
+        lcurl.mime_name(part, b"content")
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_MIMEPOST, mime)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT, b"curl/2000")
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_MAXREDIRS, 50)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION,
+                                lcurl.CURL_HTTP_VERSION_2TLS)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_FTP_SKIP_PASV_IP, 1)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_TCP_KEEPALIVE, 1)
 
-            res = lcurl.easy_perform(curl)
-
-        lcurl.mime_free(mime)
+        res = lcurl.easy_perform(curl)
+        if res != lcurl.CURLE_OK: raise guard.Break
 
     return res

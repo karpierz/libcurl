@@ -44,6 +44,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         mime:  ct.POINTER(lcurl.mime)     = lcurl.mime_init(curl)
         field: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
+        guard.add_mime(mime)
         lcurl.mime_name(field, b"name")
         lcurl.mime_data(field, ct.cast(b"short value",
                                        ct.POINTER(ct.c_ubyte)),
@@ -56,14 +57,13 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 1)
 
         res = lcurl.easy_perform(curl)
-        if res == lcurl.CURLE_OK:
-            # Alter form and resubmit.
-            lcurl.mime_data(field, ct.cast(b"long value for length change",
-                                           ct.POINTER(ct.c_ubyte)),
-                            lcurl.CURL_ZERO_TERMINATED)
+        if res != lcurl.CURLE_OK: raise guard.Break
 
-            res = lcurl.easy_perform(curl)
+        # Alter form and resubmit.
+        lcurl.mime_data(field, ct.cast(b"long value for length change",
+                                       ct.POINTER(ct.c_ubyte)),
+                        lcurl.CURL_ZERO_TERMINATED)
 
-        lcurl.mime_free(mime)
+        res = lcurl.easy_perform(curl)
 
     return res  # return the final return code

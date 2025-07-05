@@ -105,7 +105,7 @@ def test(URL: str) -> lcurl.CURLcode:
     curl: ct.POINTER(lcurl.CURL) = easy_init()
 
     with curl_guard(True, curl) as guard:
-        if not curl: return int(lcurl.CURLE_OUT_OF_MEMORY)
+        if not curl: return int(lcurl.CURLE_OUT_OF_MEMORY)  # pragma: no branch
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_WILDCARDMATCH, 1)

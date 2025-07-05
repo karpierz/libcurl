@@ -80,7 +80,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # Get enabled protocols.
         curlinfo = lcurl.version_info(lcurl.CURLVERSION_NOW)
-        if not curlinfo:
+        if not curlinfo:  # pragma: no cover
             print("libcurl.version_info failed", file=sys.stderr)
             return TEST_ERR_FAILURE
         curlinfo = curlinfo.contents

@@ -51,38 +51,38 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # Build mime structure.
         mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(curl)
-        if not mime:
+        if not mime:  # pragma: no cover
             print("libcurl.mime_init() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
         guard.add_mime(mime)
 
         part: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
-        if not part:
+        if not part:  # pragma: no cover
             print("libcurl.mime_addpart() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         res = lcurl.mime_filename(part, b"myfile.jpg")
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_filename() failed", file=sys.stderr)
             return res
         res = lcurl.mime_type(part, b"image/jpeg")
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_type() failed", file=sys.stderr)
             return res
         res = lcurl.mime_data(part, ct.cast(testbuf, ct.POINTER(ct.c_ubyte)),
                                     ct.sizeof(testbuf))
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_data() failed", file=sys.stderr)
             return res
         res = lcurl.mime_encoder(part, b"base64")
-        if res:
+        if res:  # pragma: no cover
             print("libcurl.mime_encoder() failed", file=sys.stderr)
             return res
 
         # Prepare recipients.
         recipients: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                                     b"someone@example.com")
-        if not recipients:
+        if not recipients:  # pragma: no cover
             print("libcurl.slist_append() failed", file=sys.stderr)
             goto(test_cleanup)
         guard.add_slist(recipients)

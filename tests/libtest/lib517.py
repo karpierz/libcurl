@@ -155,7 +155,9 @@ dates = [
     dcheck("Thu, 31-Dec-1969 23:59:58 GMT", lcurl.time_t(-2)),
     dcheck("Thu, 31-Dec-1969 23:59:59 GMT", lcurl.time_t(0)),  # avoids -1 !
 ]
-if ct.sizeof(lcurl.time_t) > 4:
+if ct.sizeof(lcurl.time_t) <= 4:
+    dates.append(dcheck("Sun, 06 Nov 2044 08:49:37 GMT", lcurl.time_t(-1)))
+else:
     dates.append(dcheck("Sun, 06 Nov 2044 08:49:37 GMT", lcurl.time_t(2362034977)))
     dates.append(dcheck("Sun, 06 Nov 3144 08:49:37 GMT", lcurl.time_t(37074617377)))
     if not defined("HAVE_TIME_T_UNSIGNED"):
@@ -166,8 +168,6 @@ if ct.sizeof(lcurl.time_t) > 4:
         dates.append(dcheck("Thu, 01-Jan-1583 00:00:00 GMT", lcurl.time_t(-12212553600)))
     # endif
     dates.append(dcheck("Thu, 01-Jan-1499 00:00:00 GMT", lcurl.time_t(-1)))
-else:
-    dates.append(dcheck("Sun, 06 Nov 2044 08:49:37 GMT", lcurl.time_t(-1)))
 if not defined("HAVE_TIME_T_UNSIGNED"):
     dates.append(dcheck("Sun, 06 Nov 1968 08:49:37 GMT", lcurl.time_t(-36342623)))
 # endif
@@ -180,7 +180,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
     for date in dates:
         out = lcurl.getdate(date.input.encode("utf-8"), None)
-        if out != date.output.value:
+        if out != date.output.value:  # pragma: no cover
             print("WRONGLY %s => %ld (instead of %ld)" %
                   (date.input, out, date.output.value))
             error += 1

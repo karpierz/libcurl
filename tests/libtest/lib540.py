@@ -50,9 +50,8 @@ def init(num: int, cm: ct.POINTER(lcurl.CURLM), URL: str,
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
-    curl = testcurls[num]
     try:
-        res_easy_init(curl)
+        testcurls[num] = curl = res_easy_init()
         if res: raise RuntimeError()
 
         res_easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
@@ -74,8 +73,8 @@ def init(num: int, cm: ct.POINTER(lcurl.CURLM), URL: str,
 
         res_multi_add_handle(cm, curl)
         if res: raise RuntimeError()
-    except:
-        #init_failed:
+    except:  # pragma: no cover
+        # init_failed:
         lcurl.easy_cleanup(curl)
         testcurls[num] = ct.POINTER(lcurl.CURL)()  # NULL
         return res  # failure
@@ -91,15 +90,15 @@ def loop(num: int, multi: ct.POINTER(lcurl.CURLM), URL: str,
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
     res = init(num, multi, URL, proxy, proxy_login, headers)
-    if res: return res
+    if res: return res  # pragma: no branch
 
     still_running = ct.c_int(-1)
     while still_running.value:
         res = res_multi_perform(multi, ct.byref(still_running))
-        if res: return res
+        if res: return res  # pragma: no branch
 
         res = res_test_timedout()
-        if res: return res
+        if res: return res  # pragma: no branch
 
         if still_running.value:
 
@@ -112,12 +111,12 @@ def loop(num: int, multi: ct.POINTER(lcurl.CURLM), URL: str,
                                   ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
                                   ct.byref(max_fd))
             max_fd = max_fd.value
-            if res: return res
+            if res: return res  # pragma: no branch
             # At this point, max_fd is guaranteed to be greater or equal than -1.
 
             curl_timeout = ct.c_long()
             res = res_multi_timeout(multi, ct.byref(curl_timeout))
-            if res: return res
+            if res: return res  # pragma: no branch	
             curl_timeout = curl_timeout.value
 
             # At this point, curl_timeout is guaranteed to be greater or equal than -1.
@@ -130,16 +129,16 @@ def loop(num: int, multi: ct.POINTER(lcurl.CURLM), URL: str,
             res = res_select_test(max_fd + 1,
                                   ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
                                   ct.byref(timeout))
-            if res: return res
+            if res: return res  # pragma: no branch
 
         while True:
             msgs_left = ct.c_int()
             msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                     ct.byref(msgs_left))
-            if not msgp: break
+            if not msgp: break  # pragma: no branch
             msg = msgp.contents
 
-            if msg.msg == lcurl.CURLMSG_DONE:
+            if msg.msg == lcurl.CURLMSG_DONE:  # pragma: no branch
                 curl: ct.POINTER(lcurl.CURL) = msg.easy_handle
                 print("fd_read: %d - %s" %
                       (msg.data.result,
@@ -150,11 +149,11 @@ def loop(num: int, multi: ct.POINTER(lcurl.CURLM), URL: str,
                     if testcurls[i] == curl:
                         testcurls[i] = ct.POINTER(lcurl.CURL)()  # NULL
                         break
-            else:
+            else:  # pragma: no cover
                 print("fd_excep: libcurl.CURLMsg (%d)" % msg.msg, file=sys.stderr)
 
         res = res_test_timedout()
-        if res: return res
+        if res: return res  # pragma: no branch
 
     return lcurl.CURLE_OK
 
@@ -175,23 +174,23 @@ def test(URL: str,
     start_test_timing()
 
     res = res_global_init(lcurl.CURL_GLOBAL_ALL)
-    if res: return res
+    if res: return res  # pragma: no branch
 
     multi: ct.POINTER(lcurl.CURLM) = res_multi_init()
 
     with curl_guard(True, mcurl=multi) as guard:
-        if res: return res
+        if res: raise guard.Break  # pragma: no branch
 
         # now add a custom Host: header
         headers: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                            b"Host: %s" % host.encode("utf-8"))
-        if not headers:
+        if not headers:  # pragma: no cover
             print("libcurl.slist_append() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
         guard.add_slist(headers)
 
         res = loop(0, multi, URL, proxy, proxy_login, headers)
-        if res == lcurl.CURLE_OK:
+        if res == lcurl.CURLE_OK:  # pragma: no branch
             print("lib540: now we do the request again", file=sys.stderr)
             res = loop(1, multi, URL, proxy, proxy_login, headers)
 

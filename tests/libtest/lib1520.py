@@ -59,9 +59,11 @@ class upload_status(ct.Structure):
 def read_callback(buffer, size, nitems, userp):
     upload_ctx = ct.cast(userp, ct.POINTER(upload_status)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
     data = payload_text[upload_ctx.lines_read]
-    if data is None: return 0
+    if data is None:
+        return 0  # pragma: no cover
     data = data.encode("utf-8")
     data_size = len(data)
     ct.memmove(buffer, data, data_size)

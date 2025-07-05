@@ -93,10 +93,11 @@ def do_one_request(multi: ct.POINTER(lcurl.CURLM), URL: str, resolve: str) -> lc
             msgs_left = ct.c_int()
             msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                     ct.byref(msgs_left))
-            if not msgp: break
+            if not msgp: break  # pragma: no branch
             msg = msgp.contents
 
-            if msg.msg == lcurl.CURLMSG_DONE and msg.easy_handle == curl:
+            if (msg.msg == lcurl.CURLMSG_DONE  # pragma: no branch
+               and msg.easy_handle == curl):
                 res = msg.data.result
                 break
 
@@ -133,9 +134,8 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
                          port, URL, i)
 
             res = do_one_request(multi, target_url, dns_entry)
-            if res != lcurl.CURLE_OK:
-                print("request %s failed with %d" % (target_url, res),
-                      file=sys.stderr)
+            if res != lcurl.CURLE_OK:  # pragma: no cover
+                print("request %s failed with %d" % (target_url, res), file=sys.stderr)
                 break
 
             if i < count:

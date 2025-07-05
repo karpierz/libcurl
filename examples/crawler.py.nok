@@ -179,6 +179,8 @@ def is_html(ctype: ct.c_char_p) -> bool:
 
 def main(argv=sys.argv[1:]):
 
+    global pending_interrupt
+
     signal.signal(signal.SIGINT, sighandler)
     # LIBXML_TEST_VERSION;
 

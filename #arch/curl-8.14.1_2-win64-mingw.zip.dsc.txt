@@ -1,0 +1,7 @@
+Url:       https://curl.se/windows/dl-8.14.1_2/curl-8.14.1_2-win64-mingw.zip
+Completed: 2025-06-30 15:12:15
+File name: curl-8.14.1_2-win64-mingw.zip
+File date: Wed, 04 Jun 2025 03:42:10 GMT
+File size: 8054780
+SHA256sum: A57D8A8AFAEEF65ACB3D9ADD3DEEAE3989227FDB2E458C0FAFDA103AFE464A11
+SHA1sum:   CF080D9D6BA7EDD6E808F86D2CFE7405B1B7EBA2

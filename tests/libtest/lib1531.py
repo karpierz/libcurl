@@ -83,7 +83,7 @@ def test(URL: str) -> lcurl.CURLcode:
                                                     ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
                                                     ct.byref(max_fd))
             max_fd = max_fd.value
-            if mc != lcurl.CURLM_OK:
+            if mc != lcurl.CURLM_OK:  # pragma: no cover
                 print("libcurl.multi_fdset() failed, code %d." % mc, file=sys.stderr)
                 break
 
@@ -107,10 +107,10 @@ def test(URL: str) -> lcurl.CURLcode:
                                   ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
                                   ct.byref(timeout))
 
-            if rc == -1:
+            if rc == -1:  # pragma: no cover
                 # select error
                 pass
-            elif rc == 0 or rc:  # timeout or action
+            elif rc == 0 or rc:  # timeout or action  # pragma: no branch
                 # timeout
                 lcurl.multi_perform(multi, ct.byref(still_running))
 
@@ -123,7 +123,7 @@ def test(URL: str) -> lcurl.CURLcode:
             msgs_left = ct.c_int()  # how many messages are left
             msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                     ct.byref(msgs_left))
-            if not msgp:
+            if not msgp:  # pragma: no cover
                 abort_on_test_timeout()
                 break
             msg = msgp.contents

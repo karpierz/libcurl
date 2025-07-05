@@ -44,16 +44,16 @@ def test(URL: str, filename: str, accept_timeout: str) -> lcurl.CURLcode:
     try:
         upload = open(filename, "rb")
     except OSError as exc:
-        print("fopen() failed with error: %d (%s)" %
+        print("fopen() failed with error (%d) %s" %
               (exc.errno, exc.strerror), file=sys.stderr)
-        print("Error opening file: (%s)" % filename,
+        print("Error opening file '%s'" % filename,
               file=sys.stderr)
         return TEST_ERR_FOPEN
 
     with upload:
 
         res = res_global_init(lcurl.CURL_GLOBAL_ALL)
-        if res: return res
+        if res: return res  # pragma: no branch
         curl:  ct.POINTER(lcurl.CURL)  = easy_init()
         multi: ct.POINTER(lcurl.CURLM) = multi_init()
 
@@ -120,7 +120,7 @@ def test(URL: str, filename: str, accept_timeout: str) -> lcurl.CURLcode:
             msgs_left = ct.c_int()
             msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                     ct.byref(msgs_left))
-            if msgp:
+            if msgp:  # pragma: no branch
                 msg = msgp.contents
                 res = msg.data.result
 

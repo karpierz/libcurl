@@ -42,8 +42,10 @@ class WriteThis(ct.Structure):
 def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
-    if pooh.sizeleft == 0: return 0  # no more data left to deliver
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
+    if pooh.sizeleft == 0:       # no more data left to deliver
+        return 0  # pragma: no cover
     buffer[0] = pooh.readptr[0]  # copy one single byte
     c_ptr_iadd(pooh.readptr, 1)  # advance pointer
     pooh.sizeleft -= 1           # less data left

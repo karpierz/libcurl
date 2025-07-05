@@ -28,7 +28,7 @@
 #  HTTP1 amd HTTP2 (no multiplexing) two transfers (expected two descriptors),
 #  HTTP2 with multiplexing (expected one descriptors)
 #  Improper inputs to the API result in CURLM_BAD_FUNCTION_ARGUMENT.
-#  Sending a empty ufds, and size = 0 will return the number of fds needed.
+#  Sending an empty ufds, and size = 0 will return the number of fds needed.
 #  Sending a non-empty ufds, but smaller than the fds needed will result in a
 #    CURLM_OUT_OF_MEMORY, and a number of fds that is >= to the number needed.
 #
@@ -154,7 +154,7 @@ def test_run(URL: str, option: ct.c_long) -> Tuple[lcurl.CURLcode, ct.c_uint]:
             break
 
         mc = lcurl.multi_waitfds(multi, ufds, 10, ct.byref(fd_count))
-        if mc != lcurl.CURLM_OK:
+        if mc != lcurl.CURLM_OK:  # pragma: no cover
             print("libcurl.multi_waitfds() failed, code %d." % mc, file=sys.stderr)
             res = TEST_ERR_FAILURE
             break
@@ -166,7 +166,7 @@ def test_run(URL: str, option: ct.c_long) -> Tuple[lcurl.CURLcode, ct.c_uint]:
         # same number of fds
         mc = lcurl.multi_waitfds(multi, None, 0, ct.byref(fd_count_chk))
 
-        if mc != lcurl.CURLM_OK:
+        if mc != lcurl.CURLM_OK:  # pragma: no cover
             print("libcurl.multi_waitfds() failed, code %d." % mc, file=sys.stderr)
             res = TEST_ERR_FAILURE
             break
@@ -222,7 +222,7 @@ def test_run(URL: str, option: ct.c_long) -> Tuple[lcurl.CURLcode, ct.c_uint]:
         numfds = ct.c_int()
         mc = lcurl.multi_poll(multi1, ufds, fd_count.value, 500, ct.byref(numfds))
 
-        if mc != lcurl.CURLM_OK:
+        if mc != lcurl.CURLM_OK:  # pragma: no cover
             print("libcurl.multi_poll() failed, code %d." % mc, file=sys.stderr)
             res = TEST_ERR_FAILURE
             break
@@ -231,7 +231,7 @@ def test_run(URL: str, option: ct.c_long) -> Tuple[lcurl.CURLcode, ct.c_uint]:
         msgs_left = ct.c_int()  # how many messages are left
         msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                 ct.byref(msgs_left))
-        if not msgp: break
+        if not msgp: break  # pragma: no branch
         msg = msgp.contents
 
         if msg.msg == lcurl.CURLMSG_DONE:
@@ -268,10 +268,10 @@ def empty_multi_test() -> lcurl.CURLcode:
 
         # calling curl_multi_waitfds() on an empty multi handle.
         mc = lcurl.multi_waitfds(multi, ufds, 10, ct.byref(fd_count))
-        if mc != lcurl.CURLM_OK:
+        if mc != lcurl.CURLM_OK:  # pragma: no cover
             print("libcurl.multi_waitfds() failed, code %d." % mc, file=sys.stderr)
             return TEST_ERR_FAILURE
-        elif fd_count.value > 0:
+        elif fd_count.value > 0:  # pragma: no cover
             print("libcurl.multi_waitfds() returned non-zero count of "
                   "waitfds: %d." % fd_count.value, file=sys.stderr)
             return TEST_ERR_FAILURE
@@ -284,10 +284,10 @@ def empty_multi_test() -> lcurl.CURLcode:
         multi_add_handle(multi, easy);
 
         mc = lcurl.multi_waitfds(multi, ufds, 10, ct.byref(fd_count))
-        if mc != lcurl.CURLM_OK:
+        if mc != lcurl.CURLM_OK:  # pragma: no cover
             print("libcurl.multi_waitfds() failed, code %d." % mc, file=sys.stderr)
             return TEST_ERR_FAILURE
-        elif fd_count.value > 0:
+        elif fd_count.value > 0:  # pragma: no cover
             print("libcurl.multi_waitfds() returned non-zero count of "
                   "waitfds: %d." % fd_count.value, file=sys.stderr)
             return TEST_ERR_FAILURE
@@ -298,9 +298,9 @@ def empty_multi_test() -> lcurl.CURLcode:
 def test_run_check(URL: str, option, expected_fds):
     res, fd_count = test_run(URL, option)
     #_test_check(res, fd_count.value, expected_fds)
-    if res != lcurl.CURLE_OK:
+    if res != lcurl.CURLE_OK:  # pragma: no cover
         print("test failed with code: %d" % res, file=sys.stderr)
-    elif fd_count.value != expected_fds:
+    elif fd_count.value != expected_fds:  # pragma: no cover
         print("Max number of waitfds: %d not as expected: %d" %
               (fd_count.value, expected_fds), file=sys.stderr)
         res = TEST_ERR_FAILURE

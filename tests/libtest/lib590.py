@@ -59,17 +59,23 @@ def test(URL: str,
         test_setopt(curl, lcurl.CURLOPT_HEADER, 1)
         test_setopt(curl, lcurl.CURLOPT_PROXYAUTH,
                     lcurl.CURLAUTH_BASIC | lcurl.CURLAUTH_DIGEST | lcurl.CURLAUTH_NTLM)
-        test_setopt(curl, lcurl.CURLOPT_PROXY,
-                          proxy.encode("utf-8") if proxy else None)
-        test_setopt(curl, lcurl.CURLOPT_PROXYUSERPWD,
-                          proxy_login.encode("utf-8") if proxy_login else None)
+        test_setopt(curl, lcurl.CURLOPT_PROXY, proxy.encode("utf-8") if proxy else None)
+        if proxy_login:
+            # set the name + password twice to test that the API is fine with it
+            test_setopt(curl, lcurl.CURLOPT_PROXYUSERNAME,
+                              proxy_login.split(":")[0].encode("utf-8"))
+            test_setopt(curl, lcurl.CURLOPT_PROXYPASSWORD,
+                              proxy_login.split(":")[1].encode("utf-8"))
+            test_setopt(curl, lcurl.CURLOPT_PROXYUSERPWD,
+                              proxy_login.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
+        if res != lcurl.CURLE_OK: raise guard.Break
 
         usedauth = ct.c_long(0)
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PROXYAUTH_USED, ct.byref(usedauth))
         usedauth = usedauth.value
-        if usedauth != lcurl.CURLAUTH_NTLM:
+        if usedauth != lcurl.CURLAUTH_NTLM:  # pragma: no branch
             print("CURLINFO_PROXYAUTH_USED did not say NTLM")
 
     return res

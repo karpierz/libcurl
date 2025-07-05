@@ -96,8 +96,7 @@ def write_function(buffer, size, nitems, userp):
 def main(argv=sys.argv[1:]):
 
     url: str = (argv[0] if len(argv) >= 1 else #
-                "ftp://example.com/test/*")
-               #"ftp://ftp.gnu.org/gnu/binutils/binutils-2.*.tar.bz2")
+                "ftp://ftp.gnu.org/gnu/binutils/binutils-2.*.tar.bz2")
 
     # help data
     data = callback_data()
@@ -139,4 +138,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

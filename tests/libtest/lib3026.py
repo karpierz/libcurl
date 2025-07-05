@@ -26,7 +26,7 @@ import sys
 import ctypes as ct
 try:
     import threading
-except ImportError:
+except ImportError:  # pragma: no cover
     threading = None
 
 import libcurl as lcurl
@@ -39,7 +39,7 @@ def run_thread(result_p: ct.POINTER(lcurl.CURLcode)):
     # result_p = ct.cast(ptr, ct.POINTER(lcurl.CURLcode))
     res: lcurl.CURLcode = lcurl.global_init(lcurl.CURL_GLOBAL_ALL)
     result_p.contents.value = res
-    if res == lcurl.CURLE_OK:
+    if res == lcurl.CURLE_OK:  # pragma: no branch
         lcurl.global_cleanup()
 
 
@@ -50,13 +50,13 @@ def test(URL: str) -> lcurl.CURLcode:
 
     if threading is not None:
 
-        if (ver.features & lcurl.CURL_VERSION_THREADSAFE) == 0:
+        if (ver.features & lcurl.CURL_VERSION_THREADSAFE) == 0:  # pragma: no cover
             print("%s:%d %s but the libcurl.CURL_VERSION_THREADSAFE"
                   " feature flag is not set" %
                   (current_file(), current_line(),
                    "On Windows" if is_windows else "Have threads"),
                   file=sys.stderr)
-            return lcurl.CURLcode(-1).value
+            return TEST_ERR_MAJOR_BAD
 
     else:  # without pthread or Windows, this test doesn't work
 
@@ -64,7 +64,7 @@ def test(URL: str) -> lcurl.CURLcode:
             print("%s:%d No threads but the "
                   "libcurl.CURL_VERSION_THREADSAFE feature flag is set" %
                   (current_file(), current_line()), file=sys.stderr)
-            return lcurl.CURLcode(-1).value
+            return TEST_ERR_MAJOR_BAD
 
         return lcurl.CURLE_OK
 
@@ -72,15 +72,6 @@ def test(URL: str) -> lcurl.CURLcode:
 
     threads: List[threading.Thread] = []
     results: List[lcurl.CURLcode]   = []
-
-    if is_windows:
-        # On Windows libcurl global init/cleanup calls LoadLibrary/FreeLibrary for
-        # secur32.dll and iphlpapi.dll. Here we load them beforehand so that when
-        # libcurl calls LoadLibrary/FreeLibrary it only increases/decreases the
-        # library's refcount rather than actually loading/unloading the library,
-        # which would affect the test runtime.
-        tutil.win32_load_system_library("secur32.dll")
-        tutil.win32_load_system_library("iphlpapi.dll")
 
     for i in range(NUM_THREADS):
         result = lcurl.CURLcode()  #lcurl.CURL_LAST  # initialize with invalid value
@@ -90,7 +81,7 @@ def test(URL: str) -> lcurl.CURLcode:
         except Exception as exc:
             print("%s:%d Couldn't create thread, errno %d" %
                   (current_file(), current_line(), exc.errno), file=sys.stderr)
-            test_failure = lcurl.CURLcode(-1)
+            test_failure = TEST_ERR_MAJOR_BAD
             break
         threads.append(thread)
         results.append(result)
@@ -102,11 +93,11 @@ def test(URL: str) -> lcurl.CURLcode:
 
     for i, result in enumerate(results):
         result = result.value
-        if result != lcurl.CURLE_OK:
+        if result != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d thread[%u]: libcurl.global_init() failed, with code %d (%s)" %
                   (current_file(), current_line(),
                    i, result, lcurl.easy_strerror(result).decode("utf-8")),
                   file=sys.stderr)
-            test_failure = lcurl.CURLcode(-1)
+            test_failure = TEST_ERR_MAJOR_BAD
 
     return test_failure

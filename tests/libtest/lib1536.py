@@ -50,12 +50,12 @@ def test(URL: str) -> lcurl.CURLcode:
 
         scheme = ct.c_char_p()
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_SCHEME, ct.byref(scheme))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if scheme:
+        if scheme:  # pragma: no cover
             print("%s:%d scheme init failed; expected NULL" %
                   (current_file(), current_line()), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -64,7 +64,7 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
@@ -73,12 +73,12 @@ def test(URL: str) -> lcurl.CURLcode:
         # Test that a scheme is properly set after receiving an HTTP resource.
 
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_SCHEME, ct.byref(scheme))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if not scheme or scheme.value != b"http":
+        if not scheme or scheme.value != b"http":  # pragma: no cover
             print("%s:%d scheme of http resource is incorrect; expected 'http' "
                   "but is %s" % (current_file(), current_line(),
                                  "invalid" if scheme else "NULL"), file=sys.stderr)
@@ -88,7 +88,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # Test that a scheme is properly initialized on curl_easy_duphandle.
 
         dupe: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(curl)
-        if not dupe:
+        if not dupe:  # pragma: no cover
             print("%s:%d libcurl.easy_duphandle() failed" %
                   (current_file(), current_line()), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -96,12 +96,12 @@ def test(URL: str) -> lcurl.CURLcode:
         guard.add_curl(dupe)
 
         res = lcurl.easy_getinfo(dupe, lcurl.CURLINFO_SCHEME, ct.byref(scheme))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if scheme:
+        if scheme:  # pragma: no cover
             print("%s:%d scheme init failed; expected NULL" %
                   (current_file(), current_line()), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT
@@ -112,12 +112,12 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_reset(curl)
 
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_SCHEME, ct.byref(scheme))
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_getinfo() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
-        if scheme:
+        if scheme:  # pragma: no cover
             print("%s:%d scheme init failed; expected NULL" %
                   (current_file(), current_line()), file=sys.stderr)
             res = lcurl.CURLE_FAILED_INIT

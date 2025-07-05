@@ -52,41 +52,6 @@ diff --git a/examples/examples.c/crawler.c b/examples/examples.c/crawler.c
 index 2ff4ae7..d2f89db 100644
 --- a/examples/examples.c/crawler.c
 +++ b/examples/examples.c/crawler.c
-@@ -30,14 +30,6 @@
-  * </DESC>
-  */
- 
--/* Parameters */
--int max_con = 200;
--int max_total = 20000;
--int max_requests = 500;
--int max_link_per_page = 5;
--int follow_relative_links = 0;
--char *start_page = "https://www.reuters.com";
--
- #include <libxml/HTMLparser.h>
- #include <libxml/xpath.h>
- #include <libxml/uri.h>
-@@ -47,9 +39,18 @@ char *start_page = "https://www.reuters.com";
- #include <math.h>
- #include <signal.h>
- 
--int pending_interrupt = 0;
--void sighandler(int dummy)
-+/* Parameters */
-+static int max_con = 200;
-+static int max_total = 20000;
-+static int max_requests = 500;
-+static size_t max_link_per_page = 5;
-+static int follow_relative_links = 0;
-+static const char *start_page = "https://www.reuters.com";
-+
-+static int pending_interrupt = 0;
-+static void sighandler(int dummy)
- {
-   pending_interrupt = 1;
- }
- 
 @@ -117,37 +119,43 @@ CURL *make_handle(char *url)
  }
  
@@ -273,18 +238,6 @@ index 8997dff..a96687e 100644
    fprintf(MSG_OUT,
            "socket callback: s=%d e=%p what=%s ", s, e, whatstr[what]);
    if(what == CURL_POLL_REMOVE) {
-@@ -317,22 +321,22 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
- {
-   ConnInfo *conn = (ConnInfo *)p;
-   (void)ult;
-   (void)uln;
- 
--  fprintf(MSG_OUT, "Progress: %s (%g/%g)\n", conn->url, dlnow, dltotal);
-+  fprintf(MSG_OUT, "Progress: %s (%" CURL_FORMAT_CURL_OFF_T
-+          "/%" CURL_FORMAT_CURL_OFF_T ")\n", conn->url, dlnow, dltotal);
-   return 0;
- }
- 
 diff --git a/examples/examples.c/ghiper.c b/examples/examples.c/ghiper.c
 index 57047ed..8e83007 100644
 --- a/examples/examples.c/ghiper.c
@@ -317,8 +270,7 @@ index 57047ed..8e83007 100644
    ConnInfo *conn = (ConnInfo *)p;
 -  MSG_OUT("Progress: %s (%g/%g)\n", conn->url, dlnow, dltotal);
 +
-+  fprintf(MSG_OUT, "Progress: %s (%" CURL_FORMAT_CURL_OFF_T
-+          "/%" CURL_FORMAT_CURL_OFF_T ")\n", conn->url, dlnow, dltotal);
++  fprintf(MSG_OUT, "Progress: %s (%d/%d)\n", conn->url, dlnow, dltotal);
    return 0;
  }
  
@@ -333,22 +285,6 @@ index 57047ed..8e83007 100644
  
    fd = init_fifo();
    ch = g_io_channel_unix_new(fd);
-diff --git a/examples/examples.c/hiperfifo.c b/examples/examples.c/hiperfifo.c
-index bde3059..d9c00b8 100644
---- a/examples/examples.c/hiperfifo.c
-+++ b/examples/examples.c/hiperfifo.c
-@@ -315,26 +315,27 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
- {
-   ConnInfo *conn = (ConnInfo *)p;
-   (void)ult;
-   (void)uln;
- 
--  fprintf(MSG_OUT, "Progress: %s (%g/%g)\n", conn->url, dlnow, dltotal);
-+  fprintf(MSG_OUT, "Progress: %s (%" CURL_FORMAT_CURL_OFF_T
-+          "/%" CURL_FORMAT_CURL_OFF_T ")\n", conn->url, dlnow, dltotal);
-   return 0;
- }
- 
 diff --git a/examples/examples.c/multi-legacy.c b/examples/examples.c/multi-legacy.c
 index 3e7714f..b0c37ea 100644
 --- a/examples/examples.c/multi-legacy.c

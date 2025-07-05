@@ -31,52 +31,8 @@ from curl_test import *  # noqa
 from curl_trace import *  # noqa
 
 
-if defined("LIB585"):
-
-    testcounter: int
-    sock_obj = None
-
-
-    @lcurl.opensocket_callback
-    def tst_opensocket(clientp, purpose, address):
-        address = address.contents
-        global testcounter
-        global sock_obj
-        testcounter += 1
-        print("[OPEN] counter: %d" % testcounter)
-        sock_obj = socket.socket(address.family, address.socktype, address.protocol)
-        return sock_obj.fileno()
-
-
-    @lcurl.closesocket_callback
-    def tst_closesocket(clientp, sock):
-        global testcounter
-        global sock_obj
-        print("[CLOSE] counter: %d" % testcounter)
-        testcounter -= 1
-        try:
-            sock_obj.close()
-        except:
-            return -1
-        finally:
-            sock_obj = None
-        return 0
-
-
-    def setupcallbacks(curl: ct.POINTER(lcurl.CURL)):
-        global testcounter
-        global sock_obj
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_OPENSOCKETFUNCTION,  tst_opensocket)
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_CLOSESOCKETFUNCTION, tst_closesocket)
-        testcounter  = 0
-        sock_obj = None
-
-else:
-
-    def setupcallbacks(curl: ct.POINTER(lcurl.CURL)):
-        pass
-
-# endif
+def setupcallbacks(curl: ct.POINTER(lcurl.CURL)):
+    pass
 
 
 @curl_test_decorator
@@ -114,7 +70,7 @@ def test(URL: str, filename: str = None, ftp_type: str = None) -> lcurl.CURLcode
 
         ipstr = ct.c_char_p(None)
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PRIMARY_IP, ct.byref(ipstr))
-        if filename:
+        if filename:  # pragma: no branch
             with open(filename, "wb") as moo:
 
                 moo.write(b"IP %s\n" % ipstr.value)

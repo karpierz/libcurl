@@ -38,20 +38,15 @@ def test(URL: str, filename: str = None) -> lcurl.CURLcode:
     start_test_timing()
 
     if not filename:
-        if defined("LIB529"):
-            # test 529
-            print("Usage: lib529 [url] [uploadfile]", file=sys.stderr)
-        else:
-            # test 525
-            print("Usage: lib525 [url] [uploadfile]", file=sys.stderr)
+        print("Usage: lib525 [url] [uploadfile]", file=sys.stderr)
         return TEST_ERR_USAGE
 
     try:
         hd_src = open(filename, "rb")
     except OSError as exc:
-        print("fopen failed with error: %d (%s)" %
+        print("fopen failed with error (%d) %s" %
               (exc.errno, exc.strerror), file=sys.stderr)
-        print("Error opening file: (%s)" % filename,
+        print("Error opening file '%s'" % filename,
               file=sys.stderr)
         return TEST_ERR_FOPEN
 
@@ -59,16 +54,16 @@ def test(URL: str, filename: str = None) -> lcurl.CURLcode:
 
         try:
             file_len: int = file_size(hd_src)
-        except OSError as exc:
+        except OSError as exc:  # pragma: no cover
             # can't open file, bail out
-            print("fstat() failed with error: %d (%s)" %
+            print("fstat() failed with error (%d) %s" %
                   (exc.errno, exc.strerror), file=sys.stderr)
-            print("ERROR: cannot open file (%s)" % filename,
+            print("Error opening file '%s'" % filename,
                   file=sys.stderr)
             return TEST_ERR_FSTAT
 
         res = res_global_init(lcurl.CURL_GLOBAL_ALL)
-        if res: return res
+        if res: return res  # pragma: no branch
         curl:  ct.POINTER(lcurl.CURL)  = easy_init()
         multi: ct.POINTER(lcurl.CURLM) = multi_init()
 

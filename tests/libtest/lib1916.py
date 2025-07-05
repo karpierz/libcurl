@@ -43,15 +43,10 @@ def test(URL: str) -> lcurl.CURLcode:
         if not curl: return TEST_ERR_EASY_INIT
 
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-        if defined("LIB1917"):
-            # without any postfields set!
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_POST, 1)
-        else:
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_POSTFIELDS, b"")
-        # endif
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_POSTFIELDS, b"")
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("res: %d" % res)
             raise guard.Break
 

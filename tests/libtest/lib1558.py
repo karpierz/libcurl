@@ -44,16 +44,14 @@ def test(URL: str) -> lcurl.CURLcode:
 
         easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() returned %d (%s)" %
                   (res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break
 
         protocol = ct.c_long(0)
-        # CURL_IGNORE_DEPRECATION(
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_PROTOCOL, ct.byref(protocol))
-        # )
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_getinfo() returned %d (%s)" %
                   (res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)
             raise guard.Break

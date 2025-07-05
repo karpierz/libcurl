@@ -1,6 +1,15 @@
 Changelog
 =========
 
+8.14.1.4b1 (2025-07-01)
+-----------------------
+- Add support for Python 3.14
+- Drop support for Python 3.9 (due to compatibility issues).
+- Upgrade: libcurl v.8.12.1 -> v.8.14.1
+- Update readthedocs's python to version 3.13
+- Update tox's base_python to version 3.13
+- Setup (dependencies) update.
+
 8.12.1.4b1 (2025-03-01)
 -----------------------
 - Add support for Python 3.12 and 3.13

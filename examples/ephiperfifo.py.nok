@@ -309,7 +309,7 @@ int sock_cb(e: ct.POINTER(lcurl.CURL), s: lcurl.socket_t, int what, void *cbp, v
 @lcurl.progress_callback
 def prog_cb(clientp, dltotal, dlnow, ultotal, ulnow):
     conn: ConnInfo = ct.cast(clientp, ct.POINTER(ConnInfo)).contents
-    print("Progress: %s (%g/%g)" % (conn.url, dlnow, dltotal), file=MSG_OUT)
+    print("Progress: %s (%d/%d)" % (conn.url, dlnow, dltotal), file=MSG_OUT)
     return 0
 
 
@@ -381,17 +381,17 @@ def init_fifo(g: GlobalInfo) -> int:
         if (st.st_mode & S_IFMT) == S_IFREG:
             errno = EEXIST;
             perror("lstat")
-            sys.exit(1)
+            return 1
 
     unlink(fifo);
     if mkfifo(fifo, 0o600) == -1:
         perror("mkfifo")
-        sys.exit(1)
+        return 1
 
     sockfd = open(fifo, O_RDWR | O_NONBLOCK, 0)
     if sockfd == -1:
         perror("open")
-        sys.exit(1)
+        return 1
 
     g->fifofd = sockfd;
     g->input  = fdopen(sockfd, "r");
@@ -451,7 +451,9 @@ def main(argv=sys.argv[1:]):
     ev.data.fd = g.tfd
     epoll_ctl(g.epfd, EPOLL_CTL_ADD, g.tfd, ct.byref(ev))
 
-    init_fifo(g)
+    res = init_fifo(g)
+    if res:
+        return res
 
     g.multi = lcurl.multi_init()
 

@@ -11,7 +11,7 @@ from libcurl._platform._limits import *  # noqa
 from libcurl._ct import c_ptr_add, c_ptr_sub, c_ptr_iadd, c_ptr_isub
 if is_windows: from libcurl._platform._windows import _win32 as win32
 
-if is_windows:
+if is_windows:  # pragma: no branch
     libc = ct.cdll.msvcrt
     libc.strdup = libc._strdup
 else:
@@ -24,7 +24,7 @@ libc.free.restype,    libc.free.argtypes    = None,        [ct.c_void_p]
 libc.strlen.restype,  libc.strlen.argtypes  = ct.c_size_t, [ct.c_char_p]
 libc.strdup.restype,  libc.strdup.argtypes  = ct.c_void_p, [ct.c_char_p]
 
-from curl_setup import *
+from curl_setup import *  # noqa
 #include "curl_printf.h"
 
 
@@ -70,28 +70,28 @@ class curl_guard:
         if curl: self.curls.append(curl)
 
     def free_curl(self, curl):
-        if not curl: return
+        if not curl: return  # pragma: no cover
         lcurl.easy_cleanup(curl)
         try: self.curls.remove(curl)
-        except: pass
+        except: pass  # pragma: no cover
 
     def add_slist(self, slist):
         if slist: self.slists.append(slist)
 
     def free_slist(self, slist):
-        if not slist: return
+        if not slist: return  # pragma: no cover
         lcurl.slist_free_all(slist)
         try: self.slists.remove(slist)
-        except: pass
+        except: pass  # pragma: no cover
 
     def add_mime(self, mime):
         if mime: self.mimes.append(mime)
 
     def free_mime(self, mime):
-        if not mime: return
+        if not mime: return  # pragma: no cover
         lcurl.mime_free(mime)
         try: self.mimes.remove(mime)
-        except: pass
+        except: pass  # pragma: no cover
 
     def __enter__(self):
         return self

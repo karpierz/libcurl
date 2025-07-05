@@ -52,15 +52,15 @@ def test(URL: str) -> lcurl.CURLcode:
 
         asize: int = ct.sizeof(a)
         s: bytes = lcurl.easy_escape(curl, ct.cast(a, ct.c_char_p), asize)
-        if s:
+        if s:  # pragma: no branch
             print("%s" % s.decode("utf-8"))
 
         s = lcurl.easy_escape(curl, b"", 0)
-        if s:
+        if s:  # pragma: no branch
             print("IN: '' OUT: '%s'" % s.decode("utf-8"))
 
         s = lcurl.easy_escape(curl, b" 123", 3)
-        if s:
+        if s:  # pragma: no branch
             print("IN: ' 12' OUT: '%s'" % s.decode("utf-8"))
 
     return res

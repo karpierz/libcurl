@@ -22,6 +22,8 @@
 #
 # **************************************************************************
 
+CURL_NO_OLDIES = True
+CURL_DISABLE_DEPRECATION = True
 CURL_DISABLE_WEBSOCKETS = False
 
 SKIP_PEER_VERIFICATION = True

@@ -42,11 +42,13 @@ def main(argv=sys.argv[1:]):
     with curl_guard(False, curl) as guard:
         if not curl: return 1
 
-        lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, url.encode("utf-8"))
         # example.com is redirected, so we tell libcurl to follow redirection
         lcurl.easy_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
         # this example just ignores the content
         lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, lcurl.write_skipped)
+        if defined("SKIP_PEER_VERIFICATION") and SKIP_PEER_VERIFICATION:
+            lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_VERIFYPEER, 0)
 
         # Perform the request, res gets the return code
         res: int = lcurl.easy_perform(curl)
@@ -55,7 +57,7 @@ def main(argv=sys.argv[1:]):
         handle_easy_perform_error(res)
 
         header = ct.POINTER(lcurl.header)()
-        resh = lcurl.easy_header(curl, "Content-Type", 0, lcurl.CURLH_HEADER, -1,
+        resh = lcurl.easy_header(curl, b"Content-Type", 0, lcurl.CURLH_HEADER, -1,
                                  ct.byref(header))
         if resh == lcurl.CURLHE_OK:
             header = header.contents
@@ -74,4 +76,5 @@ def main(argv=sys.argv[1:]):
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

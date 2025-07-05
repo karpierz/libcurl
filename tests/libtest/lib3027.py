@@ -54,8 +54,9 @@ def test(URL: str) -> lcurl.CURLcode:
         res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_FILETIME, ct.byref(filetime))
         filetime = filetime.value
         # MTDM fails with 550, so filetime should be -1
-        if res == lcurl.CURLE_OK and filetime != -1:
-            # we just need to return something which is not lcurl.CURLE_OK
-            res = lcurl.CURLE_UNSUPPORTED_PROTOCOL
+        if res == lcurl.CURLE_OK:  # pragma: no branch
+            if filetime != -1:
+                # we just need to return something which is not lcurl.CURLE_OK
+                res = lcurl.CURLE_UNSUPPORTED_PROTOCOL
 
     return res

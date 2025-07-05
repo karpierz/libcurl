@@ -41,7 +41,7 @@ class entry(ct.Structure):
 ]
 
 
-if ct.sizeof(lcurl.time_t) < 5:
+if ct.sizeof(lcurl.time_t) <= 4:
     preload_hosts = [
     # curl turns 39 that day just before 31-bit lcurl.time_t overflow
     entry(b"1.example.com", b"20370320 01:02:03"),

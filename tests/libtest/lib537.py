@@ -29,15 +29,11 @@ import ctypes as ct
 import libcurl as lcurl
 from curl_test import *  # noqa
 
-try:
+try:  # pragma: no branch
     import resource
 except ImportError:
-    resource = None
 
-    @curl_test_decorator
-    def test(URL: str) -> lcurl.CURLcode:
-        print("system lacks necessary system function(s)")
-        return lcurl.CURLcode(1).value
+    from curl_test import test_lacks_necessary_function as test
 
 else:
 
@@ -371,7 +367,7 @@ else:
 
                 rl.rlim_cur += 1
 
-        #endif  # using a FD_SETSIZE bound select()
+        #endif  # using an FD_SETSIZE bound select()
 
         # Old or 'backwards compatible' implementations of stdio do not allow
         # handling of streams with an underlying file descriptor number greater
@@ -412,7 +408,7 @@ else:
             # used by the test script to ask if we can run this test or not
             if test_rlimit(keep_open=False):
                 print("test_rlimit problem: %s" % errmsg, file=sys.stdout)
-                return lcurl.CURLcode(1).value
+                return TEST_ERR_FAILURE
 
             return lcurl.CURLE_OK  # sure, run this!
 

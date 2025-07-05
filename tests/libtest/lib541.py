@@ -47,25 +47,25 @@ def test(URL: str, filename: str = None) -> lcurl.CURLcode:
     try:
         hd_src = open(filename, "rb")
     except OSError as exc:
-        print("fopen failed with error: %d %s" %
+        print("fopen failed with error (%d) %s" %
               (exc.errno, exc.strerror), file=sys.stderr)
-        print("Error opening file: %s" % filename, file=sys.stderr)
-        return lcurl.CURLcode(-2).value  # if this happens things are major weird
+        print("Error opening file '%s'" % filename, file=sys.stderr)
+        return TEST_ERR_MAJOR_BAD  # if this happens things are major weird
 
     with hd_src:
 
         # get the file size of the local file
         try:
             file_len: int = file_size(hd_src)
-        except OSError as exc:
+        except OSError as exc:  # pragma: no cover
             # can't open file, bail out
-            print("fstat() failed with error: %d %s" %
+            print("fstat() failed with error (%d) %s" %
                   (exc.errno, exc.strerror), file=sys.stderr)
-            print("ERROR: cannot open file %s" % filename, file=sys.stderr)
+            print("Error opening file '%s'" % filename, file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         if file_len == 0:
-            print("ERROR: file %s has zero size!" % filename, file=sys.stderr)
+            print("File %s has zero size!" % filename, file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         if global_init(lcurl.CURL_GLOBAL_ALL) != lcurl.CURLE_OK:

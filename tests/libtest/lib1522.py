@@ -41,7 +41,7 @@ g_sock = None
 
 @lcurl.sockopt_callback
 def sockopt_callback(clientp, curlfd, purpose):
-    if hasattr(socket, "SOL_SOCKET") and hasattr(socket, "SO_SNDBUF"):
+    if hasattr(socket, "SOL_SOCKET") and hasattr(socket, "SO_SNDBUF"):  # pragma: no branch
         global g_sock
         g_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0, curlfd)
         sndbufsize = 4 * 1024  # 4KB send buffer
@@ -79,7 +79,7 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_HTTPHEADER, pHeaderList)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() failed. e = %d" % res)
             raise guard.Break
 

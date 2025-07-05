@@ -42,12 +42,12 @@ def test(URL: str) -> lcurl.CURLcode:
     error: int = 0
 
     if global_init(lcurl.CURL_GLOBAL_ALL) != lcurl.CURLE_OK:
-        return lcurl.CURLcode(1).value
+        return TEST_ERR_MAJOR_BAD
 
     easy: ct.POINTER(lcurl.CURL) = easy_init()
 
     with curl_guard(True, easy):
-        if not easy: return lcurl.CURLcode(1).value
+        if not easy: return TEST_ERR_EASY_INIT
 
         # make it a null-terminated C string with just As
         ct.memset(testbuf, ord(b'A'), MAX_INPUT_LENGTH + 1)
@@ -61,7 +61,6 @@ def test(URL: str) -> lcurl.CURLcode:
 
             if opt.type == lcurl.CURLOT_STRING:
                 # Whitelist string options that are safe for abuse
-                # CURL_IGNORE_DEPRECATION(
                 if opt.id in (lcurl.CURLOPT_PROXY_TLSAUTH_TYPE,
                               lcurl.CURLOPT_TLSAUTH_TYPE,
                               lcurl.CURLOPT_RANDOM_FILE,
@@ -71,13 +70,12 @@ def test(URL: str) -> lcurl.CURLcode:
                 else:
                     # check this
                     pass
-                # )
 
                 # This is a string. Make sure that passing in a string longer
                 # libcurl.CURL_MAX_INPUT_LENGTH returns an error
                 result: lcurl.CURLcode = lcurl.easy_setopt(easy, opt.id, testbuf)
 
-                if result not in (lcurl.CURLE_BAD_FUNCTION_ARGUMENT,  # the most normal
+                if result not in (lcurl.CURLE_BAD_FUNCTION_ARGUMENT,  # the most normal # pragma: no cover
                                   lcurl.CURLE_UNKNOWN_OPTION,         # left out from the build
                                   lcurl.CURLE_NOT_BUILT_IN,           # not supported
                                   lcurl.CURLE_UNSUPPORTED_PROTOCOL):  # detected by protocol2num()

@@ -43,7 +43,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
     start_test_timing()
 
     res = res_global_init(lcurl.CURL_GLOBAL_ALL)
-    if res: return res
+    if res: return res  # pragma: no branch
     curl:  ct.POINTER(lcurl.CURL)  = easy_init()
     multi: ct.POINTER(lcurl.CURLM) = multi_init()
 
@@ -53,7 +53,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
         # DNS cache injection
         dns_cache_list: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                                         redirect.encode("utf-8"))
-        if not dns_cache_list:
+        if not dns_cache_list:  # pragma: no cover
             print("libcurl.slist_append() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
         guard.add_slist(dns_cache_list)
@@ -63,7 +63,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_RESOLVE, dns_cache_list)
 
         dup: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(curl)
-        if not dup: return lcurl.CURLE_OUT_OF_MEMORY
+        if not dup: return lcurl.CURLE_OUT_OF_MEMORY  # pragma: no branch
         lcurl.easy_cleanup(curl)
         curl = dup
         guard.curls = [curl]

@@ -47,12 +47,12 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
         if not curl: return TEST_ERR_EASY_INIT
 
         urlp: ct.POINTER(lcurl.CURLU) = lcurl.url()
-        if not urlp:
+        if not urlp:  # pragma: no cover
             print("problem init URL api.", file=sys.stderr)
             return int(res)
 
         # this doesn't set the PATH part
-        if (lcurl.url_set(urlp, lcurl.CURLUPART_HOST, b"www.example.com", 0) or
+        if (lcurl.url_set(urlp, lcurl.CURLUPART_HOST, b"www.example.com", 0) or  # pragma: no cover
             lcurl.url_set(urlp, lcurl.CURLUPART_SCHEME, b"http", 0) or
             lcurl.url_set(urlp, lcurl.CURLUPART_PORT, b"80", 0)):
             print("problem setting libcurl.CURLUPART", file=sys.stderr)
@@ -64,7 +64,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
                           proxy.encode("utf-8") if proxy else None)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)

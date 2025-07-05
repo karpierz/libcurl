@@ -31,7 +31,6 @@ from curl_test import *  # noqa
 # This unit test PUT http data over proxy. Same  http header will be generated
 # for server and proxy
 
-
 testdata = b"Hello Cloud!\n"
 
 
@@ -61,12 +60,12 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
         # http header list
         hhl: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                              b"User-Agent: Http Agent")
-        if not hhl: return res
+        if not hhl: raise guard.Break
         tmp: ct.POINTER(lcurl.slist) = lcurl.slist_append(hhl,
                                              b"Expect: 100-continue")
         if tmp: hhl = tmp
         guard.add_slist(hhl)
-        if not hhl: return res
+        if not hhl: raise guard.Break
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_PROXY,

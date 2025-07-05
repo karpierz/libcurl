@@ -57,7 +57,7 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
         mres: lcurl.CURLMcode = lcurl.multi_add_handle(multi, curl)
-        if mres != lcurl.CURLM_OK:
+        if mres != lcurl.CURLM_OK:  # pragma: no cover
             return TEST_ERR_MAJOR_BAD
 
         state: int = 0
@@ -73,14 +73,14 @@ def test(URL: str) -> lcurl.CURLcode:
                 msgs_left = ct.c_int()
                 msgp: ct.POINTER(lcurl.CURLMsg) = lcurl.multi_info_read(multi,
                                                                         ct.byref(msgs_left))
-                if not msgp: break
+                if not msgp: break  # pragma: no branch
                 msg = msgp.contents
 
                 if msg.msg == lcurl.CURLMSG_DONE and msg.easy_handle == curl:
                     socket = lcurl.socket_t(lcurl.CURL_SOCKET_BAD)
                     lcurl.easy_getinfo(curl, lcurl.CURLINFO_ACTIVESOCKET, ct.byref(socket))
                     sock = socket.value
-                    if sock == lcurl.CURL_SOCKET_BAD:
+                    if sock == lcurl.CURL_SOCKET_BAD:  # pragma: no cover
                         return TEST_ERR_MAJOR_BAD
                     print("Connected fine, extracted socket. Moving on")
 

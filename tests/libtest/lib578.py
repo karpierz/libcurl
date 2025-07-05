@@ -38,7 +38,7 @@ def progress_callback(clientp, dltotal, dlnow, ultotal, ulnow):
     global file_name
     try:
         moo = open(file_name, "wb")
-    except: pass
+    except: pass  # pragma: no cover
     else:
         with moo:
             if int(ultotal) == data_size and int(ulnow) == data_size:
@@ -74,10 +74,8 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_POSTFIELDSIZE, data_size)
         test_setopt(curl, lcurl.CURLOPT_POSTFIELDS, testdata)
         # we want to use our own progress function
-        # CURL_IGNORE_DEPRECATION(
         test_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 0)
         test_setopt(curl, lcurl.CURLOPT_PROGRESSFUNCTION, progress_callback)
-        # )
         # get verbose debug output please
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         # include headers in the output

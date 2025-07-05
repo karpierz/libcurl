@@ -44,7 +44,8 @@ def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
     data_size = min(strlen(pooh.readptr), buffer_size)
-    if data_size == 0: return 0
+    if data_size == 0:
+        return 0  # pragma: no cover
     ct.memmove(buffer, pooh.readptr, data_size)
     c_ptr_iadd(pooh.readptr, data_size)
     return data_size
@@ -114,7 +115,7 @@ def test(URL: str, mime_file: str) -> lcurl.CURLcode:
 
         # Send data.
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() failed", file=sys.stderr)
             raise guard.Break
 

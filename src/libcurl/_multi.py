@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305,E722,F401
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 
@@ -517,7 +519,7 @@ try:  # libcurl >= ?.?.?
         ct.POINTER(CURLM))(
         ("curl_multi_get_handles", dll), (
         (1, "multi_handle"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # Name: curl_push_callback
 #
@@ -574,7 +576,7 @@ try:  # libcurl >= ?.?.?
         (1, "ufds"),
         (1, "size"),
         (1, "fd_count"),))
-except: pass  # noqa: E722 # pragma: no cover
+except: pass  # pragma: no cover
 
 # Name:    select()
 #
@@ -598,7 +600,7 @@ except: pass  # noqa: E722 # pragma: no cover
 def select(nfds, readfds, writefds, exceptfds, timeout):
 
     if nfds < 0:
-        # SET_SOCKERRNO(EINVAL) # !!!
+        # SET_SOCKERRNO(SOCKEINVAL) # !!!
         return -1
 
     if is_windows and (nfds == 0
@@ -624,7 +626,7 @@ def select(nfds, readfds, writefds, exceptfds, timeout):
 def py_select(nfds, readfds, writefds, exceptfds, timeout):
 
     if nfds < 0:
-        # SET_SOCKERRNO(EINVAL) # !!!
+        # SET_SOCKERRNO(SOCKEINVAL) # !!!
         return -1
 
     if not timeout:

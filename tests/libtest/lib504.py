@@ -70,7 +70,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
                 num = ct.c_int()
                 mres: lcurl.CURLMcode = lcurl.multi_wait(multi, None, 0, TEST_HANG_TIMEOUT,
                                                          ct.byref(num))
-                if mres != lcurl.CURLM_OK:
+                if mres != lcurl.CURLM_OK:  # pragma: no cover
                     print("libcurl.multi_wait() returned %d" % mres)
                     res = TEST_ERR_MAJOR_BAD
                     return res
@@ -89,7 +89,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
                 print("Expected: not running", file=sys.stderr)
                 if msgp and not msgs_left.value:
                     res = TEST_ERR_SUCCESS  # this is where we should be
-                else:
+                else:  # pragma: no cover
                     res = TEST_ERR_FAILURE  # not correct
                 break  # done
 

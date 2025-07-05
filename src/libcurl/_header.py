@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 

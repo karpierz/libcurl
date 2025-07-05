@@ -50,11 +50,9 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
         if res != lcurl.CURLE_OK: raise guard.Break
 
         content_length = ct.c_double(3.0)
-        # CURL_IGNORE_DEPRECATION(
         res = lcurl.easy_getinfo(curl,
                                  lcurl.CURLINFO_CONTENT_LENGTH_DOWNLOAD,
                                  ct.byref(content_length))
-        # )
         with open(filename, "wb") as moo:
             moo.write(b"CL %.0f\n" % content_length.value)
 

@@ -122,14 +122,14 @@ def test(URL: str,
                                    ct.byref(fd_read), ct.byref(fd_write), ct.byref(fd_excep),
                                    ct.byref(timeout))
 
-            if tutil.tvdiff(tutil.tvnow(), mp_start) > MULTI_PERFORM_HANG_TIMEOUT:
+            if tutil.tvdiff(tutil.tvnow(), mp_start) > MULTI_PERFORM_HANG_TIMEOUT:  # pragma: no cover
                 print("ABORTING TEST, since it seems that it "
                       "would have run forever.", file=sys.stderr)
                 break
 
-            if rc == -1:
+            if rc == -1:  # pragma: no cover
                 pass  # select error
-            elif rc == 0 or rc:  # timeout or action
+            elif rc == 0 or rc:  # timeout or action  # pragma: no branch
                 lcurl.multi_perform(multi, ct.byref(still_running))
 
     return res

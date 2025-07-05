@@ -78,14 +78,14 @@ def test(URL: str) -> lcurl.CURLcode:
 
             hl = lcurl.slist_append(headerlist, testbuf)
             if hl: headerlist = hl
-            if not hl:
+            if not hl:  # pragma: no cover
                 guard.add_slist(headerlist)
-                return res
+                raise guard.Break
 
         hl = lcurl.slist_append(headerlist, b"Expect: ")
         if hl: headerlist = hl
         guard.add_slist(headerlist)
-        if not hl: return res
+        if not hl: raise guard.Break
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_HTTPHEADER, headerlist)

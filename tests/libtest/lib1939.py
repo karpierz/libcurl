@@ -9,7 +9,7 @@
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at https://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -44,21 +44,22 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
 
         # Crash only happens when using HTTPS
         c: lcurl.CURLcode = lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-        if not c:
+        if not c:  # pragma: no branch
             # Any old HTTP tunneling proxy will do here
             c = lcurl.easy_setopt(curl, lcurl.CURLOPT_PROXY,
                                   proxy.encode("utf-8") if proxy else None)
-        if not c:
+        if not c:  # pragma: no branch
             # We're going to drive the transfer using multi interface here,
             # because we want to stop during the middle.
             mres: lcurl.CURLMcode = lcurl.multi_add_handle(multi, curl)
-            if mres == lcurl.CURLM_OK:
+            if mres == lcurl.CURLM_OK:  # pragma: no branch
                 # Run the multi handle once, just enough to start establishing an
                 # HTTPS connection.
                 running_handles = ct.c_int()
                 mres = lcurl.multi_perform(multi, ct.byref(running_handles))
 
-            if mres != lcurl.CURLM_OK:
+            if mres != lcurl.CURLM_OK:  # pragma: no cover
                 print("libcurl.multi_perform failed", file=sys.stderr)
+                raise guard.Break
 
     return lcurl.CURLE_OK

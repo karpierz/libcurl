@@ -108,7 +108,7 @@ def test(URL: str) -> lcurl.CURLcode:
         # Perform the request, res will get the return code
         res = lcurl.easy_perform(curl)
         if (res != lcurl.CURLE_OK and
-            res != lcurl.CURLE_GOT_NOTHING): raise guard.Break
+            res != lcurl.CURLE_GOT_NOTHING): raise guard.Break  # pragma: no cover
 
         cert_info = ct.POINTER(lcurl.certinfo)()
         # Get the certificate information
@@ -116,7 +116,7 @@ def test(URL: str) -> lcurl.CURLcode:
         if res != lcurl.CURLE_OK: raise guard.Break
 
         # Check to see if the certificate chain is ordered correctly
-        if not is_chain_in_order(cert_info.contents):
+        if not is_chain_in_order(cert_info.contents):  # pragma: no cover
             res = TEST_ERR_FAILURE
 
     return res

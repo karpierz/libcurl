@@ -1,4 +1,4 @@
-# **************************************************************************
+#***************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
 #                             / __| | | | |_) | |
@@ -20,17 +20,16 @@
 #
 # SPDX-License-Identifier: curl
 #
-# **************************************************************************
+###########################################################################
 
 # These are all libcurl example programs to be test compiled
-check_PROGRAMS = [
-    "hx-download",
-    "hx-upload",
-    "h2-pausing",
-    "h2-serverpush",
-    "h2-upgrade-extreme",
-    "tls-session-reuse",
-    "upload-pausing",
-    "ws-data",
-    "ws-pingpong",
-]
+check_PROGRAMS = \
+  h2-pausing \
+  h2-serverpush \
+  h2-upgrade-extreme \
+  hx-download \
+  hx-upload \
+  tls-session-reuse \
+  upload-pausing \
+  ws-data \
+  ws-pingpong

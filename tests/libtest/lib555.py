@@ -98,10 +98,8 @@ def test(URL: str,
         easy_setopt(curl, lcurl.CURLOPT_HEADER, 1)
 
         # read the POST data from a callback
-        # CURL_IGNORE_DEPRECATION(
         easy_setopt(curl, lcurl.CURLOPT_IOCTLFUNCTION, ioctl_callback)
         easy_setopt(curl, lcurl.CURLOPT_IOCTLDATA, ct.byref(counter))
-        # )
         easy_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_callback)
         easy_setopt(curl, lcurl.CURLOPT_READDATA, ct.byref(counter))
         # We CANNOT do the POST fine without setting the size (or choose
@@ -119,7 +117,7 @@ def test(URL: str,
         multi_add_handle(multi, curl)
 
         still_running = ct.c_int(1)
-        while still_running.value:
+        while still_running.value:  # pragma: no branch
             multi_perform(multi, ct.byref(still_running))
 
             abort_on_test_timeout()

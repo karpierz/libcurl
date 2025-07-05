@@ -29,15 +29,6 @@ import libcurl as lcurl
 from curl_test import *  # noqa
 
 
-def fail_unless(expr: bool, expr_str: str, msg: str):
-    if not expr:
-        import os
-        print("%s:%d Assertion '%s' failed: %s",
-              (os.path.basename(current_file(2)), current_line(2),
-               expr_str, msg), file=sys.stderr)
-        raise Exception()
-
-
 @curl_test_decorator
 def test(URL: str) -> lcurl.CURLcode:
 
@@ -64,7 +55,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         rc = lcurl.strnequal(b"ii", b"II", 3);
         fail_unless(rc != 0, "rc != 0","return code should be non-zero")
-    except:
-        return lcurl.CURLcode(1).value
+    except:  # pragma: no cover
+        return TEST_ERR_FAILURE
 
     return lcurl.CURLE_OK

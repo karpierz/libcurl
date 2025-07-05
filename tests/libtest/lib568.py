@@ -66,7 +66,7 @@ def test(URL: str, sdpf_file: str) -> lcurl.CURLcode:
         try:
             sdpf = open(sdpf_file, "rb")
         except OSError as exc:
-            print("can't open %s" % sdpf_file, file=sys.stderr)
+            print("can't fopen %s" % sdpf_file, file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         with sdpf:

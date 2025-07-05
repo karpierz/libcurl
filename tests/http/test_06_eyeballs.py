@@ -35,16 +35,9 @@ log = logging.getLogger(__name__)
 
 class TestEyeballs:
 
-    @pytest.fixture(autouse=True, scope='class')
-    def _class_scope(self, env, httpd, nghttpx):
-        if env.have_h3():
-            nghttpx.start_if_needed()
-        httpd.clear_extra_configs()
-        httpd.reload()
-
     # download using only HTTP/3 on working server
     @pytest.mark.skipif(condition=not Env.have_h3(), reason="missing HTTP/3 support")
-    def test_06_01_h3_only(self, env: Env, httpd, nghttpx, repeat):
+    def test_06_01_h3_only(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
         urln = f'https://{env.authority_for(env.domain1, "h3")}/data.json'
         r = curl.http_download(urls=[urln], extra_args=['--http3-only'])
@@ -53,35 +46,32 @@ class TestEyeballs:
 
     # download using only HTTP/3 on missing server
     @pytest.mark.skipif(condition=not Env.have_h3(), reason="missing HTTP/3 support")
-    def test_06_02_h3_only(self, env: Env, httpd, nghttpx, repeat):
-        nghttpx.stop_if_running()
+    def test_06_02_h3_only(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
-        urln = f'https://{env.authority_for(env.domain1, "h3")}/data.json'
+        urln = f'https://{env.domain1}:{env.https_only_tcp_port}/data.json'
         r = curl.http_download(urls=[urln], extra_args=['--http3-only'])
         r.check_response(exitcode=7, http_status=None)
 
     # download using HTTP/3 on missing server with fallback on h2
     @pytest.mark.skipif(condition=not Env.have_h3(), reason="missing HTTP/3 support")
-    def test_06_03_h3_fallback_h2(self, env: Env, httpd, nghttpx, repeat):
-        nghttpx.stop_if_running()
+    def test_06_03_h3_fallback_h2(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
-        urln = f'https://{env.authority_for(env.domain1, "h3")}/data.json'
+        urln = f'https://{env.domain1}:{env.https_only_tcp_port}/data.json'
         r = curl.http_download(urls=[urln], extra_args=['--http3'])
         r.check_response(count=1, http_status=200)
         assert r.stats[0]['http_version'] == '2'
 
     # download using HTTP/3 on missing server with fallback on http/1.1
     @pytest.mark.skipif(condition=not Env.have_h3(), reason="missing HTTP/3 support")
-    def test_06_04_h3_fallback_h1(self, env: Env, httpd, nghttpx, repeat):
-        nghttpx.stop_if_running()
+    def test_06_04_h3_fallback_h1(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
-        urln = f'https://{env.authority_for(env.domain2, "h3")}/data.json'
+        urln = f'https://{env.domain2}:{env.https_only_tcp_port}/data.json'
         r = curl.http_download(urls=[urln], extra_args=['--http3'])
         r.check_response(count=1, http_status=200)
         assert r.stats[0]['http_version'] == '1.1'
 
     # make a successful https: transfer and observer the timer stats
-    def test_06_10_stats_success(self, env: Env, httpd, nghttpx, repeat):
+    def test_06_10_stats_success(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
         urln = f'https://{env.authority_for(env.domain1, "h2")}/data.json'
         r = curl.http_download(urls=[urln])
@@ -90,7 +80,7 @@ class TestEyeballs:
         assert r.stats[0]['time_appconnect'] > 0.0
 
     # make https: to a hostname that tcp connects, but will not verify
-    def test_06_11_stats_fail_verify(self, env: Env, httpd, nghttpx, repeat):
+    def test_06_11_stats_fail_verify(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
         urln = f'https://not-valid.com:{env.https_port}/data.json'
         r = curl.http_download(urls=[urln], extra_args=[
@@ -101,7 +91,7 @@ class TestEyeballs:
         assert r.stats[0]['time_appconnect'] == 0  # but not SSL verified
 
     # make https: to an invalid address
-    def test_06_12_stats_fail_tcp(self, env: Env, httpd, nghttpx, repeat):
+    def test_06_12_stats_fail_tcp(self, env: Env, httpd, nghttpx):
         curl = CurlClient(env=env)
         urln = 'https://not-valid.com:1/data.json'
         r = curl.http_download(urls=[urln], extra_args=[

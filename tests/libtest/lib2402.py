@@ -43,7 +43,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
 
     slist: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                            dns_entry.encode("utf-8"))
-    if not slist:
+    if not slist:  # pragma: no cover
         print("libcurl.slist_append() failed", file=sys.stderr)
         return 1  # !!! use proper error !!!
 

@@ -54,7 +54,7 @@ def test(URL: str) -> lcurl.CURLcode:
         multi_poll(multi, None, 0, 1000, ct.byref(numfds))
         time_after_wait = tutil.tvnow()
 
-        if tutil.tvdiff(time_after_wait, time_before_wait) < 500:
+        if tutil.tvdiff(time_after_wait, time_before_wait) < 500:  # pragma: no cover
             print("%s:%d libcurl.multi_poll returned too early" %
                   (current_file(), current_line()), file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
@@ -69,7 +69,7 @@ def test(URL: str) -> lcurl.CURLcode:
         multi_poll(multi, None, 0, 1000, ct.byref(numfds))
         time_after_wait = tutil.tvnow()
 
-        if tutil.tvdiff(time_after_wait, time_before_wait) > 500:
+        if tutil.tvdiff(time_after_wait, time_before_wait) > 500:  # pragma: no cover
             print("%s:%d libcurl.multi_poll returned too late" %
                   (current_file(), current_line()), file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
@@ -82,7 +82,7 @@ def test(URL: str) -> lcurl.CURLcode:
         multi_poll(multi, None, 0, 1000, ct.byref(numfds))
         time_after_wait = tutil.tvnow()
 
-        if tutil.tvdiff(time_after_wait, time_before_wait) < 500:
+        if tutil.tvdiff(time_after_wait, time_before_wait) < 500:  # pragma: no cover
             print("%s:%d libcurl.multi_poll returned too early" %
                   (current_file(), current_line()), file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
@@ -98,7 +98,7 @@ def test(URL: str) -> lcurl.CURLcode:
         multi_poll(multi, None, 0, 1000, ct.byref(numfds))
         time_after_wait = tutil.tvnow()
 
-        if tutil.tvdiff(time_after_wait, time_before_wait) > 500:
+        if tutil.tvdiff(time_after_wait, time_before_wait) > 500:  # pragma: no cover
             print("%s:%d libcurl.multi_poll returned too late" %
                   (current_file(), current_line()), file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
@@ -111,7 +111,7 @@ def test(URL: str) -> lcurl.CURLcode:
         multi_poll(multi, None, 0, 1000, ct.byref(numfds))
         time_after_wait = tutil.tvnow()
 
-        if tutil.tvdiff(time_after_wait, time_before_wait) < 500:
+        if tutil.tvdiff(time_after_wait, time_before_wait) < 500:  # pragma: no cover
             print("%s:%d libcurl.multi_poll returned too early" %
                   (current_file(), current_line()), file=sys.stderr)
             return TEST_ERR_MAJOR_BAD

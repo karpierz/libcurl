@@ -153,7 +153,7 @@ def main(argv=sys.argv[1:]):
     with curl_guard(True, curl) as guard:
         if not curl:
             print("Failed to create CURL connection", file=sys.stderr)
-            return 2
+            return 1
 
         # Initialize CURL connection
         if not init(curl, url):
@@ -162,7 +162,6 @@ def main(argv=sys.argv[1:]):
 
         # Perform the custom request
         res: int = lcurl.easy_perform(curl)
-
         # Check for errors
         if res != lcurl.CURLE_OK:
             print("Failed to get '%s' [%s]" %
@@ -176,7 +175,8 @@ def main(argv=sys.argv[1:]):
     # Display the extracted title
     print("Title: %s" % title)
 
-    return int(res)
+    return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

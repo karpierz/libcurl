@@ -28,7 +28,7 @@ import ctypes as ct
 import libcurl as lcurl
 from curl_test import *  # noqa
 
-# used for test case 533, 534 and 535
+# used for test case 533, 534, 535 and 546
 
 
 @curl_test_decorator

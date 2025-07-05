@@ -134,4 +134,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

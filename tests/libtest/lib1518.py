@@ -46,24 +46,13 @@ def test(URL: str) -> lcurl.CURLcode:
     with curl_guard(True, curl) as guard:
         if not curl: return TEST_ERR_EASY_INIT
 
-        if defined("LIB1543"):
-            # set libcurl.CURLOPT_URLU
-            rc: lcurl.CURLUcode = lcurl.CURLUE_OK
-            urlu: ct.POINTER(lcurl.CURLU) = lcurl.url()
-            if urlu:
-                rc = lcurl.url_set(urlu, lcurl.CURLUPART_URL, URL.encode("utf-8"),
-                                   lcurl.CURLU_ALLOW_SPACE)
-            if not urlu or rc:
-                goto(test_cleanup)
-            test_setopt(curl, lcurl.CURLOPT_CURLU, urlu)
-            test_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 1)
-        else:
-            test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-            # just to make it explicit and visible in this test:
-            test_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 0)
+        test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
+        # just to make it explicit and visible in this test:
+        test_setopt(curl, lcurl.CURLOPT_FOLLOWLOCATION, 0)
 
         # Perform the request, res will get the return code
         res = lcurl.easy_perform(curl)
+        if res != lcurl.CURLE_OK: raise guard.Break
 
         curlResponseCode  = ct.c_long()
         curlRedirectCount = ct.c_long()
@@ -74,7 +63,8 @@ def test(URL: str) -> lcurl.CURLcode:
         lcurl.easy_getinfo(curl, lcurl.CURLINFO_EFFECTIVE_URL,  ct.byref(effectiveUrl))
         lcurl.easy_getinfo(curl, lcurl.CURLINFO_REDIRECT_URL,   ct.byref(redirectUrl))
 
-        if lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_callback) == lcurl.CURLE_OK:
+        if lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION,  # pragma: no branch
+                             write_callback) == lcurl.CURLE_OK:
             print("res %d\n"
                   "status %ld\n"
                   "redirects %ld\n"
@@ -85,11 +75,5 @@ def test(URL: str) -> lcurl.CURLcode:
                   curlRedirectCount.value,
                   effectiveUrl.value.decode("utf-8"),
                   redirectUrl.value.decode("utf-8") if redirectUrl else "blank"))
-
-        # test_cleanup:
-
-        # always cleanup
-        if defined("LIB1543"):
-            lcurl.url_cleanup(urlu)
 
     return res

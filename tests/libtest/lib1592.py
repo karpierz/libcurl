@@ -106,7 +106,7 @@ def test(URL: str) -> lcurl.CURLcode:
         start_test_timing()
 
         mres: lcurl.CURLMcode = lcurl.multi_remove_handle(multi, curl)
-        if mres:
+        if mres:  # pragma: no cover
             print("libcurl.multi_remove_handle() failed, with code %d" % mres,
                   file=sys.stderr)
             return int(TEST_ERR_MULTI)

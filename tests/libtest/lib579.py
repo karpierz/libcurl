@@ -48,9 +48,11 @@ class WriteThis(ct.Structure):
 def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
     data = testpost[pooh.counter]
-    if data is None: return 0  # no more data left to deliver
+    if data is None:  # no more data left to deliver
+        return 0  # pragma: no cover
     data = data.encode("utf-8")
     data_size = len(data)
     ct.memmove(buffer, data, data_size)
@@ -69,9 +71,16 @@ def progress_start_report():
     global started
     global last_ul
     global last_ul_total
-    with open(raport_file, "ab") as moo:
-        moo.write(b"Progress: start UL %lu/%lu\n" % (last_ul, last_ul_total))
-        started = True
+    try:
+        moo = open(raport_file, "ab")
+    except OSError as exc:
+        print("Progress: start UL %lu/%lu" % (last_ul, last_ul_total),
+              file=sys.stderr)
+        print("Progress: start UL, can't open %s" % raport_file, file=sys.stderr)
+    else:
+        with moo:
+            moo.write(b"Progress: start UL %lu/%lu\n" % (last_ul, last_ul_total))
+    started = True
 
 
 def progress_final_report():
@@ -79,9 +88,16 @@ def progress_final_report():
     global started
     global last_ul
     global last_ul_total
-    with open(raport_file, "ab") as moo:
-        moo.write(b"Progress: end UL %lu/%lu\n" % (last_ul, last_ul_total))
-        started = False
+    try:
+        moo = open(raport_file, "ab")
+    except OSError as exc:
+        print("Progress: end UL %lu/%lu" % (last_ul, last_ul_total),
+              file=sys.stderr)
+        print("Progress: end UL, can't open %s" % raport_file, file=sys.stderr)
+    else:
+        with moo:
+            moo.write(b"Progress: end UL %lu/%lu\n" % (last_ul, last_ul_total))
+    started = False
 
 
 @lcurl.progress_callback
@@ -124,7 +140,7 @@ def test(URL: str, raportfile: str,
 
         slist: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                                b"Transfer-Encoding: chunked")
-        if not slist:
+        if not slist:  # pragma: no cover
             print("libcurl.slist_append() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
         guard.add_slist(slist)
@@ -148,9 +164,7 @@ def test(URL: str, raportfile: str,
                           user_login.encode("utf-8") if user_login else None)
         # we want to use our own progress function
         test_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 0)
-        # CURL_IGNORE_DEPRECATION(
         test_setopt(curl, lcurl.CURLOPT_PROGRESSFUNCTION, progress_callback)
-        # )
 
         # Perform the request, res will get the return code
         res = lcurl.easy_perform(curl)

@@ -35,7 +35,8 @@ NUM_HANDLES = 4
 
 
 @curl_test_decorator
-def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
+def test(URL: str, address: str, port: str, cacert: str) -> lcurl.CURLcode:
+    cacert = str(cacert)
 
     global libtest_debug_config, libtest_debug_cb
 
@@ -71,8 +72,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
             easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION,
                               lcurl.CURL_HTTP_VERSION_3ONLY)
             easy_setopt(curl, lcurl.CURLOPT_CONNECTTIMEOUT_MS, 5000)
-            easy_setopt(curl, lcurl.CURLOPT_CAINFO,
-                              b"./tests.c/certs/EdelCurlRoot-ca.cacert")
+            easy_setopt(curl, lcurl.CURLOPT_CAINFO, cacert.encode("utf-8"))
             # wait for first connection established to see if we can share it
             easy_setopt(curl, lcurl.CURLOPT_PIPEWAIT, 1)
             # include headers

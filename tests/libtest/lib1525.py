@@ -61,7 +61,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
         # http and proxy header list
         hhl: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                              b"User-Agent: Http Agent")
-        if not hhl: return res
+        if not hhl: raise guard.Break
         guard.add_slist(hhl)
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))

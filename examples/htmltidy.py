@@ -29,8 +29,14 @@ Download a document and use libtidy to parse the HTML.
 import sys
 import ctypes as ct
 
-import libtidy as tidy
-from libtidy import TidyDoc, TidyNode, TidyBuffer
+try:
+    import libtidy as tidy
+    from libtidy import TidyDoc, TidyNode, TidyBuffer
+except ImportError:
+    print("This example requires the 'libtidy' package.\n"
+          "You can install it with pip: python -m pip install -U libtidy",
+          file=sys.stderr)
+    sys.exit(2)
 
 import libcurl as lcurl
 from curl_utils import *  # noqa
@@ -150,4 +156,5 @@ def main(argv=sys.argv[1:]):
     return err
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

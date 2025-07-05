@@ -48,9 +48,11 @@ class WriteThis(ct.Structure):
 def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
     data = testpost[pooh.counter]
-    if not data: return 0  # no more data left to deliver
+    if not data:  # no more data left to deliver
+        return 0  # pragma: no cover
     data = data.encode("utf-8")
     data_size = len(data)
     if buffer_size < data_size:
@@ -63,7 +65,7 @@ def read_callback(buffer, size, nitems, userp):
 
 
 @curl_test_decorator
-def test(URL: str, user_login: str = "foo:bar") -> lcurl.CURLcode:
+def test(URL: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode = lcurl.CURLE_OK
 
@@ -80,7 +82,7 @@ def test(URL: str, user_login: str = "foo:bar") -> lcurl.CURLcode:
 
         slist: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                                b"Transfer-Encoding: chunked")
-        if not slist:
+        if not slist:  # pragma: no cover
             print("libcurl.slist_append() failed", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
         guard.add_slist(slist)
@@ -99,10 +101,6 @@ def test(URL: str, user_login: str = "foo:bar") -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_HEADER, 1)
         # enforce chunked transfer by setting the header
         test_setopt(curl, lcurl.CURLOPT_HTTPHEADER, slist)
-        if defined("LIB565"):
-            test_setopt(curl, lcurl.CURLOPT_HTTPAUTH, lcurl.CURLAUTH_DIGEST)
-            if user_login:
-                test_setopt(curl, lcurl.CURLOPT_USERPWD, user_login.encode("utf-8"))
 
         # Perform the request, res will get the return code
         res = lcurl.easy_perform(curl)

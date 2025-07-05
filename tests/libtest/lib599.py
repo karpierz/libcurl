@@ -56,9 +56,7 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         # we want to use our own progress function
         test_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 0)
-        # CURL_IGNORE_DEPRECATION(
         test_setopt(curl, lcurl.CURLOPT_PROGRESSFUNCTION, progress_callback)
-        # )
         # get verbose debug output please
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         # follow redirects
@@ -71,11 +69,9 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
         if res != lcurl.CURLE_OK: raise guard.Break
 
         content_length = ct.c_double(0.0)
-        # CURL_IGNORE_DEPRECATION(
         res = lcurl.easy_getinfo(curl,
                                  lcurl.CURLINFO_CONTENT_LENGTH_DOWNLOAD,
                                  ct.byref(content_length))
-        # )
         with open(filename, "wb") as moo:
             moo.write(b"CL %.0f" % content_length.value)
 

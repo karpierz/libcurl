@@ -55,7 +55,8 @@ def please_continue(clientp, dltotal, dlnow, ultotal, ulnow):
 def header_callback(buffer, size, nitems, stream):
     file = sys.stdout.buffer
     buffer_size = nitems * size
-    if buffer_size == 0: return 0
+    if buffer_size == 0:
+        return 0  # pragma: no cover
     bwritten = bytes(buffer[:buffer_size])
     file.write(bwritten)
     return buffer_size
@@ -68,13 +69,13 @@ def write_callback(buffer, size, nitems, userp):
     buffer_size = nitems * size
     st.counter += 1
     if st.counter > 1:
-        # the first call puts us on pause, so subsequent calls are after
-        # unpause
-        if buffer_size == 0: return 0
+        # the first call puts us on pause, so subsequent calls are after unpause
+        if buffer_size == 0:
+            return 0  # pragma: no cover
         bwritten = bytes(buffer[:buffer_size])
         file.write(bwritten)
         return buffer_size
-    if buffer_size:
+    if buffer_size:  # pragma: no branch
         print("Got bytes but pausing!")
     st.halted = True
     return lcurl.CURL_WRITEFUNC_PAUSE

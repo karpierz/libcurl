@@ -1,0 +1,1892 @@
+diff --git a/tests/tests.c/http/clients/hx-download.c b/tests/tests.c/http/clients/hx-download.c
+index 505a386..94e9d0c 100644
+--- a/tests/tests.c/http/clients/hx-download.c
++++ b/tests/tests.c/http/clients/hx-download.c
+@@ -228,8 +228,10 @@ static int my_progress_cb(void *userdata,
+ }
+ 
+ static int setup(CURL *hnd, const char *url, struct transfer *t,
+-                 int http_version)
++                 int http_version, struct curl_slist *host,
++                 CURLSH *share, int use_earlydata, int fresh_connect)
+ {
++  curl_easy_setopt(hnd, CURLOPT_SHARE, share);
+   curl_easy_setopt(hnd, CURLOPT_URL, url);
+   curl_easy_setopt(hnd, CURLOPT_HTTP_VERSION, http_version);
+   curl_easy_setopt(hnd, CURLOPT_SSL_VERIFYPEER, 0L);
+@@ -240,8 +242,14 @@ static int setup(CURL *hnd, const char *url, struct transfer *t,
+   curl_easy_setopt(hnd, CURLOPT_NOPROGRESS, 0L);
+   curl_easy_setopt(hnd, CURLOPT_XFERINFOFUNCTION, my_progress_cb);
+   curl_easy_setopt(hnd, CURLOPT_XFERINFODATA, t);
++  if(use_earlydata)
++    curl_easy_setopt(hnd, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_EARLYDATA);
+   if(forbid_reuse)
+     curl_easy_setopt(hnd, CURLOPT_FORBID_REUSE, 1L);
++  if(host)
++    curl_easy_setopt(hnd, CURLOPT_RESOLVE, host);
++  if(fresh_connect)
++    curl_easy_setopt(hnd, CURLOPT_FRESH_CONNECT, 1L);
+ 
+   /* please be verbose */
+   if(verbose) {
+@@ -265,10 +273,14 @@ static void usage(const char *msg)
+     "  download a url with following options:\n"
+     "  -a         abort paused transfer\n"
+     "  -m number  max parallel downloads\n"
+-    "  -n number  total downloads\n"
++    "  -e         use TLS early data when possible\n"
++    "  -f         forbid connection reuse\n"
++    "  -n number  total downloads\n");
++  fprintf(stderr,
+     "  -A number  abort transfer after `number` response bytes\n"
+     "  -F number  fail writing response after `number` response bytes\n"
+     "  -P number  pause transfer after `number` response bytes\n"
++    "  -r <host>:<port>:<addr>  resolve information\n"
+     "  -V http_version (http/1.1, h2, h3) http version to use\n"
+   );
+ }
+@@ -282,18 +294,23 @@ int main(int argc, char *argv[])
+ #ifndef _MSC_VER
+   CURLM *multi_handle;
+   struct CURLMsg *m;
++  CURLSH *share;
+   const char *url;
+   size_t i, n, max_parallel = 1;
+   size_t active_transfers;
+   size_t pause_offset = 0;
+   size_t abort_offset = 0;
+   size_t fail_offset = 0;
+-  int abort_paused = 0;
++  int abort_paused = 0, use_earlydata = 0;
+   struct transfer *t;
+   int http_version = CURL_HTTP_VERSION_2_0;
+   int ch;
++  struct curl_slist *host = NULL;
++  char *resolve = NULL;
++  size_t max_host_conns = 0;
++  int fresh_connect = 0;
+ 
+-  while((ch = getopt(argc, argv, "afhm:n:A:F:P:V:")) != -1) {
++  while((ch = getopt(argc, argv, "aefhm:n:xA:F:M:P:r:V:")) != -1) {
+     switch(ch) {
+     case 'h':
+       usage(NULL);
+@@ -301,6 +318,9 @@ int main(int argc, char *argv[])
+     case 'a':
+       abort_paused = 1;
+       break;
++    case 'e':
++      use_earlydata = 1;
++      break;
+     case 'f':
+       forbid_reuse = 1;
+       break;
+@@ -310,15 +330,24 @@ int main(int argc, char *argv[])
+     case 'n':
+       transfer_count = (size_t)strtol(optarg, NULL, 10);
+       break;
++    case 'x':
++      fresh_connect = 1;
++      break;
+     case 'A':
+       abort_offset = (size_t)strtol(optarg, NULL, 10);
+       break;
+     case 'F':
+       fail_offset = (size_t)strtol(optarg, NULL, 10);
+       break;
++    case 'M':
++      max_host_conns = (size_t)strtol(optarg, NULL, 10);
++      break;
+     case 'P':
+       pause_offset = (size_t)strtol(optarg, NULL, 10);
+       break;
++    case 'r':
++      resolve = strdup(optarg);
++      break;
+     case 'V': {
+       if(!strcmp("http/1.1", optarg))
+         http_version = CURL_HTTP_VERSION_1_1;
+@@ -349,6 +378,21 @@ int main(int argc, char *argv[])
+   }
+   url = argv[0];
+ 
++  if(resolve)
++    host = curl_slist_append(NULL, resolve);
++
++  share = curl_share_init();
++  if(!share) {
++    fprintf(stderr, "error allocating share\n");
++    return 1;
++  }
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
++  /* curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT); */
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_PSL);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_HSTS);
++
+   transfers = calloc(transfer_count, sizeof(*transfers));
+   if(!transfers) {
+     fprintf(stderr, "error allocating transfer structs\n");
+@@ -357,6 +401,8 @@ int main(int argc, char *argv[])
+ 
+   multi_handle = curl_multi_init();
+   curl_multi_setopt(multi_handle, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
++  curl_multi_setopt(multi_handle, CURLMOPT_MAX_HOST_CONNECTIONS,
++                    (long)max_host_conns);
+ 
+   active_transfers = 0;
+   for(i = 0; i < transfer_count; ++i) {
+@@ -367,11 +413,13 @@ int main(int argc, char *argv[])
+     t->pause_at = (curl_off_t)pause_offset;
+   }
+ 
+-  n = (max_parallel < transfer_count)? max_parallel : transfer_count;
++  n = (max_parallel < transfer_count) ? max_parallel : transfer_count;
+   for(i = 0; i < n; ++i) {
+     t = &transfers[i];
+     t->easy = curl_easy_init();
+-    if(!t->easy || setup(t->easy, url, t, http_version)) {
++    if(!t->easy ||
++       setup(t->easy, url, t, http_version, host, share, use_earlydata,
++             fresh_connect)) {
+       fprintf(stderr, "[t-%d] FAILED setup\n", (int)i);
+       return 1;
+     }
+@@ -404,6 +452,11 @@ int main(int argc, char *argv[])
+         if(t) {
+           t->done = 1;
+           fprintf(stderr, "[t-%d] FINISHED\n", t->idx);
++          if(use_earlydata) {
++            curl_off_t sent;
++            curl_easy_getinfo(e, CURLINFO_EARLYDATA_SENT_T, &sent);
++            fprintf(stderr, "[t-%d] EarlyData: %ld\n", t->idx, (long)sent);
++          }
+         }
+         else {
+           curl_easy_cleanup(e);
+@@ -444,7 +497,9 @@ int main(int argc, char *argv[])
+           t = &transfers[i];
+           if(!t->started) {
+             t->easy = curl_easy_init();
+-            if(!t->easy || setup(t->easy, url, t, http_version)) {
++            if(!t->easy ||
++               setup(t->easy, url, t, http_version, host, share,
++                     use_earlydata, fresh_connect)) {
+               fprintf(stderr, "[t-%d] FAILED setup\n", (int)i);
+               return 1;
+             }
+@@ -463,6 +518,8 @@ int main(int argc, char *argv[])
+ 
+   } while(active_transfers); /* as long as we have transfers going */
+ 
++  curl_multi_cleanup(multi_handle);
++
+   for(i = 0; i < transfer_count; ++i) {
+     t = &transfers[i];
+     if(t->out) {
+@@ -476,7 +533,9 @@ int main(int argc, char *argv[])
+   }
+   free(transfers);
+ 
+-  curl_multi_cleanup(multi_handle);
++  curl_share_cleanup(share);
++  curl_slist_free_all(host);
++  free(resolve);
+ 
+   return 0;
+ #else
+diff --git a/tests/tests.c/http/clients/hx-upload.c b/tests/tests.c/http/clients/hx-upload.c
+index 6be5155..06df2f4 100644
+--- a/tests/tests.c/http/clients/hx-upload.c
++++ b/tests/tests.c/http/clients/hx-upload.c
+@@ -252,8 +252,10 @@ static int my_progress_cb(void *userdata,
+ }
+ 
+ static int setup(CURL *hnd, const char *url, struct transfer *t,
+-                 int http_version)
++                 int http_version, struct curl_slist *host,
++                 CURLSH *share, int use_earlydata, int announce_length)
+ {
++  curl_easy_setopt(hnd, CURLOPT_SHARE, share);
+   curl_easy_setopt(hnd, CURLOPT_URL, url);
+   curl_easy_setopt(hnd, CURLOPT_HTTP_VERSION, http_version);
+   curl_easy_setopt(hnd, CURLOPT_SSL_VERIFYPEER, 0L);
+@@ -261,6 +263,8 @@ static int setup(CURL *hnd, const char *url, struct transfer *t,
+   curl_easy_setopt(hnd, CURLOPT_BUFFERSIZE, (long)(128 * 1024));
+   curl_easy_setopt(hnd, CURLOPT_WRITEFUNCTION, my_write_cb);
+   curl_easy_setopt(hnd, CURLOPT_WRITEDATA, t);
++  if(use_earlydata)
++    curl_easy_setopt(hnd, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_EARLYDATA);
+ 
+   if(!t->method || !strcmp("PUT", t->method))
+     curl_easy_setopt(hnd, CURLOPT_UPLOAD, 1L);
+@@ -272,11 +276,16 @@ static int setup(CURL *hnd, const char *url, struct transfer *t,
+   }
+   curl_easy_setopt(hnd, CURLOPT_READFUNCTION, my_read_cb);
+   curl_easy_setopt(hnd, CURLOPT_READDATA, t);
++  if(announce_length)
++    curl_easy_setopt(hnd, CURLOPT_INFILESIZE_LARGE, t->send_total);
++
+   curl_easy_setopt(hnd, CURLOPT_NOPROGRESS, 0L);
+   curl_easy_setopt(hnd, CURLOPT_XFERINFOFUNCTION, my_progress_cb);
+   curl_easy_setopt(hnd, CURLOPT_XFERINFODATA, t);
+   if(forbid_reuse)
+     curl_easy_setopt(hnd, CURLOPT_FORBID_REUSE, 1L);
++  if(host)
++    curl_easy_setopt(hnd, CURLOPT_RESOLVE, host);
+ 
+   /* please be verbose */
+   if(verbose) {
+@@ -299,11 +308,13 @@ static void usage(const char *msg)
+     "usage: [options] url\n"
+     "  upload to a url with following options:\n"
+     "  -a         abort paused transfer\n"
++    "  -e         use TLS earlydata\n"
+     "  -m number  max parallel uploads\n"
+     "  -n number  total uploads\n"
+     "  -A number  abort transfer after `number` request body bytes\n"
+     "  -F number  fail reading request body after `number` of bytes\n"
+     "  -P number  pause transfer after `number` request body bytes\n"
++    "  -r <host>:<port>:<addr>  resolve information\n"
+     "  -S number  size to upload\n"
+     "  -V http_version (http/1.1, h2, h3) http version to use\n"
+   );
+@@ -318,6 +329,7 @@ int main(int argc, char *argv[])
+ #ifndef _MSC_VER
+   CURLM *multi_handle;
+   struct CURLMsg *m;
++  CURLSH *share;
+   const char *url;
+   const char *method = "PUT";
+   size_t i, n, max_parallel = 1;
+@@ -328,11 +340,15 @@ int main(int argc, char *argv[])
+   size_t send_total = (128 * 1024);
+   int abort_paused = 0;
+   int reuse_easy = 0;
++  int use_earlydata = 0;
++  int announce_length = 0;
+   struct transfer *t;
+   int http_version = CURL_HTTP_VERSION_2_0;
++  struct curl_slist *host = NULL;
++  const char *resolve = NULL;
+   int ch;
+ 
+-  while((ch = getopt(argc, argv, "afhm:n:A:F:M:P:RS:V:")) != -1) {
++  while((ch = getopt(argc, argv, "aefhlm:n:A:F:M:P:r:RS:V:")) != -1) {
+     switch(ch) {
+     case 'h':
+       usage(NULL);
+@@ -340,9 +356,15 @@ int main(int argc, char *argv[])
+     case 'a':
+       abort_paused = 1;
+       break;
++    case 'e':
++      use_earlydata = 1;
++      break;
+     case 'f':
+       forbid_reuse = 1;
+       break;
++    case 'l':
++      announce_length = 1;
++      break;
+     case 'm':
+       max_parallel = (size_t)strtol(optarg, NULL, 10);
+       break;
+@@ -361,6 +383,9 @@ int main(int argc, char *argv[])
+     case 'P':
+       pause_offset = (size_t)strtol(optarg, NULL, 10);
+       break;
++    case 'r':
++      resolve = optarg;
++      break;
+     case 'R':
+       reuse_easy = 1;
+       break;
+@@ -402,6 +427,21 @@ int main(int argc, char *argv[])
+   }
+   url = argv[0];
+ 
++  if(resolve)
++    host = curl_slist_append(NULL, resolve);
++
++  share = curl_share_init();
++  if(!share) {
++    fprintf(stderr, "error allocating share\n");
++    return 1;
++  }
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_PSL);
++  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_HSTS);
++
+   transfers = calloc(transfer_count, sizeof(*transfers));
+   if(!transfers) {
+     fprintf(stderr, "error allocating transfer structs\n");
+@@ -429,7 +469,8 @@ int main(int argc, char *argv[])
+     for(i = 0; i < transfer_count; ++i) {
+       t = &transfers[i];
+       t->easy = easy;
+-      if(setup(t->easy, url, t, http_version)) {
++      if(setup(t->easy, url, t, http_version, host, share, use_earlydata,
++               announce_length)) {
+         fprintf(stderr, "[t-%d] FAILED setup\n", (int)i);
+         return 1;
+       }
+@@ -446,11 +487,12 @@ int main(int argc, char *argv[])
+     multi_handle = curl_multi_init();
+     curl_multi_setopt(multi_handle, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+ 
+-    n = (max_parallel < transfer_count)? max_parallel : transfer_count;
++    n = (max_parallel < transfer_count) ? max_parallel : transfer_count;
+     for(i = 0; i < n; ++i) {
+       t = &transfers[i];
+       t->easy = curl_easy_init();
+-      if(!t->easy || setup(t->easy, url, t, http_version)) {
++      if(!t->easy || setup(t->easy, url, t, http_version, host, share,
++                           use_earlydata, announce_length)) {
+         fprintf(stderr, "[t-%d] FAILED setup\n", (int)i);
+         return 1;
+       }
+@@ -483,6 +525,11 @@ int main(int argc, char *argv[])
+           if(t) {
+             t->done = 1;
+             fprintf(stderr, "[t-%d] FINISHED\n", t->idx);
++            if(use_earlydata) {
++              curl_off_t sent;
++              curl_easy_getinfo(e, CURLINFO_EARLYDATA_SENT_T, &sent);
++              fprintf(stderr, "[t-%d] EarlyData: %ld\n", t->idx, (long)sent);
++            }
+           }
+           else {
+             curl_easy_cleanup(e);
+@@ -523,7 +570,8 @@ int main(int argc, char *argv[])
+             t = &transfers[i];
+             if(!t->started) {
+               t->easy = curl_easy_init();
+-              if(!t->easy || setup(t->easy, url, t, http_version)) {
++              if(!t->easy || setup(t->easy, url, t, http_version, host,
++                                   share, use_earlydata, announce_length)) {
+                 fprintf(stderr, "[t-%d] FAILED setup\n", (int)i);
+                 return 1;
+               }
+@@ -557,6 +605,7 @@ int main(int argc, char *argv[])
+     }
+   }
+   free(transfers);
++  curl_share_cleanup(share);
+ 
+   return 0;
+ #else
+diff --git a/tests/tests.c/libtest/first.c b/tests/tests.c/libtest/first.c
+index b511abb..937c66c 100644
+--- a/tests/tests.c/libtest/first.c
++++ b/tests/tests.c/libtest/first.c
+@@ -28,14 +28,6 @@
+ #  include <locale.h> /* for setlocale() */
+ #endif
+ 
+-#ifdef HAVE_IO_H
+-#  include <io.h> /* for setmode() */
+-#endif
+-
+-#ifdef HAVE_FCNTL_H
+-#  include <fcntl.h> /* for setmode() */
+-#endif
+-
+ #ifdef CURLDEBUG
+ #  define MEMDEBUG_NODEFINES
+ #  include "memdebug.h"
+@@ -43,6 +35,8 @@
+ 
+ #include "timediff.h"
+ 
++#include "tool_binmode.h"
++
+ int select_wrapper(int nfds, fd_set *rd, fd_set *wr, fd_set *exc,
+                    struct timeval *tv)
+ {
+@@ -138,14 +132,10 @@ int main(int argc, char **argv)
+ {
+   char *URL;
+   CURLcode result;
++  int basearg;
++  test_func_t test_func;
+ 
+-#ifdef O_BINARY
+-#  ifdef __HIGHC__
+-  _setmode(stdout, O_BINARY);
+-#  else
+-  setmode(fileno(stdout), O_BINARY);
+-#  endif
+-#endif
++  CURL_SET_BINMODE(stdout);
+ 
+   memory_tracking_init();
+ 
+@@ -158,25 +148,64 @@ int main(int argc, char **argv)
+   setlocale(LC_ALL, "");
+ #endif
+ 
+-  if(argc< 2) {
++  test_argc = argc;
++  test_argv = argv;
++
++#ifdef CURLTESTS_BUNDLED
++  {
++    char *test_name;
++
++    --test_argc;
++    ++test_argv;
++
++    basearg = 2;
++
++    if(argc < (basearg + 1)) {
++      fprintf(stderr, "Pass testname and URL as arguments please\n");
++      return 1;
++    }
++
++    test_name = argv[basearg - 1];
++    test_func = NULL;
++    {
++      size_t tmp;
++      for(tmp = 0; tmp < (sizeof(s_tests)/sizeof((s_tests)[0])); ++tmp) {
++        if(strcmp(test_name, s_tests[tmp].name) == 0) {
++          test_func = s_tests[tmp].ptr;
++          break;
++        }
++      }
++    }
++
++    if(!test_func) {
++      fprintf(stderr, "Test '%s' not found.\n", test_name);
++      return 1;
++    }
++
++    fprintf(stderr, "Test: %s\n", test_name);
++  }
++#else
++  basearg = 1;
++
++  if(argc < (basearg + 1)) {
+     fprintf(stderr, "Pass URL as argument please\n");
+     return 1;
+   }
+ 
+-  test_argc = argc;
+-  test_argv = argv;
++  test_func = test;
++#endif
+ 
+-  if(argc > 2)
+-    libtest_arg2 = argv[2];
++  if(argc > (basearg + 1))
++    libtest_arg2 = argv[basearg + 1];
+ 
+-  if(argc > 3)
+-    libtest_arg3 = argv[3];
++  if(argc > (basearg + 2))
++    libtest_arg3 = argv[basearg + 2];
+ 
+-  URL = argv[1]; /* provide this to the rest */
++  URL = argv[basearg]; /* provide this to the rest */
+ 
+   fprintf(stderr, "URL: %s\n", URL);
+ 
+-  result = test(URL);
++  result = test_func(URL);
+   fprintf(stderr, "Test ended with result %d\n", result);
+ 
+ #ifdef _WIN32
+diff --git a/tests/tests.c/libtest/test.h b/tests/tests.c/libtest/test.h
+index e2f83fc..fad154d 100644
+--- a/tests/tests.c/libtest/test.h
++++ b/tests/tests.c/libtest/test.h
+@@ -44,6 +44,13 @@
+ 
+ #include "curl_printf.h"
+ 
++/* GCC <4.6 does not support '#pragma GCC diagnostic push' and
++   does not support 'pragma GCC diagnostic' inside functions. */
++#if (defined(__GNUC__) && \
++  ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 6))))
++#define CURL_GNUC_DIAG
++#endif
++
+ #ifdef _WIN32
+ #define sleep(sec) Sleep((sec)*1000)
+ #endif
+@@ -493,6 +500,7 @@ extern int unitfail;
+ #define global_init(A) \
+   chk_global_init((A), (__FILE__), (__LINE__))
+ 
++#ifndef CURLTESTS_BUNDLED_TEST_H
+ #define NO_SUPPORT_BUILT_IN                     \
+   CURLcode test(char *URL)                      \
+   {                                             \
+@@ -500,6 +508,7 @@ extern int unitfail;
+     fprintf(stderr, "Missing support\n");       \
+     return CURLE_UNSUPPORTED_PROTOCOL;          \
+   }
++#endif
+ 
+ /* ---------------------------------------------------------------- */
+ 
+@@ -508,4 +517,13 @@ extern int unitfail;
+ #ifdef CURLTESTS_BUNDLED_TEST_H
+ extern CURLcode test(char *URL); /* the actual test function provided by each
+                                     individual libXXX.c file */
++
++#undef NO_SUPPORT_BUILT_IN
++#define NO_SUPPORT_BUILT_IN                     \
++  CURLcode test(char *URL)                      \
++  {                                             \
++    (void)URL;                                  \
++    fprintf(stderr, "Missing support\n");       \
++    return CURLE_UNSUPPORTED_PROTOCOL;          \
++  }
+ #endif
+diff --git a/tests/tests.c/processhelp.pm b/tests/tests.c/processhelp.pm
+index 170863f..0a0ce19 100644
+--- a/tests/tests.c/processhelp.pm
++++ b/tests/tests.c/processhelp.pm
+@@ -48,7 +48,7 @@ BEGIN {
+         no warnings "all";
+         require Time::HiRes;
+     };
+-    # portable sleeping falls back to native Sleep on Win32
++    # portable sleeping falls back to native Sleep on Windows
+     eval {
+         no warnings "all";
+         require Win32;
+@@ -59,6 +59,7 @@ use serverhelp qw(
+     servername_id
+     mainsockf_pidfilename
+     datasockf_pidfilename
++    logmsg
+     );
+ 
+ use pathhelp qw(
+@@ -104,6 +105,22 @@ sub pidfromfile {
+     return $pid;
+ }
+ 
++#######################################################################
++# return Cygwin pid from virtual pid
++#
++sub winpid_to_pid {
++    my $vpid = $_[0];
++    if(($^O eq 'cygwin' || $^O eq 'msys') && $vpid > 65536) {
++        my $pid = Cygwin::winpid_to_pid($vpid - 65536);
++        if($pid) {
++            return $pid;
++        } else {
++            return $vpid
++        }
++    }
++    return $vpid;
++}
++
+ #######################################################################
+ # pidexists checks if a process with a given pid exists and is alive.
+ # This will return the positive pid if the process exists and is alive.
+@@ -115,10 +132,12 @@ sub pidexists {
+ 
+     if($pid > 0) {
+         # verify if currently existing Windows process
++        $pid = winpid_to_pid($pid);
+         if ($pid > 65536 && os_is_win()) {
+             $pid -= 65536;
+             if($^O ne 'MSWin32') {
+                 my $filter = "PID eq $pid";
++                # https://ss64.com/nt/tasklist.html
+                 my $result = `tasklist -fi \"$filter\" 2>nul`;
+                 if(index($result, "$pid") != -1) {
+                     return -$pid;
+@@ -144,14 +163,14 @@ sub pidterm {
+ 
+     if($pid > 0) {
+         # request the process to quit
++        $pid = winpid_to_pid($pid);
+         if ($pid > 65536 && os_is_win()) {
+             $pid -= 65536;
+             if($^O ne 'MSWin32') {
+-                my $filter = "PID eq $pid";
+-                my $result = `tasklist -fi \"$filter\" 2>nul`;
+-                if(index($result, "$pid") != -1) {
+-                    system("taskkill -fi \"$filter\" >nul 2>&1");
+-                }
++                # https://ss64.com/nt/taskkill.html
++                my $cmd = "taskkill -t -pid $pid >nul 2>&1";
++                logmsg "Executing: '$cmd'\n";
++                system($cmd);
+                 return;
+             }
+         }
+@@ -169,16 +188,14 @@ sub pidkill {
+ 
+     if($pid > 0) {
+         # request the process to quit
++        $pid = winpid_to_pid($pid);
+         if ($pid > 65536 && os_is_win()) {
+             $pid -= 65536;
+             if($^O ne 'MSWin32') {
+-                my $filter = "PID eq $pid";
+-                my $result = `tasklist -fi \"$filter\" 2>nul`;
+-                if(index($result, "$pid") != -1) {
+-                    system("taskkill -f -fi \"$filter\" >nul 2>&1");
+-                    # Windows XP Home compatibility
+-                    system("tskill $pid >nul 2>&1");
+-                }
++                # https://ss64.com/nt/taskkill.html
++                my $cmd = "taskkill -f -t -pid $pid >nul 2>&1";
++                logmsg "Executing: '$cmd'\n";
++                system($cmd);
+                 return;
+             }
+         }
+@@ -195,6 +212,7 @@ sub pidwait {
+     my $pid = $_[0];
+     my $flags = $_[1];
+ 
++    $pid = winpid_to_pid($pid);
+     # check if the process exists
+     if ($pid > 65536 && os_is_win()) {
+         if($flags == &WNOHANG) {
+@@ -307,6 +325,8 @@ sub killpid {
+                 }
+             }
+             last if(not scalar(@signalled));
++            # give any zombies of us a chance to move on to the afterlife
++            pidwait(0, &WNOHANG);
+             portable_sleep(0.05);
+         }
+     }
+diff --git a/tests/tests.c/runner.pm b/tests/tests.c/runner.pm
+index c0fb40c..1ee773e 100644
+--- a/tests/tests.c/runner.pm
++++ b/tests/tests.c/runner.pm
+@@ -103,6 +103,8 @@ use testutil qw(
+     runclient
+     shell_quote
+     subbase64
++    subsha256base64file
++    substrippemfile
+     subnewlines
+     );
+ use valgrind;
+@@ -190,7 +192,7 @@ sub runner_init {
+             $SIG{INT} = 'IGNORE';
+             $SIG{TERM} = 'IGNORE';
+             eval {
+-                # some msys2 perl versions don't define SIGUSR1
++                # some msys2 perl versions don't define SIGUSR1, also missing from Win32 Perl
+                 $SIG{USR1} = 'IGNORE';
+             };
+ 
+@@ -307,7 +309,7 @@ sub prepro {
+     for my $s (@entiretest) {
+         my $f = $s;
+         $line++;
+-        if($s =~ /^ *%if (.*)/) {
++        if($s =~ /^ *%if ([A-Za-z0-9!_-]*)/) {
+             my $cond = $1;
+             my $rev = 0;
+ 
+@@ -364,6 +366,8 @@ sub prepro {
+             }
+             subvariables(\$s, $testnum, "%");
+             subbase64(\$s);
++            subsha256base64file(\$s);
++            substrippemfile(\$s);
+             subnewlines(0, \$s) if($data_crlf);
+             push @out, $s;
+         }
+@@ -401,6 +405,32 @@ sub logslocked {
+     return @locks;
+ }
+ 
++#######################################################################
++# Wait log locks to be unlocked
++#
++sub waitlockunlock {
++    # If a server logs advisor read lock file exists, it is an indication
++    # that the server has not yet finished writing out all its log files,
++    # including server request log files used for protocol verification.
++    # So, if the lock file exists the script waits here a certain amount
++    # of time until the server removes it, or the given time expires.
++    my $serverlogslocktimeout = shift;
++
++    if($serverlogslocktimeout) {
++        my $lockretry = $serverlogslocktimeout * 20;
++        my @locks;
++        while((@locks = logslocked()) && $lockretry--) {
++            portable_sleep(0.05);
++        }
++        if(($lockretry < 0) &&
++           ($serverlogslocktimeout >= $defserverlogslocktimeout)) {
++            logmsg "Warning: server logs lock timeout ",
++                   "($serverlogslocktimeout seconds) expired (locks: " .
++                   join(", ", @locks) . ")\n";
++        }
++    }
++}
++
+ #######################################################################
+ # Memory allocation test and failure torture testing.
+ #
+@@ -648,21 +678,21 @@ sub singletest_setenv {
+     my @setenv = getpart("client", "setenv");
+     foreach my $s (@setenv) {
+         chomp $s;
+-        if($s =~ /([^=]*)=(.*)/) {
++        if($s =~ /([^=]*)(.*)/) {
+             my ($var, $content) = ($1, $2);
+             # remember current setting, to restore it once test runs
+             $oldenv{$var} = ($ENV{$var})?"$ENV{$var}":'notset';
+-            # set new value
+-            if(!$content) {
+-                delete $ENV{$var} if($ENV{$var});
+-            }
+-            else {
++
++            if($content =~ /^=(.*)/) {
++                # assign it
++                $content = $1;
++
+                 if($var =~ /^LD_PRELOAD/) {
+                     if(exe_ext('TOOL') && (exe_ext('TOOL') eq '.exe')) {
+                         logmsg "Skipping LD_PRELOAD due to lack of OS support\n" if($verbose);
+                         next;
+                     }
+-                    if($feature{"debug"} || !$has_shared) {
++                    if($feature{"Debug"} || !$has_shared) {
+                         logmsg "Skipping LD_PRELOAD due to no release shared build\n" if($verbose);
+                         next;
+                     }
+@@ -670,6 +700,11 @@ sub singletest_setenv {
+                 $ENV{$var} = "$content";
+                 logmsg "setenv $var = $content\n" if($verbose);
+             }
++            else {
++                # remove it
++                delete $ENV{$var} if($ENV{$var});
++            }
++
+         }
+     }
+     if($proxy_address) {
+@@ -744,7 +779,7 @@ sub singletest_prepare {
+         my $filename=$fileattr{'name'};
+         if(@inputfile || $filename) {
+             if(!$filename) {
+-                logmsg " $testnum: IGNORED: section client=>file has no name attribute\n";
++                logmsg " $testnum: IGNORED: Section client=>file has no name attribute\n";
+                 return -1;
+             }
+             my $fileContent = join('', @inputfile);
+@@ -813,10 +848,11 @@ sub singletest_run {
+ 
+     my @codepieces = getpart("client", "tool");
+     my $tool="";
++    my $tool_name="";  # without exe extension
+     if(@codepieces) {
+-        $tool = $codepieces[0];
+-        chomp $tool;
+-        $tool .= exe_ext('TOOL');
++        $tool_name = $codepieces[0];
++        chomp $tool_name;
++        $tool = $tool_name . exe_ext('TOOL');
+     }
+ 
+     my $disablevalgrind;
+@@ -852,11 +888,24 @@ sub singletest_run {
+         else {
+             $cmdargs .= "--trace-ascii $LOGDIR/trace$testnum ";
+         }
++        $cmdargs .= "--trace-config all ";
+         $cmdargs .= "--trace-time ";
+         if($run_event_based) {
+             $cmdargs .= "--test-event ";
+             $fail_due_event_based--;
+         }
++        if($run_duphandle) {
++            $cmdargs .= "--test-duphandle ";
++            my @dis = getpart("client", "disable");
++            if(@dis) {
++                chomp $dis[0] if($dis[0]);
++                if($dis[0] eq "test-duphandle") {
++                    # marked to not run with duphandle
++                    logmsg " $testnum: IGNORED: Can't run test-duphandle\n";
++                    return (-1, 0, 0, "", "", 0);
++                }
++            }
++        }
+         $cmdargs .= $cmd;
+         if ($proxy_address) {
+             $cmdargs .= " --proxy $proxy_address ";
+@@ -868,20 +917,36 @@ sub singletest_run {
+ 
+         # Default the tool to a unit test with the same name as the test spec
+         if($keywords{"unittest"} && !$tool) {
+-            $tool="unit$testnum";
++            $tool_name="unit$testnum";
++            $tool = $tool_name;
+         }
+ 
+         if($tool =~ /^lib/) {
+-            $CMDLINE="$LIBDIR/$tool";
++            if($bundle) {
++                $CMDLINE="$LIBDIR/libtests";
++            }
++            else {
++                $CMDLINE="$LIBDIR/$tool";
++            }
+         }
+         elsif($tool =~ /^unit/) {
+-            $CMDLINE="$UNITDIR/$tool";
++            if($bundle) {
++                $CMDLINE="$UNITDIR/units";
++            }
++            else {
++                $CMDLINE="$UNITDIR/$tool";
++            }
+         }
+ 
+         if(! -f $CMDLINE) {
+             logmsg " $testnum: IGNORED: The tool set in the test case for this: '$tool' does not exist\n";
+             return (-1, 0, 0, "", "", 0);
+         }
++
++        if($bundle) {
++            $CMDLINE.=" $tool_name";
++        }
++
+         $DBGCURL=$CMDLINE;
+     }
+ 
+@@ -915,6 +980,9 @@ sub singletest_run {
+ 
+     if(!$tool) {
+         $CMDLINE=shell_quote($CURL);
++        if((!$cmdhash{'option'}) || ($cmdhash{'option'} !~ /no-q/)) {
++            $CMDLINE .= " -q";
++        }
+     }
+ 
+     if(use_valgrind() && !$disablevalgrind) {
+@@ -1018,11 +1086,6 @@ sub singletest_clean {
+         }
+     }
+ 
+-    # If a server logs advisor read lock file exists, it is an indication
+-    # that the server has not yet finished writing out all its log files,
+-    # including server request log files used for protocol verification.
+-    # So, if the lock file exists the script waits here a certain amount
+-    # of time until the server removes it, or the given time expires.
+     my $serverlogslocktimeout = $defserverlogslocktimeout;
+     my %cmdhash = getpartattr("client", "command");
+     if($cmdhash{'timeout'}) {
+@@ -1031,19 +1094,6 @@ sub singletest_clean {
+             $serverlogslocktimeout = $1 if($1 >= 0);
+         }
+     }
+-    if($serverlogslocktimeout) {
+-        my $lockretry = $serverlogslocktimeout * 20;
+-        my @locks;
+-        while((@locks = logslocked()) && $lockretry--) {
+-            portable_sleep(0.05);
+-        }
+-        if(($lockretry < 0) &&
+-           ($serverlogslocktimeout >= $defserverlogslocktimeout)) {
+-            logmsg "Warning: server logs lock timeout ",
+-                   "($serverlogslocktimeout seconds) expired (locks: " .
+-                   join(", ", @locks) . ")\n";
+-        }
+-    }
+ 
+     # Test harness ssh server does not have this synchronization mechanism,
+     # this implies that some ssh server based tests might need a small delay
+@@ -1062,12 +1112,6 @@ sub singletest_clean {
+ 
+     portable_sleep($postcommanddelay) if($postcommanddelay);
+ 
+-    # timestamp removal of server logs advisor read lock
+-    $$testtimings{"timesrvrlog"} = Time::HiRes::time();
+-
+-    # test definition might instruct to stop some servers
+-    # stop also all servers relative to the given one
+-
+     my @killtestservers = getpart("client", "killserver");
+     if(@killtestservers) {
+         foreach my $server (@killtestservers) {
+@@ -1078,6 +1122,16 @@ sub singletest_clean {
+             }
+         }
+     }
++
++    # wait for any servers left running to release their locks
++    waitlockunlock($serverlogslocktimeout);
++
++    # timestamp removal of server logs advisor read lock
++    $$testtimings{"timesrvrlog"} = Time::HiRes::time();
++
++    # test definition might instruct to stop some servers
++    # stop also all servers relative to the given one
++
+     return 0;
+ }
+ 
+@@ -1088,6 +1142,11 @@ sub singletest_postcheck {
+ 
+     # run the postcheck command
+     my @postcheck= getpart("client", "postcheck");
++    if(@postcheck) {
++        die "test$testnum uses client/postcheck";
++    }
++
++    @postcheck= getpart("verify", "postcheck");
+     if(@postcheck) {
+         my $cmd = join("", @postcheck);
+         chomp $cmd;
+@@ -1139,6 +1198,9 @@ sub runner_test_preprocess {
+     # Start the servers needed to run this test case
+     my ($why, $error) = singletest_startservers($testnum, \%testtimings);
+ 
++    # make sure no locks left for responsive test
++    waitlockunlock($defserverlogslocktimeout);
++
+     if(!$why) {
+ 
+         ###############################################################
+@@ -1333,6 +1395,7 @@ sub runnerar_ready {
+     my $rin = "";
+     my %idbyfileno;
+     my $maxfileno=0;
++    my @ready_runners = ();
+     foreach my $p (keys(%controllerr)) {
+         my $fd = fileno($controllerr{$p});
+         vec($rin, $fd, 1) = 1;
+@@ -1355,10 +1418,11 @@ sub runnerar_ready {
+                 return (undef, $idbyfileno{$fd});
+             }
+             if(vec($rout, $fd, 1)) {
+-                return ($idbyfileno{$fd}, undef);
++                push(@ready_runners, $idbyfileno{$fd});
+             }
+         }
+-        die "Internal pipe readiness inconsistency\n";
++        die "Internal pipe readiness inconsistency\n" if(!@ready_runners);
++        return (@ready_runners, undef);
+     }
+     return (undef, undef);
+ }
+diff --git a/tests/tests.c/servers.pm b/tests/tests.c/servers.pm
+index d4472d5..37519ee 100644
+--- a/tests/tests.c/servers.pm
++++ b/tests/tests.c/servers.pm
+@@ -59,6 +59,7 @@ BEGIN {
+             stopserver
+             stopservers
+             subvariables
++            localhttp
+         ),
+ 
+         # for debugging only
+@@ -101,6 +102,7 @@ use sshhelp qw(
+ use pathhelp qw(
+     exe_ext
+     os_is_win
++    build_sys_abs_path
+     sys_native_abs_path
+     );
+ 
+@@ -126,7 +128,7 @@ my %run;          # running server
+ my %runcert;      # cert file currently in use by an ssl running server
+ my $CLIENTIP="127.0.0.1";  # address which curl uses for incoming connections
+ my $CLIENT6IP="[::1]";     # address which curl uses for incoming connections
+-my $posix_pwd=$pwd;        # current working directory
++my $posix_pwd = build_sys_abs_path($pwd);  # current working directory in POSIX format
+ my $h2cver = "h2c"; # this version is decided by the nghttp2 lib being used
+ my $portrange = 999;       # space from which to choose a random port
+                            # don't increase without making sure generated port
+@@ -153,13 +155,15 @@ our $stunnel;        # path to stunnel command
+ #
+ sub checkcmd {
+     my ($cmd, @extrapaths)=@_;
+-    my $sep = '[:]';
++    my @paths;
+     if ($^O eq 'MSWin32' || $^O eq 'dos' || $^O eq 'os2') {
+         # PATH separator is different
+-        $sep = '[;]';
++        @paths=(split(';', $ENV{'PATH'}), @extrapaths);
++    }
++    else {
++        @paths=(split(':', $ENV{'PATH'}), "/usr/sbin", "/usr/local/sbin",
++                "/sbin", "/usr/bin", "/usr/local/bin", @extrapaths);
+     }
+-    my @paths=(split(m/$sep/, $ENV{'PATH'}), "/usr/sbin", "/usr/local/sbin",
+-               "/sbin", "/usr/bin", "/usr/local/bin", @extrapaths);
+     for(@paths) {
+         if( -x "$_/$cmd" . exe_ext('SYS') && ! -d "$_/$cmd" . exe_ext('SYS')) {
+             # executable bit but not a directory!
+@@ -268,26 +272,41 @@ sub clearlocks {
+ 
+     if(os_is_win()) {
+         $dir = sys_native_abs_path($dir);
+-        $dir =~ s/\//\\\\/g;
++        # Must use backslashes for handle64 to find a match
++        if ($^O eq 'MSWin32') {
++            $dir =~ s/\//\\/g;
++        }
++        else {
++            $dir =~ s/\//\\\\/g;
++        }
+         my $handle = "handle";
+         if($ENV{"PROCESSOR_ARCHITECTURE"} =~ /64$/) {
+             $handle = "handle64";
+         }
+         if(checkcmd($handle)) {
+-            my @handles = `$handle $dir -accepteula -nobanner`;
++            # https://learn.microsoft.com/sysinternals/downloads/handle#usage
++            my $cmd = "$handle $dir -accepteula -nobanner";
++            logmsg "clearlocks: Executing query: '$cmd'\n";
++            my @handles = `$cmd`;
+             for my $tryhandle (@handles) {
+                 # Skip the "No matching handles found." warning when returned
+                 if($tryhandle =~ /^(\S+)\s+pid:\s+(\d+)\s+type:\s+(\w+)\s+([0-9A-F]+):\s+(.+)\r\r/) {
+-                    logmsg "Found $3 lock of '$5' ($4) by $1 ($2)\n";
++                    logmsg "clearlocks: Found $3 lock of '$5' ($4) by $1 ($2)\n";
+                     # Ignore stunnel since we cannot do anything about its locks
+                     if("$3" eq "File" && "$1" ne "tstunnel.exe") {
+-                        logmsg "Killing IMAGENAME eq $1 and PID eq $2\n";
+-                        system("taskkill.exe -f -fi \"IMAGENAME eq $1\" -fi \"PID eq $2\" >nul 2>&1");
++                        logmsg "clearlocks: Killing IMAGENAME eq $1 and PID eq $2\n";
++                        # https://ss64.com/nt/taskkill.html
++                        my $cmd = "taskkill.exe -f -t -fi \"IMAGENAME eq $1\" -fi \"PID eq $2\" >nul 2>&1";
++                        logmsg "clearlocks: Executing kill: '$cmd'\n";
++                        system($cmd);
+                         $done = 1;
+                     }
+                 }
+             }
+         }
++        else {
++            logmsg "Warning: 'handle' tool not found.\n";
++        }
+     }
+     return $done;
+ }
+@@ -445,6 +464,7 @@ sub protoport {
+ #
+ sub stopserver {
+     my ($server, $pidlist) = @_;
++    my $ipvnum = 4;
+ 
+     #
+     # kill sockfilter processes for pingpong relative server
+@@ -452,7 +472,7 @@ sub stopserver {
+     if($server =~ /^(ftp|imap|pop3|smtp)s?(\d*)(-ipv6|)$/) {
+         my $proto  = $1;
+         my $idnum  = ($2 && ($2 > 1)) ? $2 : 1;
+-        my $ipvnum = ($3 && ($3 =~ /6$/)) ? 6 : 4;
++        $ipvnum = ($3 && ($3 =~ /6$/)) ? 6 : 4;
+         killsockfilters("$LOGDIR/$PIDDIR", $proto, $ipvnum, $idnum, $verbose);
+     }
+     #
+@@ -501,19 +521,24 @@ sub stopserver {
+     my $result = 0;
+     foreach my $server (@killservers) {
+         my $pidfile = $serverpidfile{$server};
+-        my $pid = processexists($pidfile);
+-        if($pid > 0) {
+-            if($err_unexpected) {
+-                logmsg "ERROR: ";
+-                $result = -1;
+-            }
+-            else {
+-                logmsg "Warning: ";
++        unlink($pidfile) if(-f $pidfile);
++    }
++    #
++    # cleanup server lock files
++    #
++    foreach my $server (@killservers) {
++        # servers seem to produce (some of) these lock files
++        my @lockfiles = (
++            "$LOGDIR/$LOCKDIR/$server.lock",
++            "$LOGDIR/$LOCKDIR/$server-IPv$ipvnum.lock",
++            "$LOGDIR/$LOCKDIR/sws-".uc($server)."-IPv$ipvnum.lock"
++            );
++        foreach my $lockfile (@lockfiles) {
++            if(-f $lockfile) {
++                unlink($lockfile);
++                logmsg "RUN: kill $server, cleaned up $lockfile\n" if ($verbose);
+             }
+-            logmsg "$server server unexpectedly alive\n";
+-            killpid($verbose, $pid);
+         }
+-        unlink($pidfile) if(-f $pidfile);
+     }
+ 
+     return $result;
+@@ -534,18 +559,19 @@ sub getexternalproxyflags {
+ # assign requested address")
+ #
+ sub verifyhttp {
+-    my ($proto, $ipvnum, $idnum, $ip, $port_or_path) = @_;
++    my ($proto, $ipvnum, $idnum, $ip, $port_or_path, $do_http3) = @_;
+     my $server = servername_id($proto, $ipvnum, $idnum);
+     my $bonus="";
+     # $port_or_path contains a path for Unix sockets, sws ignores the port
+     my $port = ($ipvnum eq "unix") ? 80 : $port_or_path;
++    my $infix = ($do_http3) ? "_h3" : "";
+ 
+     my $verifyout = "$LOGDIR/".
+-        servername_canon($proto, $ipvnum, $idnum) .'_verify.out';
++        servername_canon($proto, $ipvnum, $idnum) .$infix .'_verify.out';
+     unlink($verifyout) if(-f $verifyout);
+ 
+     my $verifylog = "$LOGDIR/".
+-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
++        servername_canon($proto, $ipvnum, $idnum) .$infix .'_verify.log';
+     unlink($verifylog) if(-f $verifylog);
+ 
+     if($proto eq "gopher") {
+@@ -563,6 +589,7 @@ sub verifyhttp {
+     if($proxy_address) {
+         $flags .= getexternalproxyflags();
+     }
++    $flags .= "--http3-only " if($do_http3);
+     $flags .= "\"$proto://$ip:$port/${bonus}verifiedserver\"";
+ 
+     my $cmd = "$VCURL $flags 2>$verifylog";
+@@ -890,6 +917,20 @@ sub verifyhttptls {
+     return $pid;
+ }
+ 
++#######################################################################
++# STUB for verifying mqtt
++#
++sub verifymqtt {
++    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
++    my $pidfile = server_pidfilename("$LOGDIR/$PIDDIR", $proto, $ipvnum,
++                                     $idnum);
++    my $pid = processexists($pidfile);
++    if($pid < 0) {
++        logmsg "RUN: MQTT server has died after starting up\n";
++    }
++    return $pid;
++}
++
+ #######################################################################
+ # STUB for verifying socks
+ #
+@@ -1046,6 +1087,7 @@ my %protofunc = ('http' => \&verifyhttp,
+                  'ftps' => \&verifyftp,
+                  'pop3s' => \&verifyftp,
+                  'imaps' => \&verifyftp,
++                 'mqtt' => \&verifymqtt,
+                  'smtps' => \&verifyftp,
+                  'tftp' => \&verifyftp,
+                  'ssh' => \&verifyssh,
+@@ -1085,12 +1127,12 @@ sub verifyserver {
+ # to verify that a server present in %run hash is still functional
+ #
+ sub responsiveserver {
+-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
++    my ($proto, $ipvnum, $idnum, $ip, $port, $do_http3) = @_;
+     my $prev_verbose = $verbose;
+ 
+     $verbose = 0;
+     my $fun = $protofunc{$proto};
+-    my $pid = &$fun($proto, $ipvnum, $idnum, $ip, $port);
++    my $pid = &$fun($proto, $ipvnum, $idnum, $ip, $port, $do_http3);
+     $verbose = $prev_verbose;
+ 
+     if($pid > 0) {
+@@ -1934,13 +1976,12 @@ sub runmqttserver {
+     }
+ 
+     my $mqttport = pidfromfile($portfile);
+-    $PORT{"mqtt"} = $mqttport;
+ 
+     if($verb) {
+         logmsg "RUN: $srvrname server is now running PID $pid2 on PORT $mqttport\n";
+     }
+ 
+-    return (0, $pid2, $sockspid);
++    return (0, $pid2, $sockspid, $mqttport);
+ }
+ 
+ #######################################################################
+@@ -2201,7 +2242,7 @@ sub runnegtelnetserver {
+ # be used to verify that a server present in %run hash is still functional
+ #
+ sub responsive_http_server {
+-    my ($proto, $verb, $alt, $port_or_path) = @_;
++    my ($proto, $verb, $alt, $port_or_path, $do_http3) = @_;
+     my $ip = $HOSTIP;
+     my $ipvnum = 4;
+     my $idnum = 1;
+@@ -2219,7 +2260,20 @@ sub responsive_http_server {
+         $ipvnum = "unix";
+     }
+ 
+-    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port_or_path);
++    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port_or_path, $do_http3);
++}
++
++#######################################################################
++# Single shot mqtt server responsiveness test. This should only
++# be used to verify that a server present in %run hash is still functional
++#
++sub responsive_mqtt_server {
++    my ($proto, $id, $verb, $ipv6) = @_;
++    my $ip = ($ipv6 && ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
++    my $ipvnum = ($ipv6 && ($ipv6 =~ /6$/)) ? 6 : 4;
++    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
++
++    return &responsiveserver($proto, $ipvnum, $idnum, $ip);
+ }
+ 
+ #######################################################################
+@@ -2323,7 +2377,7 @@ sub responsive_httptls_server {
+ sub startservers {
+     my @what = @_;
+     my ($pid, $pid2);
+-    my $serr;  # error while starting a server (as as the return enumerations)
++    my $serr;  # error while starting a server (as of the return enumerations)
+     for(@what) {
+         my (@whatlist) = split(/\s+/,$_);
+         my $what = lc($whatlist[0]);
+@@ -2338,7 +2392,7 @@ sub startservers {
+            ($what eq "ftp") ||
+            ($what eq "imap") ||
+            ($what eq "smtp")) {
+-            if($torture && $run{$what} &&
++            if($run{$what} &&
+                !responsive_pingpong_server($what, "", $verbose)) {
+                 if(stopserver($what)) {
+                     return ("failed stopping unresponsive ".uc($what)." server", 3);
+@@ -2354,7 +2408,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "ftp-ipv6") {
+-            if($torture && $run{'ftp-ipv6'} &&
++            if($run{'ftp-ipv6'} &&
+                !responsive_pingpong_server("ftp", "", $verbose, "ipv6")) {
+                 if(stopserver('ftp-ipv6')) {
+                     return ("failed stopping unresponsive FTP-IPv6 server", 3);
+@@ -2371,7 +2425,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "gopher") {
+-            if($torture && $run{'gopher'} &&
++            if($run{'gopher'} &&
+                !responsive_http_server("gopher", $verbose, 0,
+                                        protoport("gopher"))) {
+                 if(stopserver('gopher')) {
+@@ -2390,7 +2444,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "gopher-ipv6") {
+-            if($torture && $run{'gopher-ipv6'} &&
++            if($run{'gopher-ipv6'} &&
+                !responsive_http_server("gopher", $verbose, "ipv6",
+                                        protoport("gopher"))) {
+                 if(stopserver('gopher-ipv6')) {
+@@ -2408,32 +2462,10 @@ sub startservers {
+                 $run{'gopher-ipv6'}="$pid $pid2";
+             }
+         }
+-        elsif($what eq "http/3") {
+-            if(!$run{'http/3'}) {
+-                ($serr, $pid, $pid2, $PORT{"http3"}) = runhttp3server($verbose);
+-                if($pid <= 0) {
+-                    return ("failed starting HTTP/3 server", $serr);
+-                }
+-                logmsg sprintf ("* pid http/3 => %d %d\n", $pid, $pid2)
+-                    if($verbose);
+-                $run{'http/3'}="$pid $pid2";
+-            }
+-        }
+-        elsif($what eq "http/2") {
+-            if(!$run{'http/2'}) {
+-                ($serr, $pid, $pid2, $PORT{"http2"}, $PORT{"http2tls"}) =
+-                    runhttp2server($verbose);
+-                if($pid <= 0) {
+-                    return ("failed starting HTTP/2 server", $serr);
+-                }
+-                logmsg sprintf ("* pid http/2 => %d %d\n", $pid, $pid2)
+-                    if($verbose);
+-                $run{'http/2'}="$pid $pid2";
+-            }
+-        }
+         elsif($what eq "http") {
+-            if($torture && $run{'http'} &&
++            if($run{'http'} &&
+                !responsive_http_server("http", $verbose, 0, protoport('http'))) {
++                logmsg "* restarting unresponsive HTTP server\n";
+                 if(stopserver('http')) {
+                     return ("failed stopping unresponsive HTTP server", 3);
+                 }
+@@ -2450,7 +2482,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "http-proxy") {
+-            if($torture && $run{'http-proxy'} &&
++            if($run{'http-proxy'} &&
+                !responsive_http_server("http", $verbose, "proxy",
+                                        protoport("httpproxy"))) {
+                 if(stopserver('http-proxy')) {
+@@ -2469,7 +2501,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "http-ipv6") {
+-            if($torture && $run{'http-ipv6'} &&
++            if($run{'http-ipv6'} &&
+                !responsive_http_server("http", $verbose, "ipv6",
+                                        protoport("http6"))) {
+                 if(stopserver('http-ipv6')) {
+@@ -2488,7 +2520,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "rtsp") {
+-            if($torture && $run{'rtsp'} &&
++            if($run{'rtsp'} &&
+                !responsive_rtsp_server($verbose)) {
+                 if(stopserver('rtsp')) {
+                     return ("failed stopping unresponsive RTSP server", 3);
+@@ -2504,7 +2536,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "rtsp-ipv6") {
+-            if($torture && $run{'rtsp-ipv6'} &&
++            if($run{'rtsp-ipv6'} &&
+                !responsive_rtsp_server($verbose, "ipv6")) {
+                 if(stopserver('rtsp-ipv6')) {
+                     return ("failed stopping unresponsive RTSP-IPv6 server", 3);
+@@ -2532,7 +2564,7 @@ sub startservers {
+                     return ("failed stopping $what server with different cert", 3);
+                 }
+             }
+-            if($torture && $run{$cproto} &&
++            if($run{$cproto} &&
+                !responsive_pingpong_server($cproto, "", $verbose)) {
+                 if(stopserver($cproto)) {
+                     return ("failed stopping unresponsive $cproto server", 3);
+@@ -2571,8 +2603,24 @@ sub startservers {
+                 if(stopserver('https')) {
+                     return ("failed stopping HTTPS server with different cert", 3);
+                 }
++                # also stop http server, we do not know which state it is in
++                if($run{'http'} && stopserver('http')) {
++                    return ("failed stopping HTTP server", 3);
++                }
+             }
+-            if($torture && $run{'http'} &&
++            if($run{'https'} &&
++               !responsive_http_server("https", $verbose, 0,
++                                       protoport('https'))) {
++                if(stopserver('https')) {
++                    return ("failed stopping unresponsive HTTPS server", 3);
++                }
++                # also stop http server, we do not know which state it is in
++                if($run{'http'} && stopserver('http')) {
++                    return ("failed stopping unresponsive HTTP server", 3);
++                }
++            }
++            # check a running http server if we not already checked https
++            if($run{'http'} && !$run{'https'} &&
+                !responsive_http_server("http", $verbose, 0,
+                                        protoport('http'))) {
+                 if(stopserver('http')) {
+@@ -2599,6 +2647,87 @@ sub startservers {
+                 $run{'https'}="$pid $pid2";
+             }
+         }
++        elsif($what eq "http/2") {
++            # http/2 server proxies to a http server
++            if($run{'http/2'} &&
++               !responsive_http_server("https", $verbose, 0, protoport('http2tls'))) {
++                logmsg "* restarting unresponsive HTTP/2 server\n";
++                if(stopserver('http/2')) {
++                    return ("failed stopping unresponsive HTTP/2 server", 3);
++                }
++                # also stop http server, we do not know which state it is in
++                if($run{'http'} && stopserver('http')) {
++                    return ("failed stopping HTTP server", 3);
++                }
++            }
++            # check a running http server if we not already checked http/2
++            if($run{'http'} && !$run{'http/2'} &&
++               !responsive_http_server("http", $verbose, 0,
++                                       protoport('http'))) {
++                if(stopserver('http')) {
++                    return ("failed stopping unresponsive HTTP server", 3);
++                }
++            }
++            if(!$run{'http'}) {
++                ($serr, $pid, $pid2, $PORT{'http'}) =
++                    runhttpserver("http", $verbose, 0);
++                if($pid <= 0) {
++                    return ("failed starting HTTP server", $serr);
++                }
++                logmsg sprintf("* pid http => %d %d\n", $pid, $pid2) if($verbose);
++                $run{'http'}="$pid $pid2";
++            }
++            if(!$run{'http/2'}) {
++                ($serr, $pid, $pid2, $PORT{"http2"}, $PORT{"http2tls"}) =
++                    runhttp2server($verbose);
++                if($pid <= 0) {
++                    return ("failed starting HTTP/2 server", $serr);
++                }
++                logmsg sprintf ("* pid http/2 => %d %d\n", $pid, $pid2)
++                    if($verbose);
++                $run{'http/2'}="$pid $pid2";
++            }
++        }
++        elsif($what eq "http/3") {
++            # http/3 server proxies to a http server
++            if($run{'http/3'} &&
++               !responsive_http_server("https", $verbose, 0, protoport('http3'), 1)) {
++                logmsg "* restarting unresponsive HTTP/3 server\n";
++                if(stopserver('http/3')) {
++                    return ("failed stopping unresponsive HTTP/3 server", 3);
++                }
++                # also stop http server, we do not know which state it is in
++                if($run{'http'} && stopserver('http')) {
++                    return ("failed stopping HTTP server", 3);
++                }
++            }
++            # check a running http server if we not already checked http/3
++            if($run{'http'} && !$run{'http/3'} &&
++               !responsive_http_server("http", $verbose, 0,
++                                       protoport('http'))) {
++                if(stopserver('http')) {
++                    return ("failed stopping unresponsive HTTP server", 3);
++                }
++            }
++            if(!$run{'http'}) {
++                ($serr, $pid, $pid2, $PORT{'http'}) =
++                    runhttpserver("http", $verbose, 0);
++                if($pid <= 0) {
++                    return ("failed starting HTTP server", $serr);
++                }
++                logmsg sprintf("* pid http => %d %d\n", $pid, $pid2) if($verbose);
++                $run{'http'}="$pid $pid2";
++            }
++            if(!$run{'http/3'}) {
++                ($serr, $pid, $pid2, $PORT{"http3"}) = runhttp3server($verbose);
++                if($pid <= 0) {
++                    return ("failed starting HTTP/3 server", $serr);
++                }
++                logmsg sprintf ("* pid http/3 => %d %d\n", $pid, $pid2)
++                    if($verbose);
++                $run{'http/3'}="$pid $pid2";
++            }
++        }
+         elsif($what eq "gophers") {
+             if(!$stunnel) {
+                 # we can't run TLS tests without stunnel
+@@ -2610,7 +2739,7 @@ sub startservers {
+                     return ("failed stopping GOPHERS server with different cert", 3);
+                 }
+             }
+-            if($torture && $run{'gopher'} &&
++            if($run{'gopher'} &&
+                !responsive_http_server("gopher", $verbose, 0,
+                                        protoport('gopher'))) {
+                 if(stopserver('gopher')) {
+@@ -2679,7 +2808,7 @@ sub startservers {
+                 # for now, we can't run http TLS-EXT tests without gnutls-serv
+                 return ("no gnutls-serv (with SRP support)", 4);
+             }
+-            if($torture && $run{'httptls'} &&
++            if($run{'httptls'} &&
+                !responsive_httptls_server($verbose, "IPv4")) {
+                 if(stopserver('httptls')) {
+                     return ("failed stopping unresponsive HTTPTLS server", 3);
+@@ -2701,7 +2830,7 @@ sub startservers {
+                 # for now, we can't run http TLS-EXT tests without gnutls-serv
+                 return ("no gnutls-serv", 4);
+             }
+-            if($torture && $run{'httptls-ipv6'} &&
++            if($run{'httptls-ipv6'} &&
+                !responsive_httptls_server($verbose, "ipv6")) {
+                 if(stopserver('httptls-ipv6')) {
+                     return ("failed stopping unresponsive HTTPTLS-IPv6 server", 3);
+@@ -2719,7 +2848,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "tftp") {
+-            if($torture && $run{'tftp'} &&
++            if($run{'tftp'} &&
+                !responsive_tftp_server("", $verbose)) {
+                 if(stopserver('tftp')) {
+                     return ("failed stopping unresponsive TFTP server", 3);
+@@ -2736,7 +2865,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "tftp-ipv6") {
+-            if($torture && $run{'tftp-ipv6'} &&
++            if($run{'tftp-ipv6'} &&
+                !responsive_tftp_server("", $verbose, "ipv6")) {
+                 if(stopserver('tftp-ipv6')) {
+                     return ("failed stopping unresponsive TFTP-IPv6 server", 3);
+@@ -2783,8 +2912,14 @@ sub startservers {
+             }
+         }
+         elsif($what eq "mqtt" ) {
++            if($run{'mqtt'} &&
++               !responsive_mqtt_server("mqtt", "", $verbose)) {
++                if(stopserver('mqtt')) {
++                    return ("failed stopping unresponsive MQTT server", 3);
++                }
++            }
+             if(!$run{'mqtt'}) {
+-                ($serr, $pid, $pid2) = runmqttserver("", $verbose);
++                ($serr, $pid, $pid2, $PORT{"mqtt"}) = runmqttserver("", $verbose);
+                 if($pid <= 0) {
+                     return ("failed starting mqtt server", $serr);
+                 }
+@@ -2793,7 +2928,7 @@ sub startservers {
+             }
+         }
+         elsif($what eq "http-unix") {
+-            if($torture && $run{'http-unix'} &&
++            if($run{'http-unix'} &&
+                !responsive_http_server("http", $verbose, "unix", $HTTPUNIXPATH)) {
+                 if(stopserver('http-unix')) {
+                     return ("failed stopping unresponsive HTTP-unix server", 3);
+@@ -2957,6 +3092,10 @@ sub subvariables {
+     $$thing =~ s/${prefix}SOCKSUNIXPATH/$SOCKSUNIXPATH/g;
+ 
+     # client IP addresses
++    my $nb = $CLIENT6IP;
++    $nb =~ s/^\[(.*)\]/$1/; # trim off the brackets
++
++    $$thing =~ s/${prefix}CLIENT6IP-NB/$nb/g;
+     $$thing =~ s/${prefix}CLIENT6IP/$CLIENT6IP/g;
+     $$thing =~ s/${prefix}CLIENTIP/$CLIENTIP/g;
+ 
+@@ -2965,13 +3104,18 @@ sub subvariables {
+     $$thing =~ s/${prefix}HOSTIP/$HOSTIP/g;
+ 
+     # misc
++    $$thing =~ s/${prefix}PERL/$perlcmd/g;
+     $$thing =~ s/${prefix}CURL/$CURL/g;
+     $$thing =~ s/${prefix}LOGDIR/$LOGDIR/g;
+     $$thing =~ s/${prefix}PWD/$pwd/g;
+     $$thing =~ s/${prefix}POSIX_PWD/$posix_pwd/g;
+     $$thing =~ s/${prefix}VERSION/$CURLVERSION/g;
++    $$thing =~ s/${prefix}VERNUM/$CURLVERNUM/g;
++    $$thing =~ s/${prefix}DATE/$DATE/g;
+     $$thing =~ s/${prefix}TESTNUMBER/$testnum/g;
+ 
++    # POSIX/MSYS/Cygwin curl needs: file://localhost/d/path/to
++    # Windows native    curl needs: file://localhost/D:/path/to
+     my $file_pwd = $pwd;
+     if($file_pwd !~ /^\//) {
+         $file_pwd = "/$file_pwd";
+@@ -2988,23 +3132,25 @@ sub subvariables {
+     $$thing =~ s/${prefix}SSH_PWD/$ssh_pwd/g;
+     $$thing =~ s/${prefix}SRCDIR/$srcdir/g;
+     $$thing =~ s/${prefix}USER/$USER/g;
++    $$thing =~ s/${prefix}DEV_NULL/$dev_null/g;
+ 
+     $$thing =~ s/${prefix}SSHSRVMD5/$SSHSRVMD5/g;
+     $$thing =~ s/${prefix}SSHSRVSHA256/$SSHSRVSHA256/g;
+ 
+-    # The purpose of FTPTIME2 and FTPTIME3 is to provide times that can be
++    # The purpose of FTPTIME2 is to provide times that can be
+     # used for time-out tests and that would work on most hosts as these
+     # adjust for the startup/check time for this particular host. We needed to
+     # do this to make the test suite run better on very slow hosts.
+     my $ftp2 = $ftpchecktime * 8;
+-    my $ftp3 = $ftpchecktime * 12;
+ 
+     $$thing =~ s/${prefix}FTPTIME2/$ftp2/g;
+-    $$thing =~ s/${prefix}FTPTIME3/$ftp3/g;
+ 
+     # HTTP2
+     $$thing =~ s/${prefix}H2CVER/$h2cver/g;
+ }
+ 
++sub localhttp {
++    return $HOSTIP eq "127.0.0.1";
++}
+ 
+ 1;
+diff --git a/tests/tests.c/sshserver.pl b/tests/tests.c/sshserver.pl
+index cba8a88..c8c4a33 100644
+--- a/tests/tests.c/sshserver.pl
++++ b/tests/tests.c/sshserver.pl
+@@ -79,7 +79,6 @@ use sshhelp qw(
+ # Subs imported from serverhelp module
+ #
+ use serverhelp qw(
+-    logmsg
+     $logfile
+     server_pidfilename
+     server_logfilename
+@@ -115,6 +114,14 @@ sub pp {
+     # TODO: do Windows path conversion here
+ }
+ 
++#***************************************************************************
++# Save the message to the log and print it
++sub logmsg {
++    my $msg = $_[0];
++    serverhelp::logmsg $msg;
++    print $msg;
++}
++
+ #***************************************************************************
+ # Parse command line options
+ #
+@@ -385,6 +392,9 @@ if((($sshid =~ /OpenSSH/) && ($sshvernum < 299)) ||
+ #  -q:  quiet keygen     : SunSSH 1.0.0 and later
+ #  -t:  key type         : SunSSH 1.0.0 and later
+ 
++$sshdconfig = pp($sshdconfig);
++$sshconfig = pp($sshconfig);
++$sftpconfig = pp($sftpconfig);
+ 
+ #***************************************************************************
+ # Generate host and client key files for curl's tests
+@@ -411,6 +421,13 @@ if((! -e pp($hstprvkeyf)) || (! -s pp($hstprvkeyf)) ||
+     # Make sure that permissions are restricted so openssh doesn't complain
+     system "chmod 600 " . pp($hstprvkeyf);
+     system "chmod 600 " . pp($cliprvkeyf);
++    if(pathhelp::os_is_win()) {
++      # https://ss64.com/nt/icacls.html
++      $ENV{'MSYS2_ARG_CONV_EXCL'} = '/reset';
++      system("icacls \"" . pathhelp::sys_native_abs_path(pp($hstprvkeyf)) . "\" /reset");
++      system("icacls \"" . pathhelp::sys_native_abs_path(pp($hstprvkeyf)) . "\" /grant:r \"$username:(R)\"");
++      system("icacls \"" . pathhelp::sys_native_abs_path(pp($hstprvkeyf)) . "\" /inheritance:r");
++    }
+     # Save md5 and sha256 hashes of public host key
+     open(my $rsakeyfile, "<", pp($hstpubkeyf));
+     my @rsahostkey = do { local $/ = ' '; <$rsakeyfile> };
+@@ -437,33 +454,36 @@ if((! -e pp($hstprvkeyf)) || (! -s pp($hstprvkeyf)) ||
+ 
+ 
+ #***************************************************************************
+-# Convert paths for curl's tests running on Windows with Cygwin/Msys OpenSSH
++# Convert paths for curl's tests running on Windows with Cygwin/MSYS OpenSSH
+ #
+ my $clipubkeyf_config;
+ my $hstprvkeyf_config;
+ my $pidfile_config;
+ my $sftpsrv_config;
++my $sshdconfig_abs;
+ if ($sshdid =~ /OpenSSH-Windows/) {
+     # Ensure to use native Windows paths with OpenSSH for Windows
+     $clipubkeyf_config = pathhelp::sys_native_abs_path(pp($clipubkeyf));
+     $hstprvkeyf_config = pathhelp::sys_native_abs_path(pp($hstprvkeyf));
+     $pidfile_config = pathhelp::sys_native_abs_path($pidfile);
+     $sftpsrv_config = pathhelp::sys_native_abs_path($sftpsrv);
++    $sshdconfig_abs = pathhelp::sys_native_abs_path($sshdconfig);
+ }
+ elsif (pathhelp::os_is_win()) {
+     # Ensure to use MinGW/Cygwin paths
+-    $clipubkeyf_config = pathhelp::build_sys_abs_path($clipubkeyf_config);
+-    $hstprvkeyf_config = pathhelp::build_sys_abs_path($hstprvkeyf_config);
+-    $pidfile_config = pathhelp::build_sys_abs_path($pidfile_config);
++    $clipubkeyf_config = pathhelp::build_sys_abs_path(pp($clipubkeyf));
++    $hstprvkeyf_config = pathhelp::build_sys_abs_path(pp($hstprvkeyf));
++    $pidfile_config = pathhelp::build_sys_abs_path($pidfile);
+     $sftpsrv_config = "internal-sftp";
++    $sshdconfig_abs = pathhelp::build_sys_abs_path($sshdconfig);
+ }
+ else {
+     $clipubkeyf_config = abs_path(pp($clipubkeyf));
+     $hstprvkeyf_config = abs_path(pp($hstprvkeyf));
+     $pidfile_config = $pidfile;
+     $sftpsrv_config = $sftpsrv;
++    $sshdconfig_abs = abs_path($sshdconfig);
+ }
+-my $sshdconfig_abs = pathhelp::sys_native_abs_path(pp($sshdconfig));
+ 
+ #***************************************************************************
+ #  ssh daemon configuration file options we might use and version support
+@@ -473,7 +493,7 @@ my $sshdconfig_abs = pathhelp::sys_native_abs_path(pp($sshdconfig));
+ #  AllowTcpForwarding               : OpenSSH 2.3.0 and later
+ #  AllowUsers                       : OpenSSH 1.2.1 and later
+ #  AuthorizedKeysFile               : OpenSSH 2.9.9 and later
+-#  AuthorizedKeysFile2              : OpenSSH 2.9.9 and later
++#  AuthorizedKeysFile2              : OpenSSH 2.9.9 till 5.9
+ #  Banner                           : OpenSSH 2.5.0 and later
+ #  ChallengeResponseAuthentication  : OpenSSH 2.5.0 and later
+ #  Ciphers                          : OpenSSH 2.1.0 and later [3]
+@@ -501,7 +521,7 @@ my $sshdconfig_abs = pathhelp::sys_native_abs_path(pp($sshdconfig));
+ #  KerberosOrLocalPasswd            : OpenSSH 1.2.1 and later [1]
+ #  KerberosTgtPassing               : OpenSSH 1.2.1 and later [1]
+ #  KerberosTicketCleanup            : OpenSSH 1.2.1 and later [1]
+-#  KeyRegenerationInterval          : OpenSSH 1.2.1 and later
++#  KeyRegenerationInterval          : OpenSSH 1.2.1 till 7.3
+ #  ListenAddress                    : OpenSSH 1.2.1 and later
+ #  LoginGraceTime                   : OpenSSH 1.2.1 and later
+ #  LogLevel                         : OpenSSH 1.2.1 and later
+@@ -524,16 +544,16 @@ my $sshdconfig_abs = pathhelp::sys_native_abs_path(pp($sshdconfig));
+ #  Protocol                         : OpenSSH 2.1.0 and later
+ #  PubkeyAuthentication             : OpenSSH 2.5.0 and later
+ #  RhostsAuthentication             : OpenSSH 1.2.1 and later
+-#  RhostsRSAAuthentication          : OpenSSH 1.2.1 and later
+-#  RSAAuthentication                : OpenSSH 1.2.1 and later
+-#  ServerKeyBits                    : OpenSSH 1.2.1 and later
++#  RhostsRSAAuthentication          : OpenSSH 1.2.1 till 7.3
++#  RSAAuthentication                : OpenSSH 1.2.1 till 7.3
++#  ServerKeyBits                    : OpenSSH 1.2.1 till 7.3
+ #  SkeyAuthentication               : OpenSSH 1.2.1 and later [1]
+ #  StrictModes                      : OpenSSH 1.2.1 and later
+ #  Subsystem                        : OpenSSH 2.2.0 and later
+ #  SyslogFacility                   : OpenSSH 1.2.1 and later
+ #  TCPKeepAlive                     : OpenSSH 3.8.0 and later
+ #  UseDNS                           : OpenSSH 3.7.0 and later
+-#  UseLogin                         : OpenSSH 1.2.1 and later
++#  UseLogin                         : OpenSSH 1.2.1 till 7.3
+ #  UsePAM                           : OpenSSH 3.7.0 and later [1][2]
+ #  UsePrivilegeSeparation           : OpenSSH 3.2.2 and later
+ #  VerifyReverseMapping             : OpenSSH 3.1.0 and later
+@@ -560,20 +580,21 @@ push @cfgarr, '#';
+ # and do not support quotes around values for some unknown reason.
+ if ($sshdid =~ /OpenSSH-Windows/) {
+     my $username_lc = lc $username;
++    push @cfgarr, "AllowUsers " . $username_lc =~ s/ /\?/gr;
+     if (exists $ENV{USERDOMAIN}) {
+         my $userdomain_lc = lc $ENV{USERDOMAIN};
+         $username_lc = "$userdomain_lc\\$username_lc";
++        $username_lc =~ s/ /\?/g; # replace space with ?
++        push @cfgarr, "AllowUsers " . $username_lc =~ s/ /\?/gr;
+     }
+-    $username_lc =~ s/ /\?/g; # replace space with ?
+-    push @cfgarr, "DenyUsers !$username_lc";
+-    push @cfgarr, "AllowUsers $username_lc";
+ } else {
+-    push @cfgarr, "DenyUsers !$username";
+     push @cfgarr, "AllowUsers $username";
+ }
+ 
+ push @cfgarr, "AuthorizedKeysFile $clipubkeyf_config";
+-push @cfgarr, "AuthorizedKeysFile2 $clipubkeyf_config";
++if(!($sshdid =~ /OpenSSH/) || ($sshdvernum <= 730)) {
++    push @cfgarr, "AuthorizedKeysFile2 $clipubkeyf_config";
++}
+ push @cfgarr, "HostKey $hstprvkeyf_config";
+ if ($sshdid !~ /OpenSSH-Windows/) {
+     push @cfgarr, "PidFile $pidfile_config";
+@@ -598,7 +619,6 @@ push @cfgarr, 'HostbasedAuthentication no';
+ push @cfgarr, 'HostbasedUsesNameFromPacketOnly no';
+ push @cfgarr, 'IgnoreRhosts yes';
+ push @cfgarr, 'IgnoreUserKnownHosts yes';
+-push @cfgarr, 'KeyRegenerationInterval 0';
+ push @cfgarr, 'LoginGraceTime 30';
+ push @cfgarr, "LogLevel $loglevel";
+ push @cfgarr, 'MaxStartups 5';
+@@ -608,13 +628,16 @@ push @cfgarr, 'PermitRootLogin no';
+ push @cfgarr, 'PrintLastLog no';
+ push @cfgarr, 'PrintMotd no';
+ push @cfgarr, 'PubkeyAuthentication yes';
+-push @cfgarr, 'RhostsRSAAuthentication no';
+-push @cfgarr, 'RSAAuthentication no';
+-push @cfgarr, 'ServerKeyBits 768';
+ push @cfgarr, 'StrictModes no';
+ push @cfgarr, "Subsystem sftp \"$sftpsrv_config\"";
+ push @cfgarr, 'SyslogFacility AUTH';
+-push @cfgarr, 'UseLogin no';
++if(!($sshdid =~ /OpenSSH/) || ($sshdvernum <= 730)) {
++    push @cfgarr, 'KeyRegenerationInterval 0';
++    push @cfgarr, 'RhostsRSAAuthentication no';
++    push @cfgarr, 'RSAAuthentication no';
++    push @cfgarr, 'ServerKeyBits 768';
++    push @cfgarr, 'UseLogin no';
++}
+ push @cfgarr, 'X11Forwarding no';
+ push @cfgarr, '#';
+ 
+@@ -622,7 +645,7 @@ push @cfgarr, '#';
+ #***************************************************************************
+ # Write out initial sshd configuration file for curl's tests
+ #
+-$error = dump_array(pp($sshdconfig), @cfgarr);
++$error = dump_array($sshdconfig, @cfgarr);
+ if($error) {
+     logmsg "$error\n";
+     exit 1;
+@@ -645,14 +668,14 @@ sub sshd_supports_opt {
+     }
+     if(($sshdid =~ /OpenSSH/) && ($sshdvernum >= 299)) {
+         # ssh daemon supports command line options -t and -f
+-        $err = dump_array(pp($sshdconfig), (@cfgarr, "$option $value"));
++        $err = dump_array($sshdconfig, (@cfgarr, "$option $value"));
+         if($err) {
+             logmsg "$err\n";
+             return 0;
+         }
+         $err = grep /((Unsupported)|(Bad configuration)|(Deprecated)) option.*$option/,
+                     `\"$sshd\" -t -f $sshdconfig_abs 2>&1`;
+-        unlink pp($sshdconfig);
++        unlink $sshdconfig;
+         return !$err;
+     }
+     return 0;
+@@ -784,7 +807,7 @@ push @cfgarr, '#';
+ #***************************************************************************
+ # Write out resulting sshd configuration file for curl's tests
+ #
+-$error = dump_array(pp($sshdconfig), @cfgarr);
++$error = dump_array($sshdconfig, @cfgarr);
+ if($error) {
+     logmsg "$error\n";
+     exit 1;
+@@ -847,8 +870,8 @@ if ($sshdid =~ /OpenSSH-Windows/) {
+ }
+ elsif (pathhelp::os_is_win()) {
+     # Ensure to use MinGW/Cygwin paths
+-    $identity_config = pathhelp::build_sys_abs_path($identity_config);
+-    $knownhosts_config = pathhelp::build_sys_abs_path($knownhosts_config);
++    $identity_config = pathhelp::build_sys_abs_path(pp($identity));
++    $knownhosts_config = pathhelp::build_sys_abs_path(pp($knownhosts));
+ }
+ else {
+     $identity_config = abs_path(pp($identity));
+@@ -977,7 +1000,7 @@ push @cfgarr, 'PreferredAuthentications publickey';
+ push @cfgarr, 'PubkeyAuthentication yes';
+ 
+ # RSA authentication options are not supported by OpenSSH for Windows
+-if (!($sshdid =~ /OpenSSH-Windows/)) {
++if (!($sshdid =~ /OpenSSH-Windows/ || pathhelp::os_is_win())) {
+     push @cfgarr, 'RhostsRSAAuthentication no';
+     push @cfgarr, 'RSAAuthentication no';
+ }
+@@ -1092,7 +1115,7 @@ push @cfgarr, '#';
+ #***************************************************************************
+ # Write out resulting ssh client configuration file for curl's tests
+ #
+-$error = dump_array(pp($sshconfig), @cfgarr);
++$error = dump_array($sshconfig, @cfgarr);
+ if($error) {
+     logmsg "$error\n";
+     exit 1;
+@@ -1120,7 +1143,7 @@ for(my $i = scalar(@cfgarr) - 1; $i > 0; $i--) {
+ #***************************************************************************
+ # Write out resulting sftp client configuration file for curl's tests
+ #
+-$error = dump_array(pp($sftpconfig), @cfgarr);
++$error = dump_array($sftpconfig, @cfgarr);
+ if($error) {
+     logmsg "$error\n";
+     exit 1;
+@@ -1194,6 +1217,6 @@ elsif($verbose && ($rc >> 8)) {
+ #
+ unlink(pp($hstprvkeyf), pp($hstpubkeyf), pp($hstpubmd5f), pp($hstpubsha256f),
+        pp($cliprvkeyf), pp($clipubkeyf), pp($knownhosts),
+-       pp($sshdconfig), pp($sshconfig), pp($sftpconfig));
++       $sshdconfig, $sshconfig, $sftpconfig);
+ 
+ exit 0;

@@ -44,23 +44,23 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
 
 
     def recv_pong(curl: ct.POINTER(lcurl.CURL), expected_payload: bytes) -> lcurl.CURLcode:
-        buff = (ct.c_char * 256)()
-        rlen = ct.c_size_t()
+        buff   = (ct.c_char * 256)()
+        nread  = ct.c_size_t()
         rflags = ct.c_uint()
         result: lcurl.CURLcode = lcurl.ws_recv(curl, buff, ct.sizeof(buff),
-                                               ct.byref(rlen), ct.byref(rflags))
-        rlen   = rlen.value
+                                               ct.byref(nread), ct.byref(rflags))
+        nread  = nread.value
         rflags = rflags.value
         if rflags & lcurl.CURLWS_PONG:
             print("ws: got PONG back", file=sys.stderr)
-            if rlen == len(expected_payload) and expected_payload == buff[0:rlen]:
+            if nread == len(expected_payload) and expected_payload == buff[0:nread]:
                 print("ws: got the same payload back", file=sys.stderr)
             else:
                 print("ws: did NOT get the same payload back", file=sys.stderr)
         else:
-            print("recv_pong: got %d bytes rflags %x" % (rlen, rflags),
+            print("recv_pong: got %d bytes rflags %x" % (nread, rflags),
                   file=sys.stderr)
-        print("ws: libcurl.ws_recv returned %d, received %d" % (result, rlen),
+        print("ws: libcurl.ws_recv returned %d, received %d" % (result, nread),
               file=sys.stderr)
         return result
 
@@ -84,8 +84,8 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
                                                ct.byref(sent), 0,
                                                lcurl.CURLWS_CLOSE)
         sent = sent.value
-        print("ws: libcurl.ws_send returned %d, sent %d" %
-              (result, sent), file=sys.stderr)
+        print("ws: libcurl.ws_send returned %d, sent %d" % (result, sent),
+              file=sys.stderr)
 
 
     @lcurl.write_callback
@@ -146,7 +146,7 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
 
         return res
 
-else:  # no WebSockets
+else:  # no WebSockets # pragma: no cover
 
     from curl_test import test_missing_support as test
 

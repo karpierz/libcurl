@@ -26,7 +26,7 @@ import sys
 import ctypes as ct
 try:
     import threading
-except ImportError:
+except ImportError:  # pragma: no cover
     threading = None
 
 import libcurl as lcurl
@@ -42,7 +42,7 @@ class Ctx(ct.Structure):
     _fields_ = [
     ("URL",       ct.c_char_p),
     ("share",     ct.POINTER(lcurl.CURLSH)),
-    ("result",    ct.c_int),
+    ("result",    lcurl.CURLcode),
     ("thread_id", ct.c_int),
     ("contents",  ct.POINTER(lcurl.slist)),
 ]
@@ -108,7 +108,7 @@ def test_thread(ctxp: ct.POINTER(Ctx)):
                       lcurl.easy_strerror(res).decode("utf-8"), file=sys.stderr)
                 break
 
-    ctx.result = int(res)
+    ctx.result = res
 
     return 0
 
@@ -143,15 +143,6 @@ def execute(share: ct.POINTER(lcurl.CURLSH), thread_ctx: ct.POINTER(Ctx)):
     lcurl.share_setopt(share, lcurl.CURLSHOPT_SHARE, lcurl.CURL_LOCK_DATA_SSL_SESSION)
 
     threads: List[threading.Thread] = []
-
-    if is_windows:
-        # On Windows libcurl global init/cleanup calls LoadLibrary/FreeLibrary for
-        # secur32.dll and iphlpapi.dll. Here we load them beforehand so that when
-        # libcurl calls LoadLibrary/FreeLibrary it only increases/decreases the
-        # library's refcount rather than actually loading/unloading the library,
-        # which would affect the test runtime.
-        tutil.win32_load_system_library("secur32.dll")
-        tutil.win32_load_system_library("iphlpapi.dll")
 
     for i, ctx in enumerate(thread_ctx):
         try:
@@ -200,7 +191,7 @@ def test(URL: str, CA_info: str) -> lcurl.CURLcode:
         for i, ctx in enumerate(thread_ctx):
             ctx.URL       = URL.encode("utf-8")
             ctx.share     = share
-            ctx.result    = 0
+            ctx.result    = lcurl.CURLE_OK
             ctx.thread_id = i
             ctx.contents  = None
 

@@ -48,12 +48,12 @@ def test(URL: str) -> lcurl.CURLcode:
         if not handle: return TEST_ERR_EASY_INIT
 
         urlp: ct.POINTER(lcurl.CURLU) = lcurl.url()
-        if not urlp:
+        if not urlp:  # pragma: no cover
             print("problem init URL api.", file=sys.stderr)
             return int(res)
 
         uc = lcurl.url_set(urlp, lcurl.CURLUPART_URL, URL.encode("utf-8"), 0)
-        if uc:
+        if uc:  # pragma: no cover
             print("problem setting libcurl.CURLUPART_URL: %s." %
                   lcurl.url_strerror(uc).decode("utf-8"), file=sys.stderr)
             goto(test_cleanup)
@@ -64,7 +64,7 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(handle, lcurl.CURLOPT_VERBOSE, 1)
 
         res = lcurl.easy_perform(handle)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("%s:%d libcurl.easy_perform() failed with code %d (%s)" %
                   (current_file(), current_line(),
                    res, lcurl.easy_strerror(res).decode("utf-8")), file=sys.stderr)

@@ -46,11 +46,12 @@ def read_callback(buffer, size, nitems, userp):
     # Wait one second before return POST data
     # so libcurl will wait before sending request body
     time.sleep(1)
-
     tocopy = nitems * size
-    if tocopy < 1 or pooh.sizeleft == 0: return 0
-    if pooh.sizeleft < tocopy:
-        tocopy = pooh.sizeleft
+    if tocopy <= 0:
+        return 0  # pragma: no cover
+    if pooh.sizeleft == 0:
+        return 0  # pragma: no cover
+    tocopy = min(pooh.sizeleft, tocopy)
     ct.memmove(buffer, pooh.readptr, tocopy)  # copy requested data
     c_ptr_iadd(pooh.readptr, tocopy)          # advance pointer
     pooh.sizeleft -= tocopy                   # less data left
@@ -67,9 +68,9 @@ def test(URL: str) -> lcurl.CURLcode:
         if is_windows:
             print("Windows TCP does not deliver response data but reports "
                   "CONNABORTED")
-            return lcurl.CURLcode(1).value  # skip since test will fail on Windows
-                                            # without workaround
-        else:
+            return TEST_ERR_FAILURE  # skip since it fails on Windows without
+                                     # workaround
+        else:  # pragma: no cover
             return lcurl.CURLE_OK  # sure, run this!
 
     pooh = WriteThis()

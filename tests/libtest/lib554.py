@@ -41,13 +41,12 @@ class WriteThis(ct.Structure):
 
 @lcurl.read_callback
 def read_callback(buffer, size, nitems, userp):
-    if defined("LIB587"):
-        return lcurl.CURL_READFUNC_ABORT
-    # endif
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
-    if pooh.sizeleft == 0: return 0  # no more data left to deliver
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
+    if pooh.sizeleft == 0:       # no more data left to deliver
+        return 0  # pragma: no cover
     buffer[0] = pooh.readptr[0]  # copy one single byte
     c_ptr_iadd(pooh.readptr, 1)  # advance pointer
     pooh.sizeleft -= 1           # less data left
@@ -63,13 +62,12 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
     pooh.readptr  = ct.cast(testdata, ct.POINTER(ct.c_ubyte))
     pooh.sizeleft = len(testdata)
 
-    formrc: lcurl.CURLFORMcode
+    form_rc: lcurl.CURLFORMcode
     formpost: ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
     lastptr:  ct.POINTER(lcurl.httppost) = ct.POINTER(lcurl.httppost)()
 
     # Fill in the file upload field
     if old_style:
-        # CURL_IGNORE_DEPRECATION(
         fields = (lcurl.forms * 5)()
         fields[0].option = lcurl.CURLFORM_COPYNAME
         fields[0].value  = b"sendfile"
@@ -80,10 +78,8 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
         fields[3].option = lcurl.CURLFORM_FILENAME
         fields[3].value  = b"postit2.c"
         fields[4].option = lcurl.CURLFORM_END
-        formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-        # )
+        form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
     else:
-        # CURL_IGNORE_DEPRECATION(
         # new style
         fields = (lcurl.forms * 5)()
         fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -95,10 +91,9 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
         fields[3].option = lcurl.CURLFORM_FILENAME
         fields[3].value  = b"file name 2"
         fields[4].option = lcurl.CURLFORM_END
-        formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-        # )
-    if formrc:
-        print("libcurl.formadd(1) = %d" % formrc)
+        form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(1) = %d" % form_rc)
 
     # Now add the same data with another name and make it not look like
     # a file upload but still using the callback
@@ -106,7 +101,6 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
     pooh2.readptr  = ct.cast(testdata, ct.POINTER(ct.c_ubyte))
     pooh2.sizeleft = len(testdata)
 
-    # CURL_IGNORE_DEPRECATION(
     # Fill in the file upload field
     fields = (lcurl.forms * 4)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -116,12 +110,10 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
     fields[2].option = lcurl.CURLFORM_CONTENTSLENGTH
     fields[2].value  = pooh2.sizeleft
     fields[3].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(2) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(2) = %d" % form_rc)
 
-    # CURL_IGNORE_DEPRECATION(
     # Fill in the filename field
     fields = (lcurl.forms * 3)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -129,12 +121,10 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
     fields[1].option = lcurl.CURLFORM_COPYCONTENTS
     fields[1].value  = b"postit2.c"
     fields[2].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(3) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(3) = %d" % form_rc)
 
-    # CURL_IGNORE_DEPRECATION(
     # Fill in a submit field too
     fields = (lcurl.forms * 4)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
@@ -144,12 +134,10 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
     fields[2].option = lcurl.CURLFORM_CONTENTTYPE
     fields[2].value  = b"text/plain"
     fields[3].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(4) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(4) = %d" % form_rc)
 
-    # CURL_IGNORE_DEPRECATION(
     fields = (lcurl.forms * 5)()
     fields[0].option = lcurl.CURLFORM_COPYNAME
     fields[0].value  = b"somename"
@@ -160,18 +148,15 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
     fields[3].option = lcurl.CURLFORM_BUFFERLENGTH
     fields[3].value  = 9
     fields[4].option = lcurl.CURLFORM_END
-    formrc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
-    # )
-    if formrc:
-        print("libcurl.formadd(5) = %d" % formrc)
+    form_rc = lcurl.formadd(ct.byref(formpost), ct.byref(lastptr), fields)
+    if form_rc:
+        print("libcurl.formadd(5) = %d" % form_rc)
 
     curl: ct.POINTER(lcurl.CURL) = easy_init()
 
     with curl_guard(False, curl) as guard:
-        if not curl:
-            # CURL_IGNORE_DEPRECATION(
+        if not curl:  # pragma: no cover
             lcurl.formfree(formpost)
-            # )
             return TEST_ERR_EASY_INIT
 
         # First set the URL that is about to receive our POST.
@@ -182,10 +167,8 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_POSTFIELDSIZE, pooh.sizeleft)
         # we want to use our own read function
         test_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_callback)
-        # CURL_IGNORE_DEPRECATION(
         # send a multi-part formpost
         test_setopt(curl, lcurl.CURLOPT_HTTPPOST, formpost)
-        # )
         # get verbose debug output please
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
         # include headers in the output
@@ -196,10 +179,8 @@ def test_once(URL: str, old_style: bool) -> lcurl.CURLcode:
 
         # test_cleanup:
 
-        # CURL_IGNORE_DEPRECATION(
         # now cleanup the formpost chain
         lcurl.formfree(formpost)
-        # )
 
     return res
 

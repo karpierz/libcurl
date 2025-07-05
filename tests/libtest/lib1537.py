@@ -53,7 +53,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # deprecated API
         ptr = lcurl.escape(ct.cast(a, ct.c_char_p), asize)
-        if not ptr:
+        if not ptr:  # pragma: no cover
             res = TEST_ERR_MAJOR_BAD
             raise guard.Break
         print("%s" % ptr.decode("utf-8"))
@@ -66,7 +66,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # deprecated API
         raw = lcurl.unescape(ct.cast(ptr, ct.c_char_p), len(ptr))
-        if not raw:
+        if not raw:  # pragma: no cover
             res = TEST_ERR_MAJOR_BAD
             raise guard.Break
         outlen.value = len(raw)

@@ -29,6 +29,7 @@
 
 from typing import Optional, List, Tuple
 import sys
+import os
 import ctypes as ct
 import functools
 import locale
@@ -36,10 +37,21 @@ import time
 
 import libcurl as lcurl
 import _tutil as tutil
+from curl_setup import *  # noqa
 from curl_utils import *  # noqa
 
 TEST_HANG_TIMEOUT = 60 * 1000
 
+
+def fail_unless(expr: bool, expr_str: str, msg: str):
+    if not expr:
+        import os
+        sys.stdout.flush() ; sys.stderr.flush()
+        print("%s:%d Assertion '%s' failed: %s" %
+              (os.path.basename(current_file(2)), current_line(2),
+               expr_str, msg), file=sys.stderr)
+        sys.stderr.flush()
+        raise Exception()
 
 @lcurl.CFUNC(lcurl.CURLcode,
              ct.POINTER(lcurl.CURL), lcurl.CURLoption, ct.c_void_p)
@@ -58,8 +70,6 @@ def test_multi_setopt(multi_handle, option, value):
     return res
 
 tv_test_start = lcurl.timeval()  # for test timing
-
-#include "curl_setup.h"
 
 test_func_t = lcurl.CFUNC(lcurl.CURLcode, ct.c_char_p)
 
@@ -86,18 +96,18 @@ def hexdump(buf: bytes, size: Optional[int] = None) -> bytes:
 #
 # For portability reasons TEST_ERR_* values should be less than 127.
 
-TEST_ERR_MAJOR_BAD    = lcurl.CURLcode(126).value
-TEST_ERR_RUNS_FOREVER = lcurl.CURLcode(125).value
-TEST_ERR_EASY_INIT    = lcurl.CURLcode(124).value
-TEST_ERR_MULTI        = lcurl.CURLcode(123).value
-TEST_ERR_NUM_HANDLES  = lcurl.CURLcode(122).value
-TEST_ERR_SELECT       = lcurl.CURLcode(121).value
-TEST_ERR_SUCCESS      = lcurl.CURLcode(120).value
-TEST_ERR_FAILURE      = lcurl.CURLcode(119).value
-TEST_ERR_USAGE        = lcurl.CURLcode(118).value
-TEST_ERR_FOPEN        = lcurl.CURLcode(117).value
-TEST_ERR_FSTAT        = lcurl.CURLcode(116).value
-TEST_ERR_BAD_TIMEOUT  = lcurl.CURLcode(115).value
+TEST_ERR_MAJOR_BAD    = lcurl.CURLE_RESERVED126
+TEST_ERR_RUNS_FOREVER = lcurl.CURLE_RESERVED125
+TEST_ERR_EASY_INIT    = lcurl.CURLE_RESERVED124
+TEST_ERR_MULTI        = lcurl.CURLE_RESERVED123
+TEST_ERR_NUM_HANDLES  = lcurl.CURLE_RESERVED122
+TEST_ERR_SELECT       = lcurl.CURLE_RESERVED121
+TEST_ERR_SUCCESS      = lcurl.CURLE_RESERVED120
+TEST_ERR_FAILURE      = lcurl.CURLE_RESERVED119
+TEST_ERR_USAGE        = lcurl.CURLE_RESERVED118
+TEST_ERR_FOPEN        = lcurl.CURLE_RESERVED117
+TEST_ERR_FSTAT        = lcurl.CURLE_RESERVED116
+TEST_ERR_BAD_TIMEOUT  = lcurl.CURLE_RESERVED115
 
 # Macros for test source code readability/maintainability.
 #
@@ -638,17 +648,17 @@ if defined("CURLDEBUG"):
     def memory_tracking_init():
 
         # if CURL_MEMDEBUG is set, this starts memory tracking message logging
-        env = lcurl.getenv("CURL_MEMDEBUG")
+        env = os.environ.get("CURL_MEMDEBUG")
         if env:
             logfname = env
             lcurl.dbg_memdebug(logfname)
 
         # if CURL_MEMLIMIT is set, this enables fail-on-alloc-number-N feature
-        env = lcurl.getenv("CURL_MEMLIMIT")
+        env = os.environ.get("CURL_MEMLIMIT")
         if env:
             try:
                 num = int(env)
-            except: pass
+            except: pass  # pragma: no cover
             else:
                 if num > 0:
                     lcurl.dbg_memlimit(num)
@@ -665,12 +675,12 @@ else:
 @curl_test_decorator
 def test_missing_support(URL: str, *args, **kwargs) -> lcurl.CURLcode:
     print("Missing support", file=sys.stderr)
-    return lcurl.CURLcode(1).value
+    return lcurl.CURLE_UNSUPPORTED_PROTOCOL
 
 
 @curl_test_decorator
 def test_lacks_necessary_function(URL: str, *args, **kwargs) -> lcurl.CURLcode:
     print("system lacks necessary system function(s)")
-    return lcurl.CURLcode(1).value
+    return TEST_ERR_MAJOR_BAD
 
 # ------------------------------------------------------------------ #

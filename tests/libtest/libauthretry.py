@@ -88,7 +88,7 @@ def test(URL: str,
     main_auth_scheme     = parse_auth_name(main_auth_scheme)
     fallback_auth_scheme = parse_auth_name(fallback_auth_scheme)
 
-    if (main_auth_scheme     == lcurl.CURLAUTH_NONE or
+    if (main_auth_scheme     == lcurl.CURLAUTH_NONE or  # pragma: no cover
         fallback_auth_scheme == lcurl.CURLAUTH_NONE):
         print("auth schemes not found on commandline", file=sys.stderr)
         return TEST_ERR_MAJOR_BAD

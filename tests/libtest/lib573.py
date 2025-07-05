@@ -68,7 +68,7 @@ def test(URL: str) -> lcurl.CURLcode:
         multi_add_handle(multi, curl)
 
         still_running = ct.c_int(1)
-        while still_running.value:
+        while still_running.value:  # pragma: no branch
             multi_perform(multi, ct.byref(still_running))
 
             abort_on_test_timeout()
@@ -97,9 +97,10 @@ def test(URL: str) -> lcurl.CURLcode:
 
         connect_time = ct.c_double(0.0)
         lcurl.easy_getinfo(curl, lcurl.CURLINFO_CONNECT_TIME, ct.byref(connect_time))
-        if connect_time.value < dbl_epsilon:
+        if connect_time.value < dbl_epsilon:  # pragma: no cover
             print("connect time %e is < epsilon %e" %
                   (connect_time.value, dbl_epsilon), file=sys.stderr)
             res = TEST_ERR_MAJOR_BAD
+            raise guard.Break
 
     return res

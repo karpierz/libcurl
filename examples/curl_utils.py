@@ -24,7 +24,7 @@ libc.free.restype,    libc.free.argtypes    = None,        [ct.c_void_p]
 libc.strlen.restype,  libc.strlen.argtypes  = ct.c_size_t, [ct.c_char_p]
 libc.strdup.restype,  libc.strdup.argtypes  = ct.c_void_p, [ct.c_char_p]
 
-from curl_setup import *
+from curl_setup import *  # noqa
 #include "curl_printf.h"
 
 

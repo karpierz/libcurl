@@ -72,7 +72,7 @@ Set your system time from a remote HTTP server's Date: header.
 
 import sys
 import ctypes as ct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 import re
 
@@ -87,7 +87,7 @@ if not is_windows:
 @dataclass
 class conf_t:
     http_proxy: str = ""
-    proxy_user: bytearray = bytearray(256 + 1)
+    proxy_user: bytearray = field(default_factory=lambda: bytearray(256 + 1))
     timeserver: str = ""
 
 
@@ -327,4 +327,5 @@ def main(argv=sys.argv[1:]):
     return ret_value
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

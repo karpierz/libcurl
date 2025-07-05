@@ -33,10 +33,12 @@ from curl_test import *  # noqa
 
 if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
 
+    LIB2302_BUFSIZE = 1024 * 1024
+
     class ws_data(ct.Structure):
         _fields_ = [
         ("easy",       ct.POINTER(lcurl.CURL)),
-        ("buf",        (ct.c_byte * (1024 * 1024))),
+        ("buf",        ct.POINTER(ct.c_byte)),
         ("blen",       ct.c_size_t),
         ("nwrites",    ct.c_size_t),
         ("has_meta",   ct.c_bool),
@@ -72,7 +74,7 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
             wd.has_meta   = bool(meta)
             wd.meta_flags = meta.flags if wd.has_meta else 0
 
-        if wd.blen + blen > ct.sizeof(wd.buf):
+        if wd.blen + blen > LIB2302_BUFSIZE:
             return 0
 
         ct.memmove(ct.byref(wd.buf, wd.blen), buf, blen)
@@ -106,6 +108,7 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
             if not curl: return TEST_ERR_EASY_INIT
 
             wd = ws_data()
+            wd.buf  = (ct.c_byte * LIB2302_BUFSIZE)()
             wd.easy = curl
 
             lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
@@ -122,7 +125,7 @@ if not defined("CURL_DISABLE_WEBSOCKETS") or not CURL_DISABLE_WEBSOCKETS:
 
         return res
 
-else:  # no WebSockets
+else:  # no WebSockets # pragma: no cover
 
     from curl_test import test_missing_support as test
 

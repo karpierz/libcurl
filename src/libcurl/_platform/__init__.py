@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305,F401,F403,F405
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 
@@ -5,7 +7,7 @@ import sys
 import os
 import ctypes as ct
 
-from ._platform import *  # noqa
+from ._platform import *
 
 def defined(varname, __getframe=sys._getframe):
     frame = __getframe(1)
@@ -16,27 +18,27 @@ def from_oid(oid, __cast=ct.cast, __py_object=ct.py_object):
 
 del sys, os, ct
 
-if is_windows:  # noqa: F405
+if is_windows:  # pragma: no cover
     from ._windows import (DLL_PATH, DLL, dlclose, CFUNC,
                            time_t, timeval,
                            SOCKET, INVALID_SOCKET, sockaddr,
                            in_addr, sockaddr_in,
-                           in6_addr, sockaddr_in6,  # noqa: F401
+                           in6_addr, sockaddr_in6,
                            FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR,
                            select)
-elif is_linux:  # noqa: F405
+elif is_linux:  # pragma: no cover
     from ._linux   import (DLL_PATH, DLL, dlclose, CFUNC,
                            time_t, timeval,
                            SOCKET, INVALID_SOCKET, sockaddr,
                            in_addr, sockaddr_in,
-                           in6_addr, sockaddr_in6,  # noqa: F401
+                           in6_addr, sockaddr_in6,
                            FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR)
-elif is_macos:  # noqa: F405
+elif is_macos:  # pragma: no cover
     from ._macos   import (DLL_PATH, DLL, dlclose, CFUNC,
                            time_t, timeval,
                            SOCKET, INVALID_SOCKET, sockaddr,
                            in_addr, sockaddr_in,
-                           in6_addr, sockaddr_in6,  # noqa: F401
+                           in6_addr, sockaddr_in6,
                            FD_SETSIZE, fd_set, FD_ZERO, FD_ISSET, FD_SET, FD_CLR)
-else:
+else:  # pragma: no cover
     raise ImportError("unsupported platform")

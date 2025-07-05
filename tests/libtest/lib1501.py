@@ -93,8 +93,8 @@ def test(URL: str) -> lcurl.CURLcode:
             exec_time: int = tutil.tvdiff(after, before)
             print("pong = %ld" % exec_time, file=sys.stderr)
 
-            if exec_time > MAX_BLOCKED_TIME_MS:
-                res = lcurl.CURLcode(100).value
+            if exec_time > MAX_BLOCKED_TIME_MS:  # pragma: no cover
+                res = CURLE_TOO_LARGE
                 break
 
     return res

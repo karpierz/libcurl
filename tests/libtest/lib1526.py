@@ -63,12 +63,12 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
         phl: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                              b"User-Agent: Proxy Agent")
         guard.add_slist(hhl)
-        if not hhl or not phl: return res
+        if not hhl or not phl: raise guard.Break
         tmp: ct.POINTER(lcurl.slist) = lcurl.slist_append(phl,
                                              b"Expect:")
         if tmp: phl = tmp
         guard.add_slist(phl)
-        if not phl: return res
+        if not phl: raise guard.Break
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_PROXY,

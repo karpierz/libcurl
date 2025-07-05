@@ -34,7 +34,7 @@ LIBCURL_COPYRIGHT = "Daniel Stenberg, <daniel@haxx.se>."
 # The numeric version number is also available "in parts" by using these
 # defines:
 LIBCURL_VERSION_MAJOR = 8
-LIBCURL_VERSION_MINOR = 12
+LIBCURL_VERSION_MINOR = 14
 LIBCURL_VERSION_PATCH = 1
 
 # This is the version number of the libcurl package from which this header
@@ -70,7 +70,7 @@ LIBCURL_VERSION_NUM = CURL_VERSION_BITS(LIBCURL_VERSION_MAJOR,
 # The format of the date follows this template:
 #
 # "2007-11-23"
-LIBCURL_TIMESTAMP = "2025-02-13"
+LIBCURL_TIMESTAMP = "2025-06-04"
 
 def CURL_AT_LEAST_VERSION(x, y, z):
     return (LIBCURL_VERSION_NUM >= CURL_VERSION_BITS(x, y, z))

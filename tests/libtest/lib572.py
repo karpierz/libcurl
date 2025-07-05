@@ -80,7 +80,7 @@ def test(URL: str, filename: str) -> lcurl.CURLcode:
         try:
             paramsf = open(filename, "rb")
         except OSError as exc:
-            print("can't open %s" % filename, file=sys.stderr)
+            print("can't fopen %s" % filename, file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
         with paramsf:

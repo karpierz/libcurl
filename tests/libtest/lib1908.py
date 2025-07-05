@@ -33,7 +33,7 @@ from curl_test import *  # noqa
 def test(URL: str, alt_svc: str) -> lcurl.CURLcode:
     alt_svc = str(alt_svc)
 
-    ret: lcurl.CURLcode = lcurl.CURLE_OK
+    res: lcurl.CURLcode = lcurl.CURLE_OK
 
     start_test_timing()
 
@@ -49,16 +49,16 @@ def test(URL: str, alt_svc: str) -> lcurl.CURLcode:
         lcurl.easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 1)
         lcurl.easy_setopt(curl, lcurl.CURLOPT_ALTSVC, alt_svc.encode("utf-8"))
 
-        ret = lcurl.easy_perform(curl)
-        if not ret:
+        res = lcurl.easy_perform(curl)
+        if not res:  # pragma: no cover
             # make a copy and check that this also has alt-svc activated
             also: ct.POINTER(lcurl.CURL) = lcurl.easy_duphandle(curl)
-            if also:
-                ret = lcurl.easy_perform(also)
+            if also:  # pragma: no cover
+                res = lcurl.easy_perform(also)
                 # we close the second handle first, which makes it store the alt-svc
                 # file only to get overwritten when the next handle is closed!
                 lcurl.easy_cleanup(also)
 
         lcurl.easy_reset(curl)
 
-    return ret
+    return res

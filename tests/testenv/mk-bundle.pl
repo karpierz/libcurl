@@ -38,6 +38,7 @@ open my $fh, "<", "$src_dir/Makefile.inc" or die "Cannot open '$src_dir/Makefile
 print <<HEADER
 /* !checksrc! disable COPYRIGHT all */
 /* !checksrc! disable INCLUDEDUP all */
+/* !checksrc! disable UNUSEDIGNORE all */
 
 #define CURLTESTS_BUNDLED
 #define CURLTESTS_BUNDLED_TEST_H
@@ -77,6 +78,7 @@ my @reused_symbols = (
     "removeFd",
     "rlim2str",
     "run_thread",
+    "seek_callback",
     "send_ping",
     "showem",
     "store_errmsg",

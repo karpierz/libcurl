@@ -9,7 +9,7 @@
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at https://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -28,10 +28,7 @@ import ctypes as ct
 import libcurl as lcurl
 from curl_test import *  # noqa
 
-if defined("LIB1946"):
-    HEADER_REQUEST = 0
-else:
-    HEADER_REQUEST = -1
+HEADER_REQUEST = -1
 
 testdata = [
     "daTE",

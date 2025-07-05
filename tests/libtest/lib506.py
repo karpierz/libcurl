@@ -114,7 +114,7 @@ def test_fire(ptr: ct.c_void_p) -> ct.c_void_p:
     code: lcurl.CURLcode
 
     curl: ct.POINTER(lcurl.CURL) = easy_init()
-    if not curl:
+    if not curl:  # pragma: no cover
         return None  # NULL
 
     with curl_guard(False, curl) as guard:
@@ -131,8 +131,7 @@ def test_fire(ptr: ct.c_void_p) -> ct.c_void_p:
 
         print("PERFORM")
         code = lcurl.easy_perform(curl)
-
-        if code:
+        if code:  # pragma: no cover
             i: int = 0
             print("perform url '%s' repeat %d failed, curlcode %d" %
                   (tdata.url.decode("utf-8"), i, code), file=sys.stderr)
@@ -169,29 +168,29 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
     # prepare share
     print("SHARE_INIT")
     share: ct.POINTER(lcurl.CURLSH) = lcurl.share_init()
-    if not share:
+    if not share:  # pragma: no cover
         print("libcurl.share_init() failed", file=sys.stderr)
         lcurl.global_cleanup()
         return TEST_ERR_MAJOR_BAD
 
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURLSHOPT_LOCKFUNC")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_LOCKFUNC, test_lock)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURLSHOPT_UNLOCKFUNC")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_UNLOCKFUNC, test_unlock)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURLSHOPT_USERDATA")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_USERDATA, ct.byref(user))
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURL_LOCK_DATA_COOKIE")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_SHARE,
                                           lcurl.CURL_LOCK_DATA_COOKIE)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no branch
         print("CURL_LOCK_DATA_DNS")
         scode = lcurl.share_setopt(share, lcurl.CURLSHOPT_SHARE,
                                           lcurl.CURL_LOCK_DATA_DNS)
-    if scode != lcurl.CURLSHE_OK:
+    if scode != lcurl.CURLSHE_OK:  # pragma: no cover
         print("libcurl.share_setopt() failed", file=sys.stderr)
         lcurl.share_cleanup(share)
         lcurl.global_cleanup()
@@ -199,7 +198,7 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
 
     # initial cookie manipulation
     curl: ct.POINTER(lcurl.CURL) = easy_init()
-    if not curl:
+    if not curl:  # pragma: no cover
         lcurl.share_cleanup(share)
         lcurl.global_cleanup()
         return TEST_ERR_MAJOR_BAD
@@ -226,8 +225,6 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
     print("CLEANUP")
     lcurl.easy_cleanup(curl)
 
-    res: lcurl.CURLcode = lcurl.CURLE_OK
-
     # start treads
     for i in range(1, THREADS + 1):
         # set thread data
@@ -241,7 +238,7 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
     # fetch another one and save cookies
     print("*** run %d" % i)
     curl = lcurl.easy_init()
-    if not curl:
+    if not curl:  # pragma: no cover
         print("libcurl.easy_init() failed", file=sys.stderr)
         lcurl.share_cleanup(share)
         lcurl.global_cleanup()
@@ -268,7 +265,7 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
 
     # load cookies
     curl = lcurl.easy_init()
-    if not curl:
+    if not curl:  # pragma: no cover
         print("libcurl.easy_init() failed", file=sys.stderr)
         lcurl.share_cleanup(share)
         lcurl.global_cleanup()
@@ -287,14 +284,16 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
     print("CURLOPT_COOKIELIST RELOAD")
     test_setopt(curl, lcurl.CURLOPT_COOKIELIST, b"RELOAD")
 
+    res: lcurl.CURLcode = lcurl.CURLE_OK
+
     cookies: ct.POINTER(lcurl.slist) = ct.POINTER(lcurl.slist)()
     code = lcurl.easy_getinfo(curl, lcurl.CURLINFO_COOKIELIST, ct.byref(cookies))
-    if code != lcurl.CURLE_OK:
+    if code != lcurl.CURLE_OK:  # pragma: no cover
         print("libcurl.easy_getinfo() failed", file=sys.stderr)
         res = TEST_ERR_MAJOR_BAD
         goto(test_cleanup)
     print("loaded cookies:")
-    if not cookies:
+    if not cookies:  # pragma: no cover
         print("  reloading cookies from '%s' failed" % cookie_jar, file=sys.stderr)
         res = TEST_ERR_MAJOR_BAD
         goto(test_cleanup)
@@ -310,7 +309,7 @@ def test(URL: str, cookie_jar: str) -> lcurl.CURLcode:
     # try to free share, expect to fail because share is in use
     print("try SHARE_CLEANUP...")
     scode = lcurl.share_cleanup(share)
-    if scode == lcurl.CURLSHE_OK:
+    if scode == lcurl.CURLSHE_OK:  # pragma: no cover
         print("libcurl.share_cleanup() succeed but error expected",
               file=sys.stderr)
         share = ct.POINTER(lcurl.CURLSH)()

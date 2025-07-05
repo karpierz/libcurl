@@ -59,6 +59,7 @@ def test(URL: str, user_login: str = "u:s") -> lcurl.CURLcode:
         if not multi: return TEST_ERR_MULTI
 
         mime: ct.POINTER(lcurl.mime) = lcurl.mime_init(curl)
+        guard.add_mime(mime)
 
         field: ct.POINTER(lcurl.mimepart) = lcurl.mime_addpart(mime)
         lcurl.mime_name(field, b"name")
@@ -93,7 +94,7 @@ def test(URL: str, user_login: str = "u:s") -> lcurl.CURLcode:
             num = ct.c_int()
             mres: lcurl.CURLMcode = lcurl.multi_wait(multi, None, 0, TEST_HANG_TIMEOUT,
                                                      ct.byref(num))
-            if mres != lcurl.CURLM_OK:
+            if mres != lcurl.CURLM_OK:  # pragma: no cover
                 print("libcurl.multi_wait() returned %d" % mres)
                 res = TEST_ERR_MAJOR_BAD
                 break
@@ -106,10 +107,9 @@ def test(URL: str, user_login: str = "u:s") -> lcurl.CURLcode:
 
         # test_cleanup:
 
-        lcurl.mime_free(mime)
         lcurl.multi_remove_handle(multi, curl)
 
-        if res:
+        if res:  # pragma: no cover
             i = res
 
     return i  # return the final return code

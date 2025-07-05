@@ -34,7 +34,7 @@ TEST_HANG_TIMEOUT = 60 * 1000
 MAX_EASY_HANDLES  = 3
 
 ntlm_curls:    List[ct.POINTER(lcurl.CURL)] = [ct.POINTER(lcurl.CURL)()] * MAX_EASY_HANDLES
-ntlm_sockets:  List[lcurl.socket_t]         = [lcurl.CURL_SOCKET_BAD]    * MAX_EASY_HANDLES
+ntlm_sockets:  List[int]                    = [lcurl.CURL_SOCKET_BAD]    * MAX_EASY_HANDLES
 ntlm_counters: List[int]                    = [0]                        * MAX_EASY_HANDLES
 
 ntlmcb_res: lcurl.CURLcode = lcurl.CURLE_OK
@@ -56,12 +56,10 @@ def write_callback(buffer, size, nitems, userp):
 
     # Get socket being used for this easy handle, otherwise libcurl.CURL_SOCKET_BAD
     last_sock = ct.c_long()
-    # CURL_IGNORE_DEPRECATION(
     code: lcurl.CURLcode = lcurl.easy_getinfo(curl, lcurl.CURLINFO_LASTSOCKET,
                                               ct.byref(last_sock))
-    # )
     last_sock = last_sock.value
-    if code != lcurl.CURLE_OK:
+    if code != lcurl.CURLE_OK:  # pragma: no cover
         print("%s:%d libcurl.easy_getinfo() failed, with code %d (%s)" %
               (current_file(), current_line(),
                code, lcurl.easy_strerror(code).decode("utf-8")), file=sys.stderr)
@@ -109,7 +107,7 @@ def test(URL: str, user_login: str = "testuser:testpass") -> lcurl.CURLcode:
         ntlm_sockets[i] = lcurl.CURL_SOCKET_BAD
 
     res = res_global_init(lcurl.CURL_GLOBAL_ALL)
-    if res: return res
+    if res: return res  # pragma: no branch
     multi: ct.POINTER(lcurl.CURLM) = multi_init()
 
     with curl_guard(True, mcurl=multi) as guard:

@@ -50,7 +50,7 @@ def test(URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("retrieve 1 failed", file=sys.stderr)
             raise guard.Break
 
@@ -61,7 +61,7 @@ def test(URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("retrieve 2 failed", file=sys.stderr)
             raise guard.Break
 

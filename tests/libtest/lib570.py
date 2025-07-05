@@ -62,7 +62,7 @@ def test(URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_RTSP_STREAM_URI, stream_uri.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_RTSP_CSEQ_ERROR:
+        if res != lcurl.CURLE_RTSP_CSEQ_ERROR:  # pragma: no cover
             print("Failed to detect CSeq mismatch", file=sys.stderr)
             return TEST_ERR_MAJOR_BAD
 
@@ -85,9 +85,9 @@ def test(URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_RTSP_STREAM_URI, stream_uri.encode("utf-8"))
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_RTSP_SESSION_ERROR:
+        if res != lcurl.CURLE_RTSP_SESSION_ERROR:  # pragma: no cover
             print("Failed to detect a Session ID mismatch", file=sys.stderr)
-            return lcurl.CURLcode(1).value
+            return TEST_ERR_FAILURE
 
         res = lcurl.CURLE_OK
 

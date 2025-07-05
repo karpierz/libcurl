@@ -67,10 +67,8 @@ def test(URL: str) -> lcurl.CURLcode:
         easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         easy_setopt(curl, lcurl.CURLOPT_TIMEOUT, 7)
         easy_setopt(curl, lcurl.CURLOPT_NOSIGNAL, 1)
-        # CURL_IGNORE_DEPRECATION(
         easy_setopt(curl, lcurl.CURLOPT_PROGRESSFUNCTION, progress_callback)
         easy_setopt(curl, lcurl.CURLOPT_PROGRESSDATA, None)
-        # )
         easy_setopt(curl, lcurl.CURLOPT_NOPROGRESS, 0)
 
         res = lcurl.easy_perform(curl)

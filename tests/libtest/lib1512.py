@@ -67,9 +67,7 @@ def test(URL: str, address: str, port: str) -> lcurl.CURLcode:
             easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
             # include headers
             easy_setopt(curl, lcurl.CURLOPT_HEADER, 1)
-            # CURL_IGNORE_DEPRECATION(
             easy_setopt(curl, lcurl.CURLOPT_DNS_USE_GLOBAL_CACHE, 1)
-            # )
 
         # make the first one populate the GLOBAL cache
         easy_setopt(curls[0], lcurl.CURLOPT_RESOLVE, slist)

@@ -140,12 +140,6 @@ static int debug_cb(CURL *handle, curl_infotype type,
   return 0;
 }
 
-static int err(void)
-{
-  fprintf(stderr, "something unexpected went wrong - bailing out!\n");
-  exit(2);
-}
-
 static void usage(const char *msg)
 {
   if(msg)
@@ -196,6 +190,13 @@ static size_t cb(char *data, size_t size, size_t nmemb, void *clientp)
           handle->idx, (long)realsize);
   return realsize;
 }
+
+#define ERR()                                                             \
+  do {                                                                    \
+    fprintf(stderr, "something unexpected went wrong - bailing out!\n");  \
+    return 2;                                                             \
+  } while(0)
+
 #endif /* !_MSC_VER */
 
 int main(int argc, char *argv[])
@@ -254,19 +255,19 @@ int main(int argc, char *argv[])
   cu = curl_url();
   if(!cu) {
     fprintf(stderr, "out of memory\n");
-    exit(1);
+    return 1;
   }
   if(curl_url_set(cu, CURLUPART_URL, url, 0)) {
     fprintf(stderr, "not a URL: '%s'\n", url);
-    exit(1);
+    return 1;
   }
   if(curl_url_get(cu, CURLUPART_HOST, &host, 0)) {
     fprintf(stderr, "could not get host of '%s'\n", url);
-    exit(1);
+    return 1;
   }
   if(curl_url_get(cu, CURLUPART_PORT, &port, 0)) {
     fprintf(stderr, "could not get port of '%s'\n", url);
-    exit(1);
+    return 1;
   }
   memset(&resolve, 0, sizeof(resolve));
   curl_msnprintf(resolve_buf, sizeof(resolve_buf)-1, "%s:%s:127.0.0.1",
@@ -292,24 +293,24 @@ int main(int argc, char *argv[])
       curl_easy_setopt(handles[i].h, CURLOPT_RESOLVE, resolve) != CURLE_OK ||
       curl_easy_setopt(handles[i].h, CURLOPT_PIPEWAIT, 1L) ||
       curl_easy_setopt(handles[i].h, CURLOPT_URL, url) != CURLE_OK) {
-      err();
+      ERR();
     }
     curl_easy_setopt(handles[i].h, CURLOPT_HTTP_VERSION, (long)http_version);
   }
 
   multi_handle = curl_multi_init();
   if(!multi_handle)
-    err();
+    ERR();
 
   for(i = 0; i < HANDLECOUNT; i++) {
     if(curl_multi_add_handle(multi_handle, handles[i].h) != CURLM_OK)
-      err();
+      ERR();
   }
 
   for(rounds = 0;; rounds++) {
     fprintf(stderr, "INFO: multi_perform round %d\n", rounds);
     if(curl_multi_perform(multi_handle, &still_running) != CURLM_OK)
-      err();
+      ERR();
 
     if(!still_running) {
       int as_expected = 1;
@@ -343,7 +344,7 @@ int main(int argc, char *argv[])
     }
 
     if(curl_multi_poll(multi_handle, NULL, 0, 100, &numfds) != CURLM_OK)
-      err();
+      ERR();
 
     /* !checksrc! disable EQUALSNULL 1 */
     while((msg = curl_multi_info_read(multi_handle, &msgs_left)) != NULL) {

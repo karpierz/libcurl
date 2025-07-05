@@ -51,11 +51,11 @@ def test(URL: str) -> lcurl.CURLcode:
         mc: lcurl.CURLMcode = lcurl.multi_remove_handle(multi, curl)
         mc += lcurl.multi_remove_handle(multi, curl)
 
-        if mc:
+        if mc:  # pragma: no cover
             print("%d was unexpected" % int(mc), file=sys.stderr)
             i = lcurl.CURLE_FAILED_INIT
 
-        if res:
+        if res:  # pragma: no cover
             i = res
 
     return i  # return the final return code

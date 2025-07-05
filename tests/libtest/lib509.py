@@ -91,7 +91,7 @@ def test(URL: str) -> lcurl.CURLcode:
                                 custom_realloc,
                                 custom_strdup,
                                 custom_calloc)
-    if res != lcurl.CURLE_OK:
+    if res != lcurl.CURLE_OK:  # pragma: no cover
         print("libcurl.global_init_mem() failed", file=sys.stderr)
         return TEST_ERR_MAJOR_BAD
 
@@ -105,7 +105,7 @@ def test(URL: str) -> lcurl.CURLcode:
         asize: int = ct.sizeof(a)
         estr: bytes = lcurl.easy_escape(curl, ct.cast(a, ct.c_char_p), asize)  # uses realloc()
 
-        if seen:
+        if seen:  # pragma: no branch
             print("Callbacks were invoked %d times!" % seen)
             sys.stdout.flush()
 

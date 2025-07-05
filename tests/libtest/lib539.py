@@ -49,6 +49,7 @@ def test(URL: str, new_URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_FTP_FILEMETHOD, lcurl.CURLFTPMETHOD_SINGLECWD)
 
         res = lcurl.easy_perform(curl)
+        if res != lcurl.CURLE_OK: raise guard.Break
 
         # Change the FTP_FILEMETHOD option to use full paths rather than a CWD
         # command. Use an innocuous QUOTE command, after which curl will CWD to

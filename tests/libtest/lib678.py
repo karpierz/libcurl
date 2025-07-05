@@ -35,7 +35,7 @@ def loadfile(filename: str) -> Optional[bytes]:
         with open(filename, "rb") as fi_cert:
             data_size: int = file_size(fi_cert)
             data: bytes = fi_cert.read(data_size)
-            if len(data) != data_size:
+            if len(data) != data_size:  # pragma: no cover
                 return None
     except:
         return None
@@ -50,25 +50,26 @@ def test_cert_blob(URL: str, cafile: str) -> lcurl.CURLcode:
     curl: ct.POINTER(lcurl.CURL) = easy_init()
 
     with curl_guard(False, curl) as guard:
-        if not curl: return lcurl.CURLE_FAILED_INIT
+        if not curl: return lcurl.CURLE_FAILED_INIT  # pragma: no branch
 
         certdata: Optional[bytes] = loadfile(cafile)
-        if certdata is not None:
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADER, 1)
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT,
-                                    b"CURLOPT_CAINFO_BLOB")
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_OPTIONS,
-                                    lcurl.CURLSSLOPT_REVOKE_BEST_EFFORT)
-            blob = lcurl.blob()
-            blob.data  = ct.cast(ct.c_char_p(certdata), ct.c_void_p)
-            blob.len   = len(certdata)
-            blob.flags = lcurl.CURL_BLOB_COPY
-            lcurl.easy_setopt(curl, lcurl.CURLOPT_CAINFO_BLOB, ct.byref(blob))
-            certdata = None
+        if certdata is None: raise guard.Break  # pragma: no cover
 
-            code = lcurl.easy_perform(curl)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_HEADER, 1)
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_USERAGENT,
+                                b"CURLOPT_CAINFO_BLOB")
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_SSL_OPTIONS,
+                                lcurl.CURLSSLOPT_REVOKE_BEST_EFFORT)
+        blob = lcurl.blob()
+        blob.data  = ct.cast(ct.c_char_p(certdata), ct.c_void_p)
+        blob.len   = len(certdata)
+        blob.flags = lcurl.CURL_BLOB_COPY
+        lcurl.easy_setopt(curl, lcurl.CURLOPT_CAINFO_BLOB, ct.byref(blob))
+        certdata = None
+
+        code = lcurl.easy_perform(curl)
 
     return code
 

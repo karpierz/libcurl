@@ -49,7 +49,7 @@ def test(URL: str, proxy: str = None) -> lcurl.CURLcode:
                                              b"Proxy-User-Agent: Http Agent2")
         guard.add_slist(hhl)
         guard.add_slist(phl)
-        if not hhl or not phl: return res
+        if not hhl or not phl: raise guard.Break
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_PROXY,

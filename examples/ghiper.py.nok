@@ -197,7 +197,7 @@ gboolean event_cb(GIOChannel *ch, GIOCondition condition, gpointer data)
     # Called by glib when we get action on a multi socket
     g: GlobalInfo = ct.cast(data, ct.POINTER(GlobalInfo)).contents
 
-    int fd = g_io_channel_unix_get_fd(ch);
+    fd: int = g_io_channel_unix_get_fd(ch);
 
     action: int = ((lcurl.CURL_CSELECT_IN  if condition & G_IO_IN  else 0) |
                    (lcurl.CURL_CSELECT_OUT if condition & G_IO_OUT else 0))
@@ -234,7 +234,7 @@ def setsock(SockInfo *f, s: lcurl.socket_t, e: ct.POINTER(lcurl.CURL), int act, 
                          (G_IO_OUT if act & lcurl.CURL_POLL_OUT else 0))
     f->sockfd = s;
     f->action = act;
-    f->easy = e;
+    f->easy   = e;
     if f->ev:
         g_source_remove(f->ev);
     f->ev = g_io_add_watch(f->ch, kind, event_cb, ct.byref(g))
@@ -286,7 +286,7 @@ def write_function(buffer, size, nitems, userp):
 @lcurl.xferinfo_callback
 def xferinfo_cb(clientp, dltotal, dlnow, ultotal, ulnow):
     conn: ConnInfo = ct.cast(clientp, ct.POINTER(ConnInfo)).contents
-    MSG_OUT("Progress: %s (%g/%g)" % (conn.url, dlnow, dltotal))
+    MSG_OUT("Progress: %s (%d/%d)" % (conn.url, dlnow, dltotal))
     return 0
 
 
@@ -376,54 +376,52 @@ static gboolean fifo_cb(GIOChannel *ch, GIOCondition condition, gpointer data):
 
 def init_fifo() -> int:
 
-    struct stat st;
     const char *fifo = "hiper.fifo";
     int socket;
 
+    struct stat st;
     if lstat(fifo, &st) == 0:
         if (st.st_mode & S_IFMT) == S_IFREG:
             errno = EEXIST;
             perror("lstat")
-            sys.exit(1)
+            return lcurl.CURL_SOCKET_BAD
 
     unlink(fifo);
     if mkfifo(fifo, 0o600) == -1:
         perror("mkfifo")
-        sys.exit(1)
+        return lcurl.CURL_SOCKET_BAD
 
     socket = open(fifo, O_RDWR | O_NONBLOCK, 0);
 
-    if socket == -1:
+    if socket == lcurl.CURL_SOCKET_BAD:
         perror("open")
-        sys.exit(1)
+        return socket
 
     MSG_OUT("Now, pipe some URL's into > %s" % fifo)
 
-    return socket;
+    return socket
 
 
 def main(argv=sys.argv[1:]):
 
-    GMainLoop*gmain;
-    int fd;
-    GIOChannel* ch;
-
     GlobalInfo * g = g_malloc0(sizeof(GlobalInfo))
 
-    fd = init_fifo();
+    fd: int = init_fifo()
+    if fd == lcurl.CURL_SOCKET_BAD:
+        return 1
 
-    ch = g_io_channel_unix_new(fd);
+    GIOChannel * ch = g_io_channel_unix_new(fd);
     g_io_add_watch(ch, G_IO_IN, fifo_cb, g);
-    gmain = g_main_loop_new(NULL, FALSE);
+    GMainLoop * gmain = g_main_loop_new(NULL, FALSE);
 
     g->multi = lcurl.multi_init()
 
     with curl_guard(False, None, g->multi) as guard:
 
         lcurl.multi_setopt(g->multi, lcurl.CURLMOPT_SOCKETFUNCTION, sock_cb)
-        lcurl.multi_setopt(g->multi, CURLMOPT_SOCKETDATA, g);
+        lcurl.multi_setopt(g->multi, lcurl.CURLMOPT_SOCKETDATA, g)
         lcurl.multi_setopt(g->multi, lcurl.CURLMOPT_TIMERFUNCTION, update_timeout_cb)
-        lcurl.multi_setopt(g->multi, CURLMOPT_TIMERDATA, g);
+        lcurl.multi_setopt(g->multi, lcurl.CURLMOPT_TIMERDATA, g)
 
         # we do not call any curl_multi_socket*() function yet as we have no
         # handles added!

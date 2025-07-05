@@ -56,12 +56,12 @@ def test(URL: str) -> lcurl.CURLcode:
         test_setopt(curl, lcurl.CURLOPT_TIMEOUT_MS, TEST_HANG_TIMEOUT)
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() failed %d" % res, file=sys.stderr)
             raise guard.Break
 
         res = lcurl.easy_perform(curl)
-        if res != lcurl.CURLE_OK:
+        if res != lcurl.CURLE_OK:  # pragma: no cover
             print("libcurl.easy_perform() failed %d" % res, file=sys.stderr)
             raise guard.Break
 

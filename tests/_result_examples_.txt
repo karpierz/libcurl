@@ -1,0 +1,117 @@
+Example: 10-at-a-time: OK
+Example: address-scope: OK
+Example: altsvc: OK
+Example: anyauthput: ERROR: 1
+Example: cacertinmem: OK
+Example: certinfo: OK
+Example: chkspeed: OK
+Example: connect-to: ERROR: 60
+Example: cookie_interface: OK
+Example: debug: OK
+Example: default-scheme: OK
+Example: externalsocket: ERROR: 4
+Example: fileupload: OK
+Example: ftp-wildcard: OK
+Example: ftpget: OK
+Example: ftpgetinfo: OK
+Example: ftpgetresp: OK
+Example: ftpsget: ERROR: 6
+Example: ftpupload: ERROR: 28
+Example: ftpuploadfrommem: ERROR: 28
+Example: ftpuploadresume: OK
+Example: getinfo: OK
+Example: getinmemory: OK
+Example: getredirect: OK
+Example: getreferrer: OK
+Example: headerapi: OK
+Example: href_extractor: ERROR: 1
+Example: hsts-preload: OK
+Example: htmltidy: ERROR: 1
+Example: htmltitle: ERROR: 1
+Example: http2-download: OK
+Example: http2-pushinmemory: OK
+Example: http2-serverpush: OK
+Example: http2-upload: OK
+Example: http3-present: OK
+Example: http3: OK
+Example: http-options: OK
+Example: http-post: ERROR: 6
+Example: httpcustomheader: OK
+Example: httpput-postfields: ERROR: 1
+Example: httpput: ERROR: 1
+Example: https: OK
+Example: imap-append: ERROR: 6
+Example: imap-authzid: ERROR: 6
+Example: imap-copy: ERROR: 6
+Example: imap-create: ERROR: 6
+Example: imap-delete: ERROR: 6
+Example: imap-examine: ERROR: 6
+Example: imap-fetch: ERROR: 6
+Example: imap-list: ERROR: 6
+Example: imap-lsub: ERROR: 6
+Example: imap-multi: OK
+Example: imap-noop: ERROR: 6
+Example: imap-search: ERROR: 6
+Example: imap-store: ERROR: 6
+Example: imap-tls: ERROR: 6
+Example: interface: ERROR: 45
+Example: ipv6: ERROR: 6
+Example: keepalive: ERROR: 60
+Example: localport: ERROR: 60
+Example: maxconnects: OK
+Example: multi-app: OK
+Example: multi-debugcallback: OK
+Example: multi-double: OK
+Example: multi-formadd: OK
+Example: multi-legacy: OK
+Example: multi-post: OK
+Example: multi-single: OK
+Example: netrc: OK
+Example: parseurl: OK
+Example: persistent: OK
+Example: pop3-authzid: ERROR: 6
+Example: pop3-dele: ERROR: 6
+Example: pop3-list: ERROR: 6
+Example: pop3-multi: OK
+Example: pop3-noop: ERROR: 6
+Example: pop3-retr: ERROR: 6
+Example: pop3-stat: ERROR: 6
+Example: pop3-tls: ERROR: 6
+Example: pop3-top: ERROR: 6
+Example: pop3-uidl: ERROR: 6
+Example: post-callback: OK
+Example: postinmemory: OK
+Example: postit2-formadd: ERROR: 26
+Example: postit2: OK
+Example: progressfunc: OK
+Example: protofeats: OK
+Example: range: OK
+Example: resolve: OK
+Example: rtsp-options: ERROR: 28
+Example: sendrecv: OK
+Example: sepheaders: OK
+Example: sessioninfo: OK
+Example: sftpget: ERROR: 6
+Example: sftpuploadresume: OK
+Example: shared-connection-cache: OK
+Example: simple: OK
+Example: simplepost: OK
+Example: simplessl: ERROR: 6
+Example: smtp-authzid: ERROR: 6
+Example: smtp-expn: ERROR: 6
+Example: smtp-mail: ERROR: 6
+Example: smtp-mime: ERROR: 6
+Example: smtp-multi: OK
+Example: smtp-ssl: ERROR: 6
+Example: smtp-tls: ERROR: 6
+Example: smtp-vrfy: ERROR: 6
+Example: sslbackend: OK
+Example: synctime: OK
+Example: threaded-ssl: OK
+Example: unixsocket: OK
+Example: url2file: ERROR: 1
+Example: urlapi: OK
+Example: usercertinmem: OK
+Example: websocket-cb: ERROR: 22
+Example: websocket: ERROR: 22
+Example: xmlstream: OK

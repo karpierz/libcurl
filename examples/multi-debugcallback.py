@@ -84,5 +84,5 @@ def main(argv=sys.argv[1:]):
     return 0
 
 
-if __name__.rpartition(".")[-1] == "__main__":
+if __name__ == "__main__":
     sys.exit(main())

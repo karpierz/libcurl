@@ -40,9 +40,9 @@ def trailers_callback(list: ct.POINTER(ct.POINTER(lcurl.slist)), userdata):
     nlist:  ct.POINTER(lcurl.slist) = ct.POINTER(lcurl.slist)()
     nlist2: ct.POINTER(lcurl.slist) = ct.POINTER(lcurl.slist)()
     nlist = lcurl.slist_append(list.contents, b"my-super-awesome-trailer: trail1")
-    if nlist:
+    if nlist:  # pragma: no cover
         nlist2 = lcurl.slist_append(nlist, b"my-other-awesome-trailer: trail2")
-    if not nlist2:
+    if not nlist2:  # pragma: no cover
         lcurl.slist_free_all(nlist)
         return lcurl.CURL_TRAILERFUNC_ABORT
     list.contents = nlist2
@@ -70,12 +70,12 @@ def test(URL: str) -> lcurl.CURLcode:
         hhl: ct.POINTER(lcurl.slist) = lcurl.slist_append(None,
                                              b"Trailer: my-super-awesome-trailer,"
                                              b" my-other-awesome-trailer")
-        if not hhl: return res
+        if not hhl: raise guard.Break
         phl: ct.POINTER(lcurl.slist) = lcurl.slist_append(hhl,
                                              b"Transfer-Encoding: chunked")
         if phl: hhl = phl
         guard.add_slist(hhl)
-        if not hhl: return res
+        if not hhl: raise guard.Break
 
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
         test_setopt(curl, lcurl.CURLOPT_HTTPHEADER, hhl)

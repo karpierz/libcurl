@@ -86,33 +86,12 @@ def test(URL: str) -> lcurl.CURLcode:
 
             if not still_running.value:
 
-                if defined("LIB527"):
-                    # NOTE: this code does not remove the handle from the multi handle
-                    # here, which would be the nice, sane and documented way of working.
-                    # This however tests that the API survives this abuse gracefully.
-                    lcurl.easy_cleanup(curls[current])
-                    curls[current] = ct.POINTER(lcurl.CURL)()
-
                 current += 1
                 if current >= NUM_HANDLES:
                     break  # done
 
                 print("Advancing to URL %d" % current, file=sys.stderr)
-                if defined("LIB532"):
-                    # first remove the only handle we use
-                    lcurl.multi_remove_handle(multi, curls[0])
-                    # make us reuse the same handle all the time, and try resetting
-                    # the handle first too
-                    lcurl.easy_reset(curls[0])
-
-                    easy_setopt(curls[0], lcurl.CURLOPT_URL, URL.encode("utf-8"))
-                    # go verbose
-                    easy_setopt(curls[0], lcurl.CURLOPT_VERBOSE, 1)
-
-                    # re-add it
-                    multi_add_handle(multi, curls[0])
-                else:
-                    multi_add_handle(multi, curls[current])
+                multi_add_handle(multi, curls[current])
 
             fd_read  = lcurl.fd_set()
             fd_write = lcurl.fd_set()

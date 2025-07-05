@@ -48,7 +48,7 @@ STOP_DOWNLOAD_AFTER_THIS_MANY_BYTES     = 6000
 class myprogress(ct.Structure):
     _fields_ = [
     ("lastruntime", lcurl.off_t),
-    ("curl",        ct.POINTER(lcurl.CURL)),
+    ("curl", ct.POINTER(lcurl.CURL)),
 ]
 
 
@@ -109,4 +109,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

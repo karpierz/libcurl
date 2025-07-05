@@ -43,9 +43,9 @@ def test(URL: str, cookie_file: str) -> lcurl.CURLcode:
     curl:  ct.POINTER(lcurl.CURL)   = easy_init()
 
     with curl_guard(True, curl, multi, share):
-        if not multi: lcurl.CURLcode(1).value
-        if not share: lcurl.CURLcode(1).value
-        if not curl:  lcurl.CURLcode(1).value
+        if not multi: return TEST_ERR_MULTI
+        if not share: return TEST_ERR_MAJOR_BAD
+        if not curl:  return TEST_ERR_EASY_INIT
 
         lcurl.share_setopt(share, lcurl.CURLSHOPT_SHARE, lcurl.CURL_LOCK_DATA_COOKIE)
         lcurl.share_setopt(share, lcurl.CURLSHOPT_SHARE, lcurl.CURL_LOCK_DATA_COOKIE)

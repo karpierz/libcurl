@@ -123,13 +123,11 @@ def debug_output(info_type, num: Optional[int],
 
 def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> int:
 
-    curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
-
-    transfer.curl = curl
+    transfer.curl = ct.POINTER(lcurl.CURL)()
     transfer.num  = num
 
     try:
-        transfer.instream = upload_fpath.open("rb")
+        transfer_instream = upload_fpath.open("rb")
     except OSError as exc:
         print("error: could not open file %s for reading: %s" %
               (upload_fpath, exc.strerror), file=sys.stderr)
@@ -137,7 +135,7 @@ def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> in
 
     # get the file size of the local file
     try:
-        upload_size = file_size(transfer.instream)
+        upload_size = file_size(transfer_instream)
     except OSError as exc:
         print("error: could not stat file %s: %s" %
               (upload_fpath, exc.strerror), file=sys.stderr)
@@ -146,13 +144,19 @@ def setup(transfer: transfer_data, num: int, upload_fpath: Path, url: str) -> in
     file_path = OUT_DIR/("dl-%d" % num)
 
     try:
-        transfer.outstream = file_path.open("wb")
+        transfer_outstream = file_path.open("wb")
     except OSError as exc:
         print("error: could not open file %s for writing: %s" %
               (file_path, exc.strerror), file=sys.stderr)
         return 1
 
+    transfer.instream  = transfer_instream
+    transfer.outstream = transfer_outstream
+
     url += "/upload-%d" % num
+
+    curl: ct.POINTER(lcurl.CURL) = lcurl.easy_init()
+    transfer.curl = curl
 
     # send all data to this function
     lcurl.easy_setopt(curl, lcurl.CURLOPT_WRITEFUNCTION, write_function)
@@ -246,4 +250,5 @@ def main(argv=sys.argv[1:]):
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

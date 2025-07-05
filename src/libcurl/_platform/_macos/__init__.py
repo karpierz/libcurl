@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305,E402,F401
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 
@@ -33,9 +35,9 @@ except ImportError:
     ver_dir = "10.9"
     DLL_PATH = os.path.join(arch_dir, ver_dir, "libcurl-1.0.0.dylib")
 
-from ctypes  import CDLL as DLL         # noqa: E402
-from _ctypes import dlclose             # noqa: E402
-from ctypes  import CFUNCTYPE as CFUNC  # noqa: E402
+from ctypes  import CDLL as DLL
+from _ctypes import dlclose
+from ctypes  import CFUNCTYPE as CFUNC
 
 # X32 kernel interface is 64-bit.
 if False:  # if defined __x86_64__ && defined __ILP32__

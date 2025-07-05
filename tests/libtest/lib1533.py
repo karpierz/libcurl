@@ -79,11 +79,11 @@ def write_callback(buffer, size, nitems, userp):
 
 
 def perform_and_check_connections(curl: ct.POINTER(lcurl.CURL),
-                                  description: str, expected_connections: int) -> int:
+                                  description: str, expected_connections: int) -> lcurl.CURLcode:
     res: lcurl.CURLcode
 
     res = lcurl.easy_perform(curl)
-    if res != lcurl.CURLE_OK:
+    if res != lcurl.CURLE_OK:  # pragma: no cover
         print("libcurl.easy_perform() failed with %d" % res,
               file=sys.stderr)
         return TEST_ERR_MAJOR_BAD
@@ -91,7 +91,7 @@ def perform_and_check_connections(curl: ct.POINTER(lcurl.CURL),
     connections = ct.c_long(0)
     res = lcurl.easy_getinfo(curl, lcurl.CURLINFO_NUM_CONNECTS,
                              ct.byref(connections))
-    if res != lcurl.CURLE_OK:
+    if res != lcurl.CURLE_OK:  # pragma: no cover
         print("libcurl.easy_getinfo() failed", file=sys.stderr)
         return TEST_ERR_MAJOR_BAD
 
@@ -109,7 +109,7 @@ def perform_and_check_connections(curl: ct.POINTER(lcurl.CURL),
 def test(URL: str) -> lcurl.CURLcode:
 
     res: lcurl.CURLcode = TEST_ERR_FAILURE
-    result: int
+    result: lcurl.CURLcode
 
     data = cb_data()
 
@@ -135,15 +135,15 @@ def test(URL: str) -> lcurl.CURLcode:
 
         result = perform_and_check_connections(curl,
                  "First request without CURLOPT_KEEP_SENDING_ON_ERROR", 1)
-        if result != TEST_ERR_SUCCESS:
-            return lcurl.CURLcode(result).value
+        if result != TEST_ERR_SUCCESS:  # pragma: no cover
+            return result
 
         reset_data(data, curl)
 
         result = perform_and_check_connections(curl,
                  "Second request without CURLOPT_KEEP_SENDING_ON_ERROR", 1)
-        if result != TEST_ERR_SUCCESS:
-            return lcurl.CURLcode(result).value
+        if result != TEST_ERR_SUCCESS:  # pragma: no cover
+            return result
 
         test_setopt(curl, lcurl.CURLOPT_KEEP_SENDING_ON_ERROR, 1)
 
@@ -151,15 +151,15 @@ def test(URL: str) -> lcurl.CURLcode:
 
         result = perform_and_check_connections(curl,
                  "First request with CURLOPT_KEEP_SENDING_ON_ERROR", 1)
-        if result != TEST_ERR_SUCCESS:
-            return lcurl.CURLcode(result).value
+        if result != TEST_ERR_SUCCESS:  # pragma: no cover
+            return result
 
         reset_data(data, curl)
 
         result = perform_and_check_connections(curl,
                  "Second request with CURLOPT_KEEP_SENDING_ON_ERROR", 0)
-        if result != TEST_ERR_SUCCESS:
-            return lcurl.CURLcode(result).value
+        if result != TEST_ERR_SUCCESS:  # pragma: no cover
+            return result
 
         res = TEST_ERR_SUCCESS
 

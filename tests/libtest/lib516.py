@@ -44,9 +44,7 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # First set the URL that is about to receive our POST.
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-        # CURL_IGNORE_DEPRECATION(
         test_setopt(curl, lcurl.CURLOPT_HTTPPOST, None)
-        # )
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)  # show verbose for debug
         test_setopt(curl, lcurl.CURLOPT_HEADER,  1)  # include header
 

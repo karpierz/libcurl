@@ -213,22 +213,40 @@ get_parts_list = [
              b"| [16] | [17]",
              0, lcurl.CURLU_URLDECODE, lcurl.CURLUE_OK ),
     #ifdef USE_IDN
-        testcase("https://räksmörgås.se".encode("utf-8"),
+        # https://sv.wikipedia.org/wiki/R%c3%a4ksm%c3%b6rg%c3%a5s
+        # https://codepoints.net/U+00E4 Latin Small Letter A with Diaeresis
+        # https://codepoints.net/U+00F6 Latin Small Letter O with Diaeresis
+        # https://codepoints.net/U+00E5 Latin Small Letter A with Ring Above
+        testcase(b"https://r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se",
                  b"https | [11] | [12] | [13] | xn--rksmrgs-5wao1o.se | "
                  b"[15] | / | [16] | [17]", 0, lcurl.CURLU_PUNYCODE, lcurl.CURLUE_OK),
         testcase(b"https://xn--rksmrgs-5wao1o.se",
-                 "https | [11] | [12] | [13] | räksmörgås.se | ".encode("utf-8") +
+                 b"https | [11] | [12] | [13] | r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se | "
+                 b"[15] | / | [16] | [17]", 0, lcurl.CURLU_PUNY2IDN, lcurl.CURLUE_OK),
+        testcase(b"https://www.xn--rksmrgs-5wao1o.se",
+                 b"https | [11] | [12] | [13] | www.r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se | "
+                 b"[15] | / | [16] | [17]", 0, lcurl.CURLU_PUNY2IDN, lcurl.CURLUE_OK),
+        testcase(b"https://www.r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se",
+                 b"https | [11] | [12] | [13] | www.r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se | "
                  b"[15] | / | [16] | [17]", 0, lcurl.CURLU_PUNY2IDN, lcurl.CURLUE_OK),
     #else
-        testcase("https://räksmörgås.se".encode("utf-8"),
+        testcase(b"https://r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se",
                  b"https | [11] | [12] | [13] | [30] | [15] | / | [16] | [17]",
                  0, lcurl.CURLU_PUNYCODE, lcurl.CURLUE_OK),
     # endif
-    # https://ℂᵤⓇℒ。𝐒🄴
+    #  https://codepoints.net/U+2102  Double-Struck Capital C
+    #  https://codepoints.net/U+1d64  Latin Subscript Small Letter U
+    #  https://codepoints.net/U+24c7  Circled Latin Capital Letter R
+    #  https://codepoints.net/U+2112  Script Capital L
+    #  https://codepoints.net/U+3002  Ideographic Full Stop
+    #  https://codepoints.net/U+1d412 Mathematical Bold Capital S
+    #  https://codepoints.net/U+1f134 Squared Latin Capital Letter E
     testcase(b"https://"
              b"%e2%84%82%e1%b5%a4%e2%93%87%e2%84%92%e3%80%82%f0%9d%90%92%f0%9f%84%b4",
-             "https | [11] | [12] | [13] | ℂᵤⓇℒ。𝐒🄴 | [15] |".encode("utf-8") +
-             b" / | [16] | [17]",
+             b"https | [11] | [12] | [13] | "
+             b"\xe2\x84\x82\xe1\xb5\xa4\xe2\x93\x87\xe2\x84\x92"
+             b"\xe3\x80\x82\xf0\x9d\x90\x92\xf0\x9f\x84\xb4"
+             b" | [15] | / | [16] | [17]",
              0, 0, lcurl.CURLUE_OK),
     testcase(b"https://"
              b"%e2%84%82%e1%b5%a4%e2%93%87%e2%84%92%e3%80%82%f0%9d%90%92%f0%9f%84%b4",
@@ -539,6 +557,39 @@ get_parts_list = [
 ]
 
 get_url_list = [
+    urltestcase(b"018.0.0.0", b"http://018.0.0.0/", lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"08",        b"http://08/",        lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0",         b"http://0.0.0.0/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"01",        b"http://0.0.0.1/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"02",        b"http://0.0.0.2/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"03",        b"http://0.0.0.3/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"04",        b"http://0.0.0.4/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"05",        b"http://0.0.0.5/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"06",        b"http://0.0.0.6/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"07",        b"http://0.0.0.7/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"07.1",      b"http://7.0.0.1/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"7.1",       b"http://7.0.0.1/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x7.1",     b"http://7.0.0.1/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x",        b"http://0x/",        lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x1",       b"http://0.0.0.1/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x2",       b"http://0.0.0.2/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x3",       b"http://0.0.0.3/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x4",       b"http://0.0.0.4/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x5",       b"http://0.0.0.5/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x6",       b"http://0.0.0.6/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x7",       b"http://0.0.0.7/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x8",       b"http://0.0.0.8/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0x9",       b"http://0.0.0.9/",   lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xa",       b"http://0.0.0.10/",  lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xb",       b"http://0.0.0.11/",  lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xc",       b"http://0.0.0.12/",  lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xd",       b"http://0.0.0.13/",  lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xe",       b"http://0.0.0.14/",  lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xf",       b"http://0.0.0.15/",  lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"0xg",       b"http://0xg/",       lcurl.CURLU_GUESS_SCHEME, 0, lcurl.CURLUE_OK),
+    urltestcase(b"https://0/",     b"https://0.0.0.0/", 0, 0, lcurl.CURLUE_OK),
+    urltestcase(b"https://0.0x0/", b"https://0.0.0.0/", 0, 0, lcurl.CURLUE_OK),
+    urltestcase(b"https://0.000/", b"https://0.0.0.0/", 0, 0, lcurl.CURLUE_OK),
     urltestcase(b"example.com",
                 b"example.com/",
                 lcurl.CURLU_GUESS_SCHEME, lcurl.CURLU_NO_GUESS_SCHEME, lcurl.CURLUE_OK),
@@ -586,7 +637,7 @@ get_url_list = [
                 b"",
                 0, 0, lcurl.CURLUE_BAD_PORT_NUMBER),
     #ifdef USE_IDN
-        urltestcase("https://räksmörgås.se/path?q#frag".encode("utf-8"),
+        urltestcase(b"https://r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se/path?q#frag",
                     b"https://xn--rksmrgs-5wao1o.se/path?q#frag", 0, lcurl.CURLU_PUNYCODE, lcurl.CURLUE_OK),
     # endif
     # unsupported schemes with no guessing enabled
@@ -847,6 +898,30 @@ setget_parts_list = [
 ]
 
 set_parts_list = [
+    setcase(None,  # start fresh!
+            b"scheme=https,path=/,url=\"\",",  # incomplete url, redirect to ""
+            b"https://example.com/",
+            0, 0, lcurl.CURLUE_OK, lcurl.CURLUE_MALFORMED_INPUT),
+    setcase(None,  # start fresh!
+            b"scheme=https,host=example.com,path=/,url=\"\",",  # redirect to ""
+            b"https://example.com/",
+            0, 0, lcurl.CURLUE_OK, lcurl.CURLUE_OK),
+    setcase(b"https://example.com/",
+            b"path=one\ntwo,",
+            b"https://example.com/one\ntwo",
+            0, 0, lcurl.CURLUE_OK, lcurl.CURLUE_OK),
+    setcase(b"https://example.com/",
+            b"path=one\rtwo,",
+            b"https://example.com/one\rtwo",
+            0, 0, lcurl.CURLUE_OK, lcurl.CURLUE_OK),
+    setcase(b"https://example.com/",
+            b"path=one\ntwo,",
+            b"https://example.com/one%0atwo",
+            0, lcurl.CURLU_URLENCODE, lcurl.CURLUE_OK, lcurl.CURLUE_OK),
+    setcase(b"https://example.com/",
+            b"path=one\rtwo,",
+            b"https://example.com/one%0dtwo",
+            0, lcurl.CURLU_URLENCODE, lcurl.CURLUE_OK, lcurl.CURLUE_OK),
     setcase(b"https://example.com/",
             b"host=%43url.se,",
             b"https://%43url.se/",
@@ -1138,9 +1213,36 @@ def updateurl(u: ct.POINTER(lcurl.CURLU), cmd: bytes, setflags: ct.c_uint) -> lc
 
 
 set_url_list = [
+    redircase(b"https://example.com",
+              b"",  # blank redirect
+              b"https://example.com/",
+              0, 0, lcurl.CURLUE_OK),
+    redircase(b"http://firstplace.example.com/want/1314",
+              b"//somewhere.example.com/reply/1314",
+              b"http://somewhere.example.com/reply/1314",
+              0, 0, lcurl.CURLUE_OK),
+    redircase(b"http://127.0.0.1:46383/want?uri=http://anything/276?secondq/276",
+              b"data/2760002.txt?coolsite=http://anotherurl/?a_second/2760002",
+              b"http://127.0.0.1:46383/"
+              b"data/2760002.txt?coolsite=http://anotherurl/?a_second/2760002",
+              0, 0, lcurl.CURLUE_OK),
+    redircase(b"file:///basic#",               b"#yay",
+              b"file:///basic#yay",            0, 0, lcurl.CURLUE_OK),
+    redircase(b"file:///basic",                b"?yay",
+              b"file:///basic?yay",            0, 0, lcurl.CURLUE_OK),
+    redircase(b"file:///basic?",               b"?yay",
+              b"file:///basic?yay",            0, 0, lcurl.CURLUE_OK),
+    redircase(b"file:///basic?hello",          b"#frag",
+              b"file:///basic?hello#frag",     0, 0, lcurl.CURLUE_OK),
+    redircase(b"file:///basic?hello",          b"?q",
+              b"file:///basic?q",              0, 0, lcurl.CURLUE_OK),
     redircase(b"http://example.org#withs/ash", b"/moo#frag",
               b"http://example.org/moo#frag",  0, 0, lcurl.CURLUE_OK),
     redircase(b"http://example.org/",          b"../path/././../././../moo",
+              b"http://example.org/moo",       0, 0, lcurl.CURLUE_OK),
+    redircase(b"http://example.org/",          b".%2e/path/././../%2E/./../moo",
+              b"http://example.org/moo",       0, 0, lcurl.CURLUE_OK),
+    redircase(b"http://example.org/",          b".%2e/path/./%2e/.%2E/%2E/./%2e%2E/moo",
               b"http://example.org/moo",       0, 0, lcurl.CURLUE_OK),
 
     redircase(b"http://example.org?bar/moo",    b"?weird",

@@ -52,7 +52,7 @@ def main(argv=sys.argv[1:]):
         lcurl.easy_setopt(curl, lcurl.CURLOPT_USERNAME, b"user")
         lcurl.easy_setopt(curl, lcurl.CURLOPT_PASSWORD, b"secret")
         # This retrieves message 1 from the user's mailbox. Note the use of
-        # pop3s:// rather than pop3:// to request a SSL based connection.
+        # pop3s:// rather than pop3:// to request an SSL based connection.
         lcurl.easy_setopt(curl, lcurl.CURLOPT_URL, b"pop3s://pop.example.com/1")
         # If you want to connect to a site who is not using a certificate that is
         # signed by one of the certs in the CA bundle you have, you can skip the

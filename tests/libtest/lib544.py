@@ -47,8 +47,6 @@ def test(URL: str) -> lcurl.CURLcode:
 
         # First set the URL that is about to receive our POST.
         test_setopt(curl, lcurl.CURLOPT_URL, URL.encode("utf-8"))
-        if defined("LIB545"):
-            test_setopt(curl, lcurl.CURLOPT_POSTFIELDSIZE, len(teststring))
         test_setopt(curl, lcurl.CURLOPT_COPYPOSTFIELDS, teststring)
         test_setopt(curl, lcurl.CURLOPT_VERBOSE, 1)  # show verbose for debug
         test_setopt(curl, lcurl.CURLOPT_HEADER,  1)  # include header

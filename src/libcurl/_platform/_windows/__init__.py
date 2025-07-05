@@ -1,3 +1,5 @@
+# flake8-in-file-ignores: noqa: E305,E402,F401,N813,N814
+
 # Copyright (c) 2021 Adam Karpierz
 # SPDX-License-Identifier: MIT
 
@@ -15,18 +17,18 @@ try:
     from ...__config__ import config
     DLL_PATH = config.get("LIBCURL", None)
     del config
-    if DLL_PATH is None or DLL_PATH in ("", "None"):
+    if DLL_PATH is None or DLL_PATH in ("", "None"):  # pragma: no cover
         raise ImportError()
 except ImportError:
     DLL_PATH = os.path.join(arch_dir,
                             "libcurl.dll" if is_32bit else "libcurl-x64.dll")
 
-from ctypes import WinDLL as DLL  # noqa: E402,N814
+from ctypes import WinDLL as DLL
 try:
-    from _ctypes import FreeLibrary as dlclose  # noqa: E402,N813
-except ImportError:
+    from _ctypes import FreeLibrary as dlclose
+except ImportError:  # pragma: no cover
     dlclose = lambda handle: 0
-from ctypes import WINFUNCTYPE as CFUNC  # noqa: E402
+from ctypes import WINFUNCTYPE as CFUNC
 
 time_t = ct.c_uint64
 

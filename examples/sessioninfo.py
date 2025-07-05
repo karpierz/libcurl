@@ -57,7 +57,7 @@ CURL_SSL_BACKEND_NAMES = {
 
 @lcurl.write_callback
 def write_function(buffer, size, nitems, userp):
-    curl = ct.cast(userp, ct.POINTER(lcurl.CURL)).contents
+    curl = ct.cast(userp, ct.POINTER(lcurl.CURL))
 
     info = ct.POINTER(lcurl.tlssessioninfo)()
     # CURL_IGNORE_DEPRECATION(
@@ -142,4 +142,5 @@ def main(argv=sys.argv[1:]):
     return int(res)
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

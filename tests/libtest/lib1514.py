@@ -45,8 +45,10 @@ class WriteThis(ct.Structure):
 def read_callback(buffer, size, nitems, userp):
     pooh = ct.cast(userp, ct.POINTER(WriteThis)).contents
     buffer_size = nitems * size
-    if buffer_size < 1: return 0
-    if pooh.sizeleft == 0:  return 0  # no more data left to deliver
+    if buffer_size <= 0:
+        return 0  # pragma: no cover
+    if pooh.sizeleft == 0:       # no more data left to deliver
+        return 0  # pragma: no cover
     buffer[0] = pooh.readptr[0]  # copy one single byte
     c_ptr_iadd(pooh.readptr, 1)  # advance pointer
     pooh.sizeleft -= 1           # less data left
@@ -73,10 +75,6 @@ def test(URL: str) -> lcurl.CURLcode:
         # Purposely omit to set libcurl.CURLOPT_POSTFIELDSIZE
         easy_setopt(curl, lcurl.CURLOPT_READFUNCTION, read_callback)
         easy_setopt(curl, lcurl.CURLOPT_READDATA, ct.byref(pooh))
-        if defined("LIB1539"):
-            # speak HTTP 1.0 - no chunked!
-            easy_setopt(curl, lcurl.CURLOPT_HTTP_VERSION,
-                              lcurl.CURL_HTTP_VERSION_1_0)
 
         res = lcurl.easy_perform(curl)
         if res != lcurl.CURLE_OK: raise guard.Break
